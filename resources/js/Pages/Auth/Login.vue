@@ -1,100 +1,113 @@
 <script setup>
-import Checkbox from '@/Components/Checkbox.vue';
-import GuestLayout from '@/Layouts/GuestLayout.vue';
-import InputError from '@/Components/InputError.vue';
-import InputLabel from '@/Components/InputLabel.vue';
-import PrimaryButton from '@/Components/PrimaryButton.vue';
-import TextInput from '@/Components/TextInput.vue';
-import { Head, Link, useForm } from '@inertiajs/vue3';
-
-defineProps({
-    canResetPassword: {
-        type: Boolean,
-    },
-    status: {
-        type: String,
-    },
-});
+import { Head, useForm } from '@inertiajs/vue3'
+import InputError from '@/Components/InputError.vue'
+import { ref } from 'vue'
+import AbstractMeshBackground from '@/Components/AbstractMeshBackground.vue'
 
 const form = useForm({
-    email: '',
+    identity_no: '',
     password: '',
     remember: false,
-});
+})
 
 const submit = () => {
     form.post(route('login'), {
         onFinish: () => form.reset('password'),
-    });
-};
+    })
+}
 </script>
 
 <template>
-    <GuestLayout>
-        <Head title="Log in" />
+    <Head title="Login" />
 
-        <div v-if="status" class="mb-4 text-sm font-medium text-green-600">
-            {{ status }}
-        </div>
+    <div class="relative min-h-screen flex items-center justify-center px-4 overflow-hidden">
 
-        <form @submit.prevent="submit">
-            <div>
-                <InputLabel for="email" value="Email" />
+        <!-- Background must be INSIDE this wrapper -->
+        <AbstractMeshBackground />
 
-                <TextInput
-                    id="email"
-                    type="email"
-                    class="mt-1 block w-full"
-                    v-model="form.email"
-                    required
-                    autofocus
-                    autocomplete="username"
-                />
+        <div class="bg-white shadow-2xl rounded-2xl p-10 w-full max-w-md relative z-10">
 
-                <InputError class="mt-2" :message="form.errors.email" />
+            <!-- Brand -->
+            <div class="text-center mb-8">
+                <h1 class="text-3xl font-bold text-gray-800">
+                    Infinite ERP
+                </h1>
+                <p class="text-gray-500 mt-2">
+                    Secure Login Portal
+                </p>
             </div>
 
-            <div class="mt-4">
-                <InputLabel for="password" value="Password" />
+            <!-- Login Form -->
+            <form @submit.prevent="submit" class="space-y-6">
 
-                <TextInput
-                    id="password"
-                    type="password"
-                    class="mt-1 block w-full"
-                    v-model="form.password"
-                    required
-                    autocomplete="current-password"
-                />
+                <!-- Identity Number -->
+                <div>
+                    <label class="block text-gray-700 mb-2 font-medium" for="identity_no">
+                        Identity Number
+                    </label>
 
-                <InputError class="mt-2" :message="form.errors.password" />
-            </div>
+                    <input
+                        id="identity_no"
+                        v-model="form.identity_no"
+                        type="text"
+                        required
+                        autofocus
+                        autocomplete="off"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
 
-            <div class="mt-4 block">
-                <label class="flex items-center">
-                    <Checkbox name="remember" v-model:checked="form.remember" />
-                    <span class="ms-2 text-sm text-gray-600"
-                        >Remember me</span
-                    >
-                </label>
-            </div>
+                    <InputError class="mt-2" :message="form.errors.identity_no" />
+                </div>
 
-            <div class="mt-4 flex items-center justify-end">
-                <Link
-                    v-if="canResetPassword"
-                    :href="route('password.request')"
-                    class="rounded-md text-sm text-gray-600 underline hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                >
-                    Forgot your password?
-                </Link>
+                <!-- Password -->
+                <div>
+                    <label class="block text-gray-700 mb-2 font-medium" for="password">
+                        Password or Backup Code
+                    </label>
 
-                <PrimaryButton
-                    class="ms-4"
-                    :class="{ 'opacity-25': form.processing }"
+                    <input
+                        id="password"
+                        v-model="form.password"
+                        type="password"
+                        required
+                        autocomplete="current-password"
+                        class="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+
+                    <p class="text-sm text-gray-500 mt-1">
+                        Enter your account password or your one-time backup code.
+                    </p>
+
+                    <InputError class="mt-2" :message="form.errors.password" />
+                </div>
+
+                <!-- Remember me -->
+                <div class="flex items-center pt-1">
+                    <input
+                        type="checkbox"
+                        id="remember"
+                        v-model="form.remember"
+                        class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <label for="remember" class="ml-2 text-sm text-gray-600">
+                        Remember me
+                    </label>
+                </div>
+
+                <!-- Submit -->
+                <button
                     :disabled="form.processing"
+                    class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     Log in
-                </PrimaryButton>
+                </button>
+            </form>
+
+            <div class="text-center text-sm text-gray-500 mt-8">
+                © {{ new Date().getFullYear() }} Infinite ERP. All rights reserved.
             </div>
-        </form>
-    </GuestLayout>
+
+        </div>
+    </div>
 </template>
+

@@ -11,52 +11,84 @@ use Illuminate\Validation\ValidationException;
 
 class LoginRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
         return true;
     }
 
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
-     */
     public function rules(): array
     {
         return [
-            'email' => ['required', 'string', 'email'],
-            'password' => ['required', 'string'],
+            'identity_no' => ['required', 'string'],
+            'password'    => ['required', 'string'],
         ];
     }
 
     /**
-     * Attempt to authenticate the request's credentials.
-     *
-     * @throws \Illuminate\Validation\ValidationException
+     * ERP Login Flow:
+     * 1. Authenticate credentials
+     * 2. If no MFA → redirect to MFA Setup
+     * 3. If MFA exists → redirect to MFA Verify
      */
-    public function authenticate(): void
+    public function authenticate(): string
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
-            RateLimiter::hit($this->throttleKey());
+        $identity = $this->identity_no;
+        $password = $this->password;
 
+        $user = \App\Models\User::where('identity_no', $identity)->first();
+
+        if (!$user) {
             throw ValidationException::withMessages([
-                'email' => trans('auth.failed'),
+                'identity_no' => __('auth.failed'),
             ]);
         }
 
-        RateLimiter::clear($this->throttleKey());
+        // Normal login using password
+        if (\Auth::attempt(
+            $this->only('identity_no', 'password'),
+            $this->boolean('remember')
+        )) {
+            RateLimiter::clear($this->throttleKey());
+
+            // CASE 1: No secret → must setup MFA
+            if (!$user->google2fa_secret) {
+                return 'mfa.setup';
+            }
+
+            // CASE 2: Secret exists BUT MFA not activated yet
+            if (!$user->mfa_enabled) {
+                return 'mfa.setup';
+            }
+
+            // CASE 3: MFA fully enabled → go to verification
+            return 'mfa.verify';
+        }
+
+        // CASE 4: Backup code login (password input IS backup code)
+        if ($user->mfa_backup_code && \Hash::check($password, $user->mfa_backup_code)) {
+
+            // Reset MFA
+            $user->google2fa_secret = null;
+            $user->mfa_backup_code = null;
+            $user->mfa_enabled = false;
+            $user->save();
+
+            session(['mfa_passed' => true]);
+            session()->flash('mfa_reset', true);
+
+            return 'dashboard';
+        }
+
+        // Wrong password
+        RateLimiter::hit($this->throttleKey());
+
+        throw ValidationException::withMessages([
+            'password' => __('auth.failed'),
+        ]);
     }
 
-    /**
-     * Ensure the login request is not rate limited.
-     *
-     * @throws \Illuminate\Validation\ValidationException
-     */
     public function ensureIsNotRateLimited(): void
     {
         if (! RateLimiter::tooManyAttempts($this->throttleKey(), 5)) {
@@ -68,18 +100,15 @@ class LoginRequest extends FormRequest
         $seconds = RateLimiter::availableIn($this->throttleKey());
 
         throw ValidationException::withMessages([
-            'email' => trans('auth.throttle', [
+            'identity_no' => trans('auth.throttle', [
                 'seconds' => $seconds,
                 'minutes' => ceil($seconds / 60),
             ]),
         ]);
     }
 
-    /**
-     * Get the rate limiting throttle key for the request.
-     */
     public function throttleKey(): string
     {
-        return Str::transliterate(Str::lower($this->string('email')).'|'.$this->ip());
+        return Str::lower($this->string('identity_no')).'|'.$this->ip();
     }
 }

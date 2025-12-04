@@ -16,7 +16,13 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
         ]);
 
-        //
+        $middleware->alias([
+            'auth'       => \Illuminate\Auth\Middleware\Authenticate::class,
+            'guest'      => \App\Http\Middleware\RedirectIfAuthenticated::class,
+            'verified'   => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+
+            'auth.mfa'   => \App\Http\Middleware\EnsureMFAIsVerified::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
