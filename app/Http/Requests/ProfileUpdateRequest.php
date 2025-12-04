@@ -25,6 +25,20 @@ class ProfileUpdateRequest extends FormRequest
                 'max:255',
                 Rule::unique(User::class)->ignore($this->user()->id),
             ],
+
+            // Contact channels
+            'contact_channels' => ['nullable', 'array'],
+            'contact_channels.mobile.value' => ['nullable', 'string'],
+            'contact_channels.telegram.value' => ['nullable', 'string'],
+            'contact_channels.whatsapp.value' => ['nullable', 'string'],
+
+            // NEW: Profile photo upload (max 5 MB)
+            'profile_photo' => [
+                'nullable',
+                'image',       // jpeg, png, bmp, gif, svg, webp
+                'max:5120',    // 5 MB in kilobytes
+            ],
         ];
     }
+
 }

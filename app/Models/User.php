@@ -6,6 +6,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use App\Http\Resources\UserResource;
 
 class User extends Authenticatable
 {
@@ -21,6 +22,8 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'profile_photo',
+        'contact_channels',
     ];
 
     /**
@@ -43,8 +46,10 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'contact_channels' => 'array',
         ];
     }
+
 
     public function departments()
     {
@@ -69,5 +74,11 @@ class User extends Authenticatable
     {
         return $this->belongsTo(Role::class, 'active_role_id');
     }
+
+    public function toResource()
+    {
+        return new UserResource($this);
+    }
+
 
 }

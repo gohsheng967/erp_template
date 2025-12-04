@@ -4,6 +4,8 @@ namespace App\Http\Middleware;
 
 use Illuminate\Http\Request;
 use Inertia\Middleware;
+use App\Http\Resources\UserResource;
+use App\Models\CompanyProfile;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -32,8 +34,21 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'auth' => [
-                'user' => $request->user(),
+                'user' => $request->user()
+                    ? new UserResource($request->user())
+                    : null,
             ],
+            'company' => function () {
+                $company = CompanyProfile::first();
+
+                return $company ? [
+                    'company_name'   => $company->company_name,
+                    'company_reg_no' => $company->company_reg_no,
+                    'address'        => $company->address,
+                    'office_number'  => $company->office_number,
+                    'logo'           => $company->logo,
+                ] : null;
+            },
         ];
     }
 }
