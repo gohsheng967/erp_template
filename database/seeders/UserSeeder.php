@@ -7,61 +7,45 @@ use App\Models\User;
 use App\Models\Role;
 use App\Models\Department;
 use App\Models\Permission;
+use Illuminate\Support\Facades\DB;
 
 class UserSeeder extends Seeder
 {
     public function run(): void
     {
-        $departments = Department::pluck('id');
-        $permissions = Permission::pluck('id');
-
-        // Fetch roles
-        $itRole       = Role::where('name', 'IT')->first();
-        $directorRole = Role::where('name', 'Director')->first();
+        $departments  = Department::all();
+        $permissions  = Permission::pluck('id');
 
         /*
         |--------------------------------------------------------------------------
-        | USER 1 — IT ADMIN
+        | SUPERADMIN USER
         |--------------------------------------------------------------------------
         */
-        $itUser = User::firstOrCreate(
-            ['identity_no' => 'IT001'],
+        $superDept = Department::firstOrCreate(['name' => 'Superadmin']);
+        $superRole = Role::firstOrCreate(['name' => 'Superadmin']);
+
+        // Attach all permissions to Superadmin role
+        $superRole->permissions()->sync($permissions);
+
+        // Link role to department
+        $superDept->roles()->syncWithoutDetaching($superRole->id);
+
+        // Create Superadmin user
+        $superUser = User::firstOrCreate(
+            ['identity_no' => 'SUPER001'],
             [
-                'name'     => 'IT Administrator',
-                'email'    => 'it@example.com',
+                'name'     => 'System Superadmin',
+                'email'    => 'superadmin@example.com',
                 'password' => bcrypt('password123'),
                 'status'   => 1,
             ]
         );
 
-        $itRole->permissions()->sync($permissions);
-
-        foreach ($departments as $deptId) {
-            \DB::table('pivot_user_departments')->updateOrInsert([
-                'user_id'       => $itUser->id,
-                'department_id' => $deptId,
-                'role_id'       => $itRole->id,
-            ]);
-        }
-
-        $directorUser = User::firstOrCreate(
-            ['identity_no' => 'DIR001'],
-            [
-                'name'     => 'Director',
-                'email'    => 'director@example.com',
-                'password' => bcrypt('password123'),
-                'status'   => 1,
-            ]
-        );
-
-        $directorRole->permissions()->sync($permissions);
-
-        foreach ($departments as $deptId) {
-            \DB::table('pivot_user_departments')->updateOrInsert([
-                'user_id'       => $directorUser->id,
-                'department_id' => $deptId,
-                'role_id'       => $directorRole->id,
-            ]);
-        }
+        // Assign Superadmin department-role to Superadmin user
+        DB::table('pivot_user_departments')->updateOrInsert([
+            'user_id'       => $superUser->id,
+            'department_id' => $superDept->id,
+            'role_id'       => $superRole->id,
+        ]);
     }
 }

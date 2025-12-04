@@ -24,6 +24,7 @@ class User extends Authenticatable
         'password',
         'profile_photo',
         'contact_channels',
+        'identity_no'
     ];
 
     /**

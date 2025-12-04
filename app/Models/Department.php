@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class Department extends Model
 {
+    protected $guarded = [];
+    
     public function users()
     {
         return $this->belongsToMany(User::class, 'pivot_user_departments')
@@ -15,9 +17,7 @@ class Department extends Model
 
     public function roles()
     {
-        return $this->belongsToMany(Role::class, 'pivot_user_departments')
-            ->withPivot('user_id')
-            ->withTimestamps();
+        return $this->belongsToMany(Role::class, 'pivot_department_role');
     }
 
 }

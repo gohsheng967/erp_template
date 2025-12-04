@@ -36,6 +36,22 @@ const settingsMenu = [
         route: "company.profile",
         active: () => route().current("company.profile")
     },
+    {
+        name: "Department",
+        route: "permissions.index",
+        active: () => route().current("permissions.index")
+    },
+    {
+        name: "Permission",
+        route: "departments.index",
+        active: () => route().current("departments.index")
+    },
+    {
+        name: "User Management",
+        route: "users.index",
+        active: () => route().current("users.index")
+    },
+    
 ]
 </script>
 
