@@ -225,8 +225,21 @@ function openEdit(user) {
             </div>
 
             <!-- PAGINATION -->
-            <div class="mt-4">
-                <component :is="users.links"></component>
+            <div class="mt-4 flex gap-1">
+
+                <Link
+                    v-for="link in users.links"
+                    :key="link.label"
+                    :href="link.url ?? ''"
+                    v-html="link.label"
+                    class="px-3 py-1 rounded border text-sm"
+                    :class="{
+                        'bg-indigo-600 text-white': link.active,
+                        'text-gray-500 cursor-not-allowed': !link.url
+                    }"
+                    :disabled="!link.url"
+                />
+
             </div>
 
         </div>
