@@ -20,6 +20,7 @@
     },
     "dependencies": {
         "chart.js": "^4.5.1",
-        "html2canvas": "^1.4.1"
+        "html2canvas": "^1.4.1",
+        "puppeteer": "^24.32.0"
     }
 }

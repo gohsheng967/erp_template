@@ -6,6 +6,8 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\FileCategoryController;
+use App\Http\Controllers\DocumentController;
+
 use App\Http\Controllers\Project\ProjectController;
 use App\Http\Controllers\Project\ProjectDocumentController;
 use App\Http\Controllers\Project\ProjectMilestoneController;
@@ -191,6 +193,57 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
     Route::delete('/milestones/{milestone}/tasks/{task}', [ProjectTaskController::class, 'destroy'])
         ->name('milestones.tasks.destroy');
+
+// ------------------------------
+    // DOCUMENT MODULE
+    // ------------------------------
+    Route::prefix('documents')->group(function () {
+
+        // ----------------------------------------
+        // DOCUMENT TYPE LIST (CRUD)
+        // ----------------------------------------
+        Route::get('/types', [DocumentController::class, 'types'])
+            ->name('documents.types');
+
+        Route::post('/types', [DocumentController::class, 'storeType'])
+            ->name('documents.types.store');
+
+        Route::patch('/types/{documentType}', [DocumentController::class, 'updateType'])
+            ->name('documents.types.update');
+
+        Route::delete('/types/{documentType}', [DocumentController::class, 'destroyType'])
+            ->name('documents.types.delete');
+
+
+        // ----------------------------------------
+        // FIELD BUILDER
+        // ----------------------------------------
+        Route::get('/{code}/fields', [DocumentController::class, 'editFields'])
+            ->name('documents.fields');
+
+        Route::post('/{code}/fields/save', [DocumentController::class, 'saveFields'])
+            ->name('documents.fields.save');
+
+
+        // ----------------------------------------
+        // TEMPLATE EDITOR
+        // ----------------------------------------
+        Route::get('/{code}/template', [DocumentController::class, 'editTemplate'])
+            ->name('documents.template.edit');
+
+        Route::post('/{code}/template/update', [DocumentController::class, 'updateTemplate'])
+            ->name('documents.template.update');
+
+
+        // ----------------------------------------
+        // PDF PREVIEW (From Template)
+        // ----------------------------------------
+        Route::post('/{code}/preview', [DocumentController::class, 'previewTemplate'])
+            ->name('documents.template.preview');
+
+    });
+
+
 
         
 });
