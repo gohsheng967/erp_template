@@ -208,21 +208,22 @@ function resetFilters() {
                                     <Link
                                         :href="route('projects.show', prj.id)"
                                         class="text-indigo-600 hover:text-indigo-800"
+                                        title="View"
                                     >
-                                        View
+                                        <i class="mdi mdi-eye text-[18px] leading-none"></i>
                                     </Link>
 
-                                    <!-- EDIT -->
+                                    <!-- EDIT (PENCIL) -->
                                     <Link
                                         :href="route('projects.edit', prj.id)"
                                         class="text-blue-600 hover:text-blue-800"
+                                        title="Edit"
                                     >
-                                        Edit
+                                        <i class="mdi mdi-pencil text-[18px] leading-none"></i>
                                     </Link>
 
                                 </div>
                             </td>
-
                         </tr>
                     </tbody>
                 </table>

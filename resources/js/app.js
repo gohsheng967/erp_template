@@ -3,16 +3,17 @@ import './bootstrap'
 
 import { createInertiaApp } from '@inertiajs/vue3'
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers'
-import { createApp, h } from 'vue'
+import { createApp, h, ref } from 'vue'
 import { ZiggyVue } from '../../vendor/tightenco/ziggy'
 import { capitalize, titleCase } from './helpers/string'
 import axios from 'axios'
-import "@mdi/font/css/materialdesignicons.min.css";
+import Toast from "@/Components/Toast.vue"
+import "@mdi/font/css/materialdesignicons.min.css"
 
 axios.defaults.withCredentials = true
 axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest'
 
-// CSRF token from meta tag
+// CSRF token
 const token = document.querySelector('meta[name="csrf-token"]')
 if (token) {
     axios.defaults.headers.common['X-CSRF-TOKEN'] = token.content
@@ -39,7 +40,23 @@ createInertiaApp({
         app.config.globalProperties.$capitalize = capitalize
         app.config.globalProperties.$titleCase = titleCase
 
+        // ✅ GLOBAL TOAST REF
+        const toastRef = ref(null)
+        app.provide("toast", toastRef)
+
+        // ✅ Mount Inertia app
         app.mount(el)
+
+        // ✅ Mount Toast ONCE (outside Inertia tree)
+        const toastContainer = document.createElement("div")
+        document.body.appendChild(toastContainer)
+
+        // Mount and CAPTURE instance
+        const toastApp = createApp(Toast)
+        const toastInstance = toastApp.mount(toastContainer)
+
+        // Assign instance to ref
+        toastRef.value = toastInstance
     },
 
     progress: {

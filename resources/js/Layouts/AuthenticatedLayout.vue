@@ -1,23 +1,21 @@
 <script setup>
-import { ref, provide } from 'vue'
+import { ref, inject } from 'vue'
 import { usePage } from '@inertiajs/vue3'
 import Sidebar from '@/Components/Layout/Sidebar.vue'
 import TopBar from '@/Components/Layout/TopBar.vue'
-import Toast from '@/Components/Toast.vue'
 
 const page = usePage()
 const showBackupPopup = ref(false)
-const toastRef = ref(null)
+const toast = inject("toast", null)
 
 function copyBackupCode() {
     const code = page.props.auth.user.data.backup_plain
     if (!code) return
 
     navigator.clipboard.writeText(code)
-    toastRef.value.show("Backup code copied!", "success")
+    toast?.value?.show("Backup code copied!", "success")
 }
 
-provide("toast", toastRef)
 </script>
 
 <template>
@@ -87,6 +85,4 @@ provide("toast", toastRef)
             </p>
         </div>
     </div>
-
-    <Toast ref="toastRef" />
 </template>

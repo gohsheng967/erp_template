@@ -7,7 +7,7 @@ import TextInput from '@/Components/TextInput.vue'
 import PrimaryButton from '@/Components/PrimaryButton.vue'
 import InputError from '@/Components/InputError.vue'
 
-const toast = inject("toast")
+const toast = inject("toast", null)
 
 // Get data passed from controller (if any)
 const page = usePage()
@@ -51,10 +51,17 @@ function save() {
 
     router.post("/company-profile", fd, {
         forceFormData: true,
-        onSuccess: () => toast.value.show("Company profile updated!", "success"),
-        onError: () => console.error("Validation failed"),
+
+        onSuccess: () => {
+            toast?.value?.show("Company profile updated!", "success")
+        },
+
+        onError: () => {
+            toast?.value?.show("Validation failed.", "error")
+        },
     })
 }
+
 </script>
 
 <template>

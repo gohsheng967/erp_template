@@ -7,11 +7,16 @@ use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\FileCategoryController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\ClientController;
 
 use App\Http\Controllers\Project\ProjectController;
 use App\Http\Controllers\Project\ProjectDocumentController;
 use App\Http\Controllers\Project\ProjectMilestoneController;
 use App\Http\Controllers\Project\ProjectTaskController;
+
+
+use App\Http\Controllers\Transactions\ClaimsController;
+
 
 use App\Http\Controllers\Auth\MFASetupController;
 use App\Http\Controllers\Auth\MFAVerifyController;
@@ -121,21 +126,19 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     // CLAIMS
     // ------------------------------
     Route::prefix('claims')->name('claims.')->group(function () {
-        Route::get('/', [ClaimController::class, 'index'])->name('index');
-        Route::get('/create', [ClaimController::class, 'create'])->name('create');
-        Route::post('/', [ClaimController::class, 'store'])->name('store');
-        Route::get('/{claim}', [ClaimController::class, 'show'])->name('show');
-        Route::get('/{claim}/edit', [ClaimController::class, 'edit'])->name('edit');
-        Route::put('/{claim}', [ClaimController::class, 'update'])->name('update');
-        Route::delete('/{claim}', [ClaimController::class, 'destroy'])->name('destroy');
+        Route::get('/', [ClaimsController::class, 'index'])->name('index');
+        Route::get('/create', [ClaimsController::class, 'create'])->name('create');
+        Route::post('/', [ClaimsController::class, 'store'])->name('store');
+        Route::get('/{claim}', [ClaimsController::class, 'show'])->name('show');
+        Route::get('/{claim}/edit', [ClaimsController::class, 'edit'])->name('edit');
+        Route::put('/{claim}', [ClaimsController::class, 'update'])->name('update');
+        Route::delete('/{claim}', [ClaimsController::class, 'destroy'])->name('destroy');
     });
 
     // ------------------------------
     // STAKEHOLDERS
     // ------------------------------
-    Route::prefix('clients')->name('clients.')->group(function () {
-        Route::get('/', [ClaimController::class, 'index'])->name('index');
-    });
+    Route::prefix('clients')->resource('clients', ClientController::class)->except(['create', 'edit']);
 
     Route::prefix('suppliers')->name('suppliers.')->group(function () {
         Route::get('/', [ClaimController::class, 'index'])->name('index');
