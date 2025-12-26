@@ -43,6 +43,12 @@ const menuTransactions = [
     { name: "Invoice", route: "invoice.index", active: () => route().current("invoice.*") },
 ]
 
+// ---------------- STACKHOLDER SUBMENU ----------------
+const menuStakeholders = [
+    { name: "Clients", route: "clients.index", active: () => route().current("clients.*") },
+    { name: "Supplier", route: "suppliers.index", active: () => route().current("suppliers.*") },
+]
+
 // ---------------- SETTINGS SUBMENU ----------------
 const settingsMenu = [
     { name: "Company Profile", route: "company.profile", active: () => route().current("company.profile") },
@@ -61,13 +67,7 @@ const menu = reactive([
         route: "dashboard",
         type: "link",
         active: () => route().current("dashboard"),
-        icon: `
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6"
-                fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                    d="M3 12l9-9 9 9M4.5 10.5v9A1.5 1.5 0 006 21h12a1.5 1.5 0 001.5-1.5v-9" />
-            </svg>
-        `,
+        icon: `<i class="mdi mdi-view-dashboard-outline"></i>`,
     },
 
     {
@@ -75,14 +75,7 @@ const menu = reactive([
         route: "projects.index",
         type: "link",
         active: () => route().current("projects.*"),
-        icon: `
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6"
-                fill="none" stroke="currentColor" stroke-width="1.5"
-                viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                    d="M3 7.5h17.25M3 12h17.25M3 16.5H12m6.75 0h.008v.008h-.008V16.5z" />
-            </svg>
-        `,
+        icon: `<i class="mdi mdi-clipboard-text-outline"></i>`,
     },
 
     // TRANSACTIONS
@@ -94,13 +87,7 @@ const menu = reactive([
             route().current("purchase.*") ||
             route().current("claims.*") ||
             route().current("invoice.*"),
-        icon: `
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6"
-                fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                    d="M3 3h18v4H3zM3 10h18v4H3zM3 17h18v4H3z" />
-            </svg>
-        `,
+        icon: `<i class="mdi mdi-swap-horizontal"></i>`,
         children: menuTransactions,
     },
 
@@ -110,15 +97,20 @@ const menu = reactive([
         type: "dropdown",
         open: false,
         active: () => route().current("inventory.*"),
-        icon: `
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6"
-                fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                    d="M3 7.5l9-4.5 9 4.5V18a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18V7.5z" />
-            </svg>
-        `,
+        icon: `<i class="mdi mdi-warehouse"></i>`,
         children: menuInventory,
     },
+
+    // Stakeholders
+    {
+        name: "Stakeholders",
+        type: "dropdown",
+        open: false,
+        active: () => route().current("inventory.*"),
+        icon: `<i class="mdi mdi-account-multiple-outline"></i>`,
+        children: menuStakeholders,
+    },
+
 
     // DOCUMENTS
     {
@@ -126,15 +118,7 @@ const menu = reactive([
         type: "dropdown",
         open: false,
         active: () => route().current("documents.*"),
-        icon: `
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6"
-                fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                    d="M6 4.5h9l4.5 4.5v10.5a1.5 1.5 0 01-1.5 1.5H6A1.5 1.5 0 014.5 19.5V6A1.5 1.5 0 016 4.5z" />
-                <path stroke-linecap="round" stroke-linejoin="round"
-                    d="M15 4.5v4.5h4.5" />
-            </svg>
-        `,
+        icon: `<i class="mdi mdi-file-document-outline"></i>`,
         children: menuDocuments,
     },
 ])
@@ -234,14 +218,7 @@ const menu = reactive([
                     :class="{ 'justify-center': !open, 'bg-gray-200 font-semibold': settingsOpen }"
                     @click="settingsOpen = !settingsOpen"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6"
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.591 1.066c1.543-.89 3.318.884 2.428 2.428a1.724 1.724 0 001.066 2.59c1.756.426 1.756 2.925 0 3.351a1.724 1.724 0 00-1.066 2.591c.89 1.543-.885 3.318-2.428 2.428a1.724 1.724 0 00-2.59 1.066c-.426 1.756-2.925 1.756-3.351 0a1.724 1.724 0 00-2.591-1.066c-1.543.89-3.318-.885-2.428-2.428a1.724 1.724 0 00-1.066-2.59c-1.756-.426-1.756-2.925 0-3.351a1.724 1.724 0 001.066-2.59c-.89-1.544.885-3.319 2.428-2.429.922.533 2.086.097 2.591-1.066z" />
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                              d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7z" />
-                    </svg>
-
+                    <i class="mdi mdi-cogs"></i>
                     <span v-if="open" class="text-sm">Settings</span>
 
                     <svg

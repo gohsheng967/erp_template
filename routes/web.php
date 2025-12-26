@@ -131,6 +131,18 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     });
 
     // ------------------------------
+    // STAKEHOLDERS
+    // ------------------------------
+    Route::prefix('clients')->name('clients.')->group(function () {
+        Route::get('/', [ClaimController::class, 'index'])->name('index');
+    });
+
+    Route::prefix('suppliers')->name('suppliers.')->group(function () {
+        Route::get('/', [ClaimController::class, 'index'])->name('index');
+    });
+
+
+    // ------------------------------
     // INVOICE
     // ------------------------------
     Route::prefix('invoice')->name('invoice.')->group(function () {

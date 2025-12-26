@@ -196,7 +196,7 @@ function resetFilters() {
                                         'bg-red-100 text-red-700': prj.status === 'cancelled'
                                     }"
                                 >
-                                    {{ prj.status }}
+                                    {{ $capitalize(prj.status) }}
                                 </span>
                             </td>
 
