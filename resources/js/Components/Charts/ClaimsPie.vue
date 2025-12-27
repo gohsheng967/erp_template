@@ -74,33 +74,25 @@ function render() {
     if (!chartRef.value) return
     destroyChart()
 
-    // 🔒 Force canvas size (prevents 1000px height bug)
-    chartRef.value.width = 200
-    chartRef.value.height = 80
-    chartRef.value.style.height = "200px"
-    chartRef.value.style.maxHeight = "200px"
-
-    const labels = hasData.value
-        ? props.donut.map(i => i.label)
-        : ["No Data"]
-
-    const data = hasData.value
-        ? props.donut.map(i => i.amount)
-        : [1]
-
     chart = new Chart(chartRef.value, {
         type: "pie",
         data: {
-            labels,
+            labels: hasData.value
+                ? props.donut.map(i => i.label)
+                : ["No Data"],
             datasets: [{
-                data,
-                backgroundColor: hasData.value ? colors : ["#e5e7eb"],
+                data: hasData.value
+                    ? props.donut.map(i => i.amount)
+                    : [1],
+                backgroundColor: hasData.value
+                    ? colors
+                    : ["#e5e7eb"],
                 borderWidth: 0
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false,
+            maintainAspectRatio: false, // 🔥 REQUIRED
             animation: false,
             plugins: {
                 legend: { display: false },
@@ -117,69 +109,25 @@ function render() {
     })
 }
 
+
 onMounted(render)
 watch(() => props.donut, render, { deep: true })
 onBeforeUnmount(destroyChart)
 </script>
 
 <template>
-    <div
-        class="
-            w-full
-            h-[240px]
-            flex items-center
-            overflow-hidden
-        "
-    >
-        <!-- PIE -->
+    <div class="relative w-full h-full">
+        <canvas
+            ref="chartRef"
+            class="block w-full h-full"
+        ></canvas>
+
         <div
-            class="
-                relative
-                w-[200px] h-[200px]
-                flex-shrink-0
-                flex items-center justify-center
-                pr-4
-            "
+            v-if="!hasData"
+            class="absolute inset-0 flex items-center justify-center
+                   text-xs text-gray-400 italic"
         >
-            <canvas
-                ref="chartRef"
-                class="block w-full h-full"
-            ></canvas>
-
-            <div
-                v-if="!hasData"
-                class="absolute text-xs text-gray-400 italic"
-            >
-                No Data
-            </div>
-        </div>
-
-        <!-- LEGEND (RIGHT SIDE) -->
-        <div
-            v-if="hasData"
-            class="
-                ml-3
-                w-[140px]
-                grid grid-cols-1 gap-y-1
-                text-xs text-gray-600
-                leading-tight
-                overflow-hidden
-            "
-        >
-            <div
-                v-for="(item, i) in donut"
-                :key="i"
-                class="flex items-center gap-2 truncate"
-            >
-                <span
-                    class="inline-block w-3 h-3 rounded-full flex-shrink-0"
-                    :style="{ backgroundColor: colors[i % colors.length] }"
-                ></span>
-
-                <span class="truncate">
-                    {{ item.label }}
-                </span>
-            </div>
+            No Data
         </div>
     </div>
 </template>

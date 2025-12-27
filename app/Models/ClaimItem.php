@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-
+use Str;
 class ClaimItem extends Model
 {
+
+    protected $guarded = [];
+
     protected static function booted()
     {
         static::creating(function ($claim) {

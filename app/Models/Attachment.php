@@ -3,15 +3,29 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Attachment extends Model
 {
-    protected static function booted()
+    protected $fillable = [
+        'uuid',
+        'attachable_type',
+        'attachable_id',
+        'file_path',
+        'original_name',
+        'mime_type',
+        'file_size',
+    ];
+
+    public function attachable()
     {
-        static::creating(function ($claim) {
-            if (empty($claim->uuid)) {
-                $claim->uuid = (string) Str::uuid();
-            }
-        });
+        return $this->morphTo();
+    }
+
+    protected $appends = ['url'];
+
+    public function getUrlAttribute(): string
+    {
+        return Storage::disk('public')->url($this->file_path);
     }
 }

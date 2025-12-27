@@ -20,6 +20,7 @@ const emit = defineEmits(['delete'])
 
         <!-- VIEW (ALL STATUSES) -->
         <Link
+            v-if="status != 'draft'"
             :href="route('claims.show', claim.uuid)"
             class="text-indigo-600 hover:text-indigo-800"
             title="View"

@@ -37,6 +37,13 @@ const tabs = [
     { key: 'paid',      label: 'Paid' },
 ]
 
+const colors = [
+  "#6366f1", "#22c55e", "#f59e0b",
+  "#ef4444", "#0ea5e9", "#a855f7",
+  "#64748b"
+]
+
+
 const activeTab = ref(page.props.activeTab ?? 'submitted')
 
 /* ========================
@@ -204,27 +211,82 @@ function switchTab(tab) {
             >
                 <div
                     v-if="hasProjectDonut"
-                    class="bg-white rounded-md border shadow-sm p-2 h-[120px] flex flex-col"
+                    class="bg-white rounded-md border shadow-sm p-2 h-[280px] flex flex-col"
                 >
-                    <h3 class="text-[11px] font-medium text-gray-500 mb-1">
+                    <h3 class="text-[11px] font-medium text-gray-500 mb-6">
                         By Project
                     </h3>
 
-                    <div class="flex-1 flex items-center justify-center">
-                        <ClaimsPie :donut="donut.by_project" />
+                    <div class="flex justify-center">
+                        <div class="flex items-center gap-4">
+                            <!-- PIE -->
+                            <div class="w-[180px] h-[180px] relative flex-shrink-0">
+                                <ClaimsPie :donut="donut.by_project" />
+                            </div>
+
+                            <!-- LEGEND -->
+                            <div class="flex flex-col gap-1 text-xs text-gray-600">
+                                <div
+                                    v-for="(item, i) in donut.by_project || []"
+                                    :key="i"
+                                    class="flex items-center gap-2"
+                                >
+                                    <span
+                                        class="inline-block w-3 h-3 rounded-full"
+                                        :style="{ backgroundColor: colors[i % colors.length] }"
+                                    ></span>
+
+                                    <span class="truncate max-w-[140px]">
+                                        {{ item.label }}
+                                    </span>
+
+                                    <span class="ml-auto font-medium">
+                                        {{ item.amount.toFixed(2) }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
+
                 <div
                     v-if="hasCategoryDonut"
-                    class="bg-white rounded-md border shadow-sm p-2 h-[120px] flex flex-col"
+                    class="bg-white rounded-md border shadow-sm p-2 h-[280px] flex flex-col"
                 >
-                    <h3 class="text-[11px] font-medium text-gray-500 mb-1">
+                    <h3 class="text-[11px] font-medium text-gray-500 mb-6">
                         By Category
                     </h3>
+                    <div class="flex justify-center">
 
-                    <div class="flex-1 flex items-center justify-center">
-                        <ClaimsPie :donut="donut.by_category" />
+                        <div class="flex items-center gap-4">
+                            <!-- PIE -->
+                            <div class="w-[188px] h-[188px] relative flex-shrink-0">
+                                <ClaimsPie :donut="donut.by_category" />
+                            </div>
+
+                            <!-- LEGEND -->
+                            <div class="flex flex-col gap-1 text-xs text-gray-600">
+                                <div
+                                    v-for="(item, i) in donut.by_category"
+                                    :key="i"
+                                    class="flex items-center gap-2"
+                                >
+                                    <span
+                                        class="inline-block w-3 h-3 rounded-full"
+                                        :style="{ backgroundColor: colors[i % colors.length] }"
+                                    ></span>
+
+                                    <span class="truncate max-w-[140px]">
+                                        {{ item.label }}
+                                    </span>
+
+                                    <span class="ml-auto font-medium">
+                                        {{ item.amount.toFixed(2) }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

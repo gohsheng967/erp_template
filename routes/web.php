@@ -131,7 +131,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::post('/', [ClaimsController::class, 'store'])->name('store');
         Route::get('/{claim}', [ClaimsController::class, 'show'])->name('show');
         Route::get('/{claim}/edit', [ClaimsController::class, 'edit'])->name('edit');
-        Route::put('/{claim}', [ClaimsController::class, 'update'])->name('update');
+        Route::post('/{claim}', [ClaimsController::class, 'update'])->name('update');
         Route::delete('/{claim}', [ClaimsController::class, 'destroy'])->name('destroy');
     });
 

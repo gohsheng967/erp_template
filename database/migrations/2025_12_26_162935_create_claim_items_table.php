@@ -18,12 +18,11 @@ return new class extends Migration
                 ->cascadeOnDelete();
 
             // Item details
-            $table->string('claim_type');              // from config/claim.php
+            $table->string('claim_type')->nullable();              // from config/claim.php
             $table->string('description')->nullable(); // optional notes
 
             // Amount & receipt
             $table->decimal('amount', 12, 2);
-            $table->string('receipt_number')->nullable();
             $table->date('receipt_date')->nullable();
 
             $table->timestamps();

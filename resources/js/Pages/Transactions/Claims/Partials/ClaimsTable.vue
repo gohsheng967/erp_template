@@ -161,13 +161,13 @@ function renderCell(row, col) {
             return row.title
 
         case 'project':
-            return row.project_name ?? '-'
+            return row.project?.name ?? '-'
 
         case 'total_amount':
             return formatCurrency(row.total_amount)
 
         case 'items_progress':
-            return `${row.item_count ?? 0} / ${formatCurrency(row.total_amount)}`
+            return `${row.items_count ?? 0} / ${formatCurrency(row.items_sum_amount  )}`
 
         case 'submitted_at':
             return row.submitted_at ?? '-'
