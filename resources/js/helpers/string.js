@@ -21,3 +21,16 @@ export function formatCurrency(
         minimumFractionDigits: 2,
     }).format(value ?? 0)
 }
+
+export function formatDate(
+    value
+) {
+    if (!value) return "-"
+    return new Date(value).toLocaleString("en-MY", {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    })
+}

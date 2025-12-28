@@ -9,18 +9,36 @@ return new class extends Migration {
     {
         Schema::create('project_documents', function (Blueprint $table) {
             $table->id();
+
+            $table->uuid('uuid')->unique();
+
             $table->unsignedBigInteger('project_id');
-            $table->string('name');
-            $table->string('type')->nullable(); // contract / drawing / spec / others
-            $table->integer('version')->default(1);
-            $table->string('file_path');
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->unsignedBigInteger('category_id')->nullable();
+
+            // 📄 File info
+            $table->string('filename');
+            $table->string('filepath');
+            $table->unsignedBigInteger('filesize')->nullable();
+
+            // 🏷 Meta
+            $table->string('type')->nullable();  
+            $table->unsignedInteger('version')->default(1);
 
             $table->timestamps();
             $table->softDeletes();
 
             $table->foreign('project_id')
                 ->references('id')->on('projects')
-                ->onDelete('cascade');
+                ->cascadeOnDelete();
+
+            $table->foreign('category_id')
+                ->references('id')->on('file_categories')
+                ->cascadeOnDelete();
+
+            $table->foreign('user_id')
+                ->references('id')->on('users')
+                ->nullOnDelete();
         });
     }
 

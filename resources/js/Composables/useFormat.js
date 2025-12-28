@@ -6,11 +6,13 @@ export function useFormat() {
         $formatCurrency,
         $capitalize,
         $titleCase,
+        $formatDate
     } = appContext.config.globalProperties
 
     return {
         formatCurrency: $formatCurrency,
         capitalize: $capitalize,
         titleCase: $titleCase,
+        formatDate: $formatDate
     }
 }

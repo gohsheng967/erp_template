@@ -1,16 +1,12 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed, inject } from "vue";
 import { useFormat } from '@/Composables/useFormat'
+import axios from 'axios'
 import {
     Chart,
     ArcElement,
     Tooltip,
     Legend,
-    CategoryScale,
-    LinearScale,
-    LineController,
-    LineElement,
-    PointElement,
     DoughnutController
 } from "chart.js";
 
@@ -18,28 +14,69 @@ Chart.register(
     ArcElement,
     DoughnutController,
     Tooltip,
-    Legend,
-    CategoryScale,
-    LinearScale,
-    LineController,
-    LineElement,
-    PointElement
+    Legend
 );
 
 const props = defineProps({
     project: Object
 });
+
 const { capitalize, formatCurrency } = useFormat()
+const toast = inject('toast', null)
 
-// Dummy values
-const usedBudget = 80000;
-const totalBudget = formatCurrency(props.project.budget);
-const remainingBudget = totalBudget - usedBudget;
+const timelineProgress = computed(() => {
+    if (!props.project.start_date || !props.project.end_date) {
+        return 0
+    }
 
-// animation refs
+    const start = new Date(props.project.start_date)
+    const end = new Date(props.project.end_date)
+    const now = new Date()
+
+    if (now <= start) return 0
+    if (now >= end) return 100
+
+    const total = end.getTime() - start.getTime()
+    const elapsed = now.getTime() - start.getTime()
+
+    return Math.round((elapsed / total) * 100)
+})
+
+const kpi = ref({
+    budget: {
+        total: 0,
+        used: 0,
+        remaining: 0,
+        percentage: 0,
+    },
+    top_costs: [],
+    recent_activities: [],
+})
+
+const kpiLoading = ref(true)
 const animateUsed = ref(0);
 const animateRemaining = ref(0);
 const animatePercentage = ref(0);
+
+async function loadKpi() {
+    kpiLoading.value = true
+
+    const { data } = await axios.get(
+        route('projects.overview.kpi', props.project.id)
+    )
+
+    kpi.value = data
+
+    animateNumber(data.budget.used, animateUsed)
+    animateNumber(data.budget.remaining, animateRemaining)
+    animateNumber(data.budget.percentage, animatePercentage)
+
+    renderBudgetDoughnut()
+
+    kpiLoading.value = false
+}
+
+
 
 // memo popup
 const memo = ref("");
@@ -47,7 +84,8 @@ const showMemoPopup = ref(false);
 
 // chart refs
 const doughnutRef = ref(null);
-const lineRef = ref(null);
+let doughnutChart = null
+
 
 // animate numbers
 function animateNumber(target, refVar, duration = 1200) {
@@ -62,80 +100,61 @@ function animateNumber(target, refVar, duration = 1200) {
 }
 
 function saveMemo() {
-    console.log("Saved memo:", memo.value);
     showMemoPopup.value = false;
+    toast?.value?.show('Memo Saved', 'success')
 }
 
-onMounted(() => {
 
-    animateNumber(usedBudget, animateUsed);
-    animateNumber(remainingBudget, animateRemaining);
-    animateNumber(((usedBudget / totalBudget) * 100).toFixed(1), animatePercentage);
+function renderBudgetDoughnut() {
+    if (!doughnutRef.value) return
 
-    // DOUGHNUT CHART
-    new Chart(doughnutRef.value, {
+    // destroy old chart (important on re-fetch)
+    if (doughnutChart) {
+        doughnutChart.destroy()
+    }
+
+    doughnutChart = new Chart(doughnutRef.value, {
         type: "doughnut",
         data: {
             labels: ["Used", "Remaining"],
             datasets: [
                 {
-                    data: [80000, remainingBudget],
+                    data: [
+                        kpi.value.budget.used,
+                        kpi.value.budget.remaining
+                    ],
                     backgroundColor: ["#6366f1", "#e0e7ff"],
-                    borderWidth: 2
+                    borderWidth: 2,
                 }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false }
+            },
+            cutout: "65%",
             animation: {
                 animateRotate: true,
                 animateScale: true,
-                duration: 900,
-                easing: "easeOutQuint"
-            },
-            plugins: { legend: { display: false }},
-            cutout: "65%"
-        }
-    });
-
-    // LINE CHART
-    new Chart(lineRef.value, {
-        type: "line",
-        data: {
-            labels: ["Jan", "Feb", "Mar", "Apr", "May"],
-            datasets: [
-                {
-                    label: "Expenses",
-                    data: [5000, 8000, 9000, 12000, 15000],
-                    borderColor: "#6366f1",
-                    backgroundColor: "rgba(99,102,241,0.15)",
-                    tension: 0.4,
-                    fill: true
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            animation: { duration: 800, easing: "easeOutCubic" },
-            plugins: { legend: { display: false }},
-            scales: {
-                y: { grid: { color: "#f1f5f9" }},
-                x: { grid: { display: false }}
+                duration: 800,
+                easing: "easeOutCubic"
             }
         }
-    });
+    })
+}
+
+
+onMounted(() => {
+    loadKpi()
 });
 </script>
 
 <template>
     <div class="space-y-10 animate-fadeIn">
 
-        <!-- 1️⃣ PROJECT TIMELINE (with star memo button attached) -->
         <div class="bg-white shadow-md rounded-xl p-6 border relative">
-
-            <!-- MEMO STAR ICON (TOP-RIGHT) -->
             <button
                 @click="showMemoPopup = true"
                 class="absolute top-4 right-4 transition transform hover:scale-125 animate-shinyStar"
@@ -156,10 +175,15 @@ onMounted(() => {
             </p>
 
             <div class="w-full bg-gray-200 rounded-full h-3 mt-5 overflow-hidden">
-                <div class="h-3 bg-green-500 rounded-full transition-all duration-[1200ms] ease-out" style="width: 40%"></div>
+                <div
+                    class="h-3 bg-green-500 rounded-full transition-all duration-[1200ms] ease-out"
+                    :style="{ width: timelineProgress + '%' }"
+                ></div>
             </div>
 
-            <p class="text-gray-500 text-sm mt-2">Progress: 40%</p>
+            <p class="text-gray-500 text-sm mt-2">
+                Progress: {{ timelineProgress }}%
+            </p>
         </div>
 
         <!-- 2️⃣ KPI CARDS -->
@@ -168,14 +192,15 @@ onMounted(() => {
             <div class="bg-white shadow-md rounded-xl p-6 border hover:shadow-lg transition">
                 <p class="text-gray-500 text-sm">Total Budget</p>
                 <p class="text-3xl font-bold mt-1">
-                    {{ totalBudget }}
+                    {{ formatCurrency(kpi.budget.total) }}
                 </p>
+
             </div>
 
             <div class="bg-white shadow-md rounded-xl p-6 border hover:shadow-lg transition">
                 <p class="text-gray-500 text-sm">Used</p>
                 <p class="text-3xl font-bold mt-1 text-indigo-600">
-                    RM {{ animateUsed.toLocaleString() }}
+                    {{ formatCurrency(animateUsed) }}
                 </p>
             </div>
 
@@ -188,11 +213,13 @@ onMounted(() => {
 
             <div class="bg-white shadow-md rounded-xl p-6 border hover:shadow-lg transition">
                 <p class="text-gray-500 text-sm">Usage %</p>
-                <p class="text-2xl font-bold mt-1">{{ animatePercentage }}%</p>
+                <p class="text-2xl font-bold mt-1">
+                    {{ animatePercentage }}%
+                </p>
 
                 <div class="w-full bg-gray-200 rounded-full h-2 mt-3 overflow-hidden">
                     <div
-                        class="h-2 bg-indigo-500 rounded-full transition-all duration-[1200ms] ease-out"
+                        class="h-2 bg-indigo-500 rounded-full transition-all duration-[1200ms]"
                         :style="{ width: animatePercentage + '%' }"
                     ></div>
                 </div>
@@ -209,68 +236,68 @@ onMounted(() => {
                     <canvas ref="doughnutRef"></canvas>
                 </div>
             </div>
-
             <div class="bg-white shadow-md rounded-xl p-6 border">
-                <h3 class="text-lg font-semibold mb-4">Monthly Expenses Trend</h3>
-                <div class="h-[400px]">
-                    <canvas ref="lineRef"></canvas>
+                <h3 class="text-lg font-semibold mb-4">
+                    Top Cost Drivers
+                </h3>
+
+                <div v-if="kpi.top_costs.length === 0" class="text-gray-500">
+                    No cost records yet
+                </div>
+
+                <div v-else class="space-y-4">
+                    <div
+                        v-for="(item, index) in kpi.top_costs"
+                        :key="item.id"
+                        class="flex justify-between items-center"
+                    >
+                        <div class="flex items-center gap-3">
+                            <span class="text-gray-400 font-mono">
+                                {{ index + 1 }}.
+                            </span>
+
+                            <div>
+                                <p class="font-semibold text-gray-800 truncate max-w-[260px]">
+                                    {{ item.label }}
+                                </p>
+                                <p class="text-xs text-gray-500 capitalize">
+                                    {{ item.type }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <p class="font-bold text-indigo-600">
+                            {{ formatCurrency(item.amount) }}
+                        </p>
+                    </div>
                 </div>
             </div>
 
-        </div>
-
-        <!-- 4️⃣ DOCUMENT SUMMARY -->
-        <div class="bg-white shadow-md rounded-xl p-6 border">
-            <h3 class="text-xl font-semibold mb-4">📄 Document Summary</h3>
-
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="p-4 bg-white rounded-lg shadow border">
-                    <p class="text-gray-500">Total Documents</p>
-                    <p class="text-2xl font-bold mt-1">12</p>
-                </div>
-
-                <div class="p-4 bg-white rounded-lg shadow border">
-                    <p class="text-gray-500">Last Upload</p>
-                    <p class="text-lg font-semibold mt-1 truncate">Contract_v3.pdf</p>
-                </div>
-
-                <div class="p-4 bg-white rounded-lg shadow border">
-                    <p class="text-gray-500">Upload Time</p>
-                    <p class="text-lg font-semibold mt-1">2025-02-03 14:20</p>
-                </div>
-            </div>
-
-            <button class="mt-5 px-5 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
-                View All Documents
-            </button>
         </div>
 
         <!-- 5️⃣ RECENT ACTIVITIES -->
         <div class="bg-white shadow-md rounded-xl p-6 border">
             <h3 class="text-lg font-semibold mb-4">Recent Activities</h3>
 
-            <div class="space-y-5">
-                <div class="flex items-start gap-3">
-                    <div class="w-2 h-2 bg-indigo-500 rounded-full mt-2"></div>
-                    <div>
-                        <p class="font-semibold text-gray-800">Milestone “Design Phase” created</p>
-                        <p class="text-gray-500 text-sm">2 hours ago</p>
-                    </div>
-                </div>
+            <div v-if="kpi.recent_activities.length === 0" class="text-gray-500">
+                No recent activity
+            </div>
 
-                <div class="flex items-start gap-3">
+            <div v-else class="space-y-5">
+                <div
+                    v-for="activity in kpi.recent_activities"
+                    :key="activity.id"
+                    class="flex items-start gap-3"
+                >
                     <div class="w-2 h-2 bg-indigo-500 rounded-full mt-2"></div>
-                    <div>
-                        <p class="font-semibold text-gray-800">Uploaded document “Contract_v3.pdf”</p>
-                        <p class="text-gray-500 text-sm">Yesterday</p>
-                    </div>
-                </div>
 
-                <div class="flex items-start gap-3">
-                    <div class="w-2 h-2 bg-indigo-500 rounded-full mt-2"></div>
                     <div>
-                        <p class="font-semibold text-gray-800">Claim expense RM 2,400 submitted</p>
-                        <p class="text-gray-500 text-sm">2 days ago</p>
+                        <p class="font-semibold text-gray-800">
+                            {{ activity.message }}
+                        </p>
+                        <p class="text-gray-500 text-sm">
+                            {{ activity.time_ago }}
+                        </p>
                     </div>
                 </div>
             </div>

@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Models\Department;
 use App\Models\FileCategory;
 use App\Models\Claim;
+use App\Models\ProjectActivityLog;
+use App\Models\ProjectDocument;
 
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -219,5 +221,93 @@ class ProjectController extends Controller
 
         return back()->with('success', 'Budget updated successfully');
     }
+
+    public function kpi(Project $project)
+    {
+        $purchaseOrderUsed = 0;
+
+        $claimUsed = (float) $project->claims()
+            ->whereIn('status', ['approved', 'paid'])
+            ->sum('total_amount');
+
+        $expenseUsed = 0;
+
+        $used = $purchaseOrderUsed + $claimUsed + $expenseUsed;
+        $total = (float) ($project->budget ?? 0);
+        $remaining = max($total - $used, 0);
+
+        $topCosts = $project->claims()
+            ->whereIn('status', ['approved', 'paid'])
+            ->orderByDesc('total_amount')
+            ->limit(5)
+            ->get()
+            ->map(fn ($claim) => [
+                'id' => $claim->id,
+                'label' => $claim->title
+                    ?? $claim->description
+                    ?? 'Claim #' . $claim->id,
+                'amount' => (float) $claim->total_amount,
+                'type' => 'claim',
+            ]);
+
+        // 🔥 Recent activities (latest 5)
+        $recentActivities = ProjectActivityLog::with('user')
+            ->where('project_id', $project->id)
+            ->latest()
+            ->limit(5)
+            ->get()
+            ->map(function ($log) {
+                return [
+                    'id' => $log->id,
+                    'action' => $log->action,
+                    'message' => $this->formatActivityMessage($log),
+                    'user_name' => $log->user?->name ?? 'System',
+                    'time_ago' => $log->created_at->diffForHumans(),
+                ];
+            });
+
+        return response()->json([
+            'budget' => [
+                'total' => $total,
+                'used' => $used,
+                'remaining' => $remaining,
+                'percentage' => $total > 0
+                    ? round(($used / $total) * 100, 1)
+                    : 0,
+            ],
+            'breakdown' => [
+                'purchase_orders' => $purchaseOrderUsed,
+                'claims' => $claimUsed,
+                'expenses' => $expenseUsed,
+            ],
+            'top_costs' => $topCosts,
+            'recent_activities' => $recentActivities,
+        ]);
+    }
+
+    private function formatActivityMessage(ProjectActivityLog $log): string
+    {
+        $data = is_array($log->data)
+            ? $log->data
+            : json_decode($log->data, true);
+
+        return match ($log->action) {
+            'milestone_created' =>
+                'Milestone "' . ($data['message'] ?? '') . '" created',
+
+            'document_uploaded' =>
+                'Uploaded document "' . ($data['file'] ?? '') . '"',
+
+            'claim_submitted' =>
+                'Claim expense RM ' . number_format($data['amount'] ?? 0, 2) . ' submitted',
+
+            'claim_approved' =>
+                'Claim approved (RM ' . number_format($data['amount'] ?? 0, 2) . ')',
+
+            default =>
+                ucfirst(str_replace('_', ' ', $log->action)),
+        };
+    }
+    
 
 }

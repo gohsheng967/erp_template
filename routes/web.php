@@ -116,6 +116,49 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     Route::get('/projects/{project}/claims/summary', [ProjectController::class, 'summary'])
         ->name('projects.claims.summary');
 
+    Route::get('projects/{project}/overview/kpi',  [ProjectController::class, 'kpi'])
+        ->name('projects.overview.kpi');
+
+    // ----------------------------------------
+    // PROJECT DOCUMENTS
+    // ----------------------------------------
+    Route::prefix('projects')
+        ->name('projects.')
+        ->group(function () {
+
+            Route::prefix('{projectUuid}/documents')
+                ->name('documents.')
+                ->group(function () {
+
+                    Route::get(
+                        '/',
+                        [ProjectDocumentController::class, 'index']
+                    )->name('index');
+
+                    Route::post(
+                        '/',
+                        [ProjectDocumentController::class, 'upload']
+                    )->name('upload');
+
+                    Route::post(
+                        '/url',
+                        [ProjectDocumentController::class, 'uploadUrl']
+                    )->name('upload-url');
+                });
+
+            Route::get(
+                'documents/{documentUuid}/download',
+                [ProjectDocumentController::class, 'download']
+            )->name('documents.download');
+
+            Route::delete(
+                'documents/{documentUuid}',
+                [ProjectDocumentController::class, 'destroy']
+            )->name('documents.destroy');
+        });
+
+
+
         // ------------------------------
     // PURCHASE ORDERS
     // ------------------------------
@@ -177,20 +220,6 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     // ------------------------------
     Route::get('/inventory/operation', [InventoryController::class, 'operation'])
         ->name('inventory.operation');
-
-
-    // ----------------------------------------
-    // PROJECT DOCUMENTS
-    // ----------------------------------------
-    Route::post('/projects/{project}/documents/upload', [ProjectDocumentController::class, 'upload'])
-        ->name('projects.documents.upload');
-
-    Route::get('/projects/documents/{document}/download', [ProjectDocumentController::class, 'download'])
-        ->name('projects.documents.download');
-
-    Route::delete('/projects/documents/{document}', [ProjectDocumentController::class, 'destroy'])
-        ->name('projects.documents.delete');
-
 
 
     // ----------------------------------------

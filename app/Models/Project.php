@@ -60,4 +60,9 @@ class Project extends Model
         return $this->belongsTo(Client::class, 'client_id');
     }
 
+    public function claims()
+    {
+        return $this->hasMany(Claim::class, 'project_id');
+    }
+
 }
