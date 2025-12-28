@@ -28,8 +28,23 @@ class Claim extends Model
         return $this->belongsTo(Project::class);
     }
 
-    public function user()
+    public function issuer()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function approver()
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function payer()
+    {
+        return $this->belongsTo(User::class, 'paid_by');
+    }
+
+    public function attachments()
+    {
+        return $this->morphMany(Attachment::class, 'attachable');
     }
 }

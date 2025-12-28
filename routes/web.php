@@ -16,7 +16,7 @@ use App\Http\Controllers\Project\ProjectTaskController;
 
 
 use App\Http\Controllers\Transactions\ClaimsController;
-
+use App\Http\Controllers\Pdf\ClaimPdfController;
 
 use App\Http\Controllers\Auth\MFASetupController;
 use App\Http\Controllers\Auth\MFAVerifyController;
@@ -133,6 +133,8 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::get('/{claim}/edit', [ClaimsController::class, 'edit'])->name('edit');
         Route::post('/{claim}', [ClaimsController::class, 'update'])->name('update');
         Route::delete('/{claim}', [ClaimsController::class, 'destroy'])->name('destroy');
+        Route::post('/{claim}/approval', [ClaimsController::class, 'approval'])->name('approval');
+        Route::post('/{claim}/paid', [ClaimsController::class, 'markPaid'])->name('paid');
     });
 
     // ------------------------------
@@ -291,6 +293,5 @@ Route::middleware('auth')->group(function () {
     // Submit MFA code during login
     Route::post('/mfa/verify', [MFAVerifyController::class, 'verify']);
 });
-
 
 require __DIR__ . '/auth.php';

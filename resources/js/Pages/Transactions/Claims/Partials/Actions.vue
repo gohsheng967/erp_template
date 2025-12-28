@@ -19,14 +19,14 @@ const emit = defineEmits(['delete'])
     <div class="flex justify-center gap-3 text-lg">
 
         <!-- VIEW (ALL STATUSES) -->
-        <Link
-            v-if="status != 'draft'"
-            :href="route('claims.show', claim.uuid)"
+        <button
+            type="button"
+            @click="emit('view', claim)"
             class="text-indigo-600 hover:text-indigo-800"
             title="View"
         >
             <i class="mdi mdi-eye"></i>
-        </Link>
+        </button>
 
         <!-- EDIT (DRAFT ONLY) -->
         <Link

@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick  } from 'vue'
 import { router } from '@inertiajs/vue3'
 
 import Actions from './Actions.vue'
 import DeleteConfirmation from '@/Components/DeleteConfirmation.vue'
+import ClaimShowModal from '@/Pages/Transactions/Claims/Partials/ClaimShowModal.vue'
 
 const props = defineProps({
     claims: {
@@ -38,6 +39,15 @@ const columnsByStatus = {
         'action',
     ],
 
+    rejected: [
+        'claim_no',
+        'title',
+        'project',
+        'total_amount',
+        'submitted_at',
+        'action',
+    ],
+
     approved: [
         'claim_no',
         'title',
@@ -45,6 +55,7 @@ const columnsByStatus = {
         'total_amount',
         'approved_by',
         'approved_at',
+        'action',
     ],
 
     paid: [
@@ -54,6 +65,7 @@ const columnsByStatus = {
         'total_amount',
         'paid_at',
         'payment_ref',
+        'action',
     ],
 }
 
@@ -100,6 +112,19 @@ const subtotalColspan = computed(() => {
 const showDeleteModal = ref(false)
 const deletingClaim = ref(null)
 
+const showViewModal = ref(false)
+const viewingClaim = ref(null)
+
+function openView(claim) {
+    viewingClaim.value = claim
+    showViewModal.value = true
+}
+
+function closeView() {
+    showViewModal.value = false
+    viewingClaim.value = null
+}
+
 function askDelete(claim) {
     deletingClaim.value = claim
     showDeleteModal.value = true
@@ -128,6 +153,23 @@ function closeDelete() {
     deletingClaim.value = null
 }
 
+function refreshList() {
+    router.reload({
+        only: ['claims', 'counts'],
+        preserveScroll: true,
+    })
+}
+
+function printClaim(claim = null) {
+    if (claim) {
+        viewingClaim.value = claim
+        showViewModal.value = true
+    }
+
+    nextTick(() => {
+        setTimeout(() => window.print(), 300)
+    })
+}
 /* =========================
    HELPERS
 ========================= */
@@ -182,7 +224,7 @@ function renderCell(row, col) {
             return row.paid_at ?? '-'
 
         case 'payment_ref':
-            return row.payment_ref ?? '-'
+            return row.payment_ref_no ?? '-'
 
         default:
             return ''
@@ -233,6 +275,7 @@ function renderCell(row, col) {
                             v-if="col === 'action'"
                             :claim="claim"
                             :status="status"
+                            @view="openView"
                             @delete="askDelete"
                         />
 
@@ -283,6 +326,14 @@ function renderCell(row, col) {
             message="This action cannot be undone. Are you sure you want to delete this claim?"
             @confirm="confirmDelete"
             @close="closeDelete"
+        />
+
+        <ClaimShowModal
+            v-if="showViewModal"
+            :claim="viewingClaim"
+            @close="closeView"
+            @refresh="refreshList"
+            @print="printClaim"
         />
 
     </div>

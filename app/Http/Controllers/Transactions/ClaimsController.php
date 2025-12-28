@@ -15,6 +15,7 @@ use App\Models\Claim;
 use App\Models\Project;
 use App\Models\Attachment;
 use App\Models\ClaimItem;
+use App\Models\CompanyProfile;
 
 use Inertia\Inertia;
 use Carbon\Carbon;
@@ -38,17 +39,17 @@ class ClaimsController extends Controller
         $baseQuery = Claim::query()
             ->with([
                 'project:id,name',
-                'user:id,name',
+                'issuer:id,name',
             ])
             ->withCount('items')
             ->withSum('items', 'amount')
             ->when($search, function ($q) use ($search) {
                 $q->where(function ($q) use ($search) {
                     $q->where('claim_no', 'like', "%{$search}%")
-                      ->orWhere('title', 'like', "%{$search}%")
-                      ->orWhereHas('user', function ($u) use ($search) {
-                          $u->where('name', 'like', "%{$search}%");
-                      });
+                    ->orWhere('title', 'like', "%{$search}%")
+                    ->orWhereHas('issuer', function ($u) use ($search) {
+                        $u->where('name', 'like', "%{$search}%");
+                    });
                 });
             })
             ->when($from, fn ($q) =>
@@ -63,7 +64,7 @@ class ClaimsController extends Controller
         $submitted = (clone $baseQuery)->where('status', 'submitted')->paginate(15)->withQueryString();
         $approved = (clone $baseQuery)->where('status', 'approved')->paginate(15)->withQueryString();
         $rejected = (clone $baseQuery)->where('status', 'rejected')->paginate(15)->withQueryString();
-        $paymentMade = (clone $baseQuery)->where('status', 'payment_made')->paginate(15)->withQueryString();
+        $paymentMade = (clone $baseQuery)->where('status', 'paid')->paginate(15)->withQueryString();
 
         $countsRaw = (clone $baseQuery)
             ->whereIn('status', ['submitted', 'approved'])
@@ -140,7 +141,7 @@ class ClaimsController extends Controller
                 'submitted'    => $submitted,
                 'approved'     => $approved,
                 'rejected'     => $rejected,
-                'payment_made' => $paymentMade,
+                'paid' => $paymentMade,
             ],
 
             'filters' => [
@@ -404,6 +405,128 @@ class ClaimsController extends Controller
                     ? 'Claim submitted successfully.'
                     : 'Draft saved successfully.'
             );
+    }
+
+    public function show(string $uuid)
+    {
+        $claim = Claim::where('uuid', $uuid)
+            ->with([
+                'items.attachments',
+                'issuer',
+                'approver',
+                'payer',
+                'project',
+                'items',
+                'attachments'
+            ])
+            ->firstOrFail();
+
+        $company = CompanyProfile::first();
+
+        return response()->json([
+            'claim'   => $claim,
+            'company' => $company,
+        ]);
+    }
+
+    public function approval(Request $request, string $uuid)
+    {
+        // =========================
+        // VALIDATION
+        // =========================
+        $request->validate([
+            'status' => 'required|in:approved,rejected',
+            'remark' => 'nullable|string|max:1000',
+        ]);
+
+        // =========================
+        // LOCK CLAIM (ANTI DOUBLE-SUBMIT)
+        // =========================
+        $claim = Claim::where('uuid', $uuid)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        // =========================
+        // SAFETY CHECK
+        // =========================
+        if ($claim->status !== 'submitted') {
+            abort(403, 'This claim cannot be approved or rejected.');
+        }
+
+        // =========================
+        // TRANSACTION
+        // =========================
+        DB::transaction(function () use ($claim, $request) {
+
+            $claim->status = $request->status;
+            $claim->remark = $request->remark;
+            $claim->approved_by = auth()->id();
+            $claim->approved_at = now();
+
+            $claim->save();
+        });
+
+        // =========================
+        // RESPONSE
+        // =========================
+        return response()->json([
+            'success' => true,
+            'status'  => $claim->status,
+        ]);
+    }
+
+    public function markPaid(Request $request, string $uuid)
+    {
+        $request->validate([
+            'payment_ref' => 'required|string|max:255',
+            'voucher'     => 'nullable|file|max:10240', // 10MB
+        ]);
+
+        return DB::transaction(function () use ($request, $uuid) {
+
+            // Lock row to prevent double payment
+            $claim = Claim::where('uuid', $uuid)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            /* =========================
+            FLOW GUARD
+            ========================== */
+
+            if ($claim->status !== 'approved') {
+                abort(422, 'Only approved claims can be marked as paid.');
+            }
+
+            /* =========================
+            STORE PAYMENT VOUCHER
+            ========================== */
+
+            if ($request->hasFile('voucher')) {
+                $file = $request->file('voucher');
+
+                $path = $file->store(
+                    'claims/payment-vouchers',
+                    'public'
+                );
+
+                $claim->attachments()->create([
+                    'file_path'     => $path,
+                    'original_name' => $file->getClientOriginalName(),
+                    'category'      => 'payment_voucher',
+                ]);
+            }
+
+            $claim->update([
+                'status'       => 'paid',
+                'payment_ref_no'  => $request->payment_ref,
+                'paid_at'      => now(),
+                'paid_by'      => auth()->id(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+            ]);
+        });
     }
 
 }
