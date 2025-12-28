@@ -111,12 +111,28 @@ class ProjectController extends Controller
     public function show($uuid)
     {
         $project = Project::where('uuid', $uuid)->firstOrFail();
+
         $project->load(['client', 'manager']);
-        $project->refresh(); 
+
         return Inertia::render('Projects/Show', [
             'project' => $project,
-            'documents' => $project->documents()->with('user', 'category')->get(),
+
+            // keep existing props
+            'documents' => $project->documents()
+                ->with('user', 'category')
+                ->get(),
+
             'categories' => FileCategory::orderBy('name')->get(),
+
+            'milestones' => fn () => $project->milestones()
+                ->with([
+                    'actionTasks.assignee',
+                    'phases.tasks',
+                ])
+                ->orderByDesc('id')
+                ->get(),
+
+            'users' => User::orderBy('name')->get(['id', 'name']),
         ]);
     }
 

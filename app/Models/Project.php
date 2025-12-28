@@ -20,18 +20,6 @@ class Project extends Model
         return $this->hasMany(ProjectDocument::class);
     }
 
-    // Milestones
-    public function milestones()
-    {
-        return $this->hasMany(ProjectMilestone::class);
-    }
-
-    // Tasks through Milestones (optional)
-    public function tasks()
-    {
-        return $this->hasManyThrough(ProjectTask::class, ProjectMilestone::class);
-    }
-
     // Claim Expenses (standalone, linked by project_id)
     public function claimExpenses()
     {
@@ -64,5 +52,9 @@ class Project extends Model
     {
         return $this->hasMany(Claim::class, 'project_id');
     }
-
+    
+    public function milestones()
+    {
+        return $this->hasMany(Milestone::class);
+    }
 }

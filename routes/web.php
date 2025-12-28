@@ -8,12 +8,14 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\FileCategoryController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ClientController;
+use App\Http\Controllers\WidgetController;
 
 use App\Http\Controllers\Project\ProjectController;
 use App\Http\Controllers\Project\ProjectDocumentController;
 use App\Http\Controllers\Project\ProjectMilestoneController;
 use App\Http\Controllers\Project\ProjectTaskController;
 
+use App\Http\Controllers\Project\MilestoneController;
 
 use App\Http\Controllers\Transactions\ClaimsController;
 use App\Http\Controllers\Pdf\ClaimPdfController;
@@ -35,6 +37,9 @@ Route::get('/', function () {
 // ===============================
 Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
+    Route::get('action-task-count', [WidgetController::class, 'actionTask'])->name('priority-summary');
+    Route::get('action-task-list',  [WidgetController::class, 'actionTaskList'])->name('priority-list');
+    
     Route::get('/dashboard', function () {
         return Inertia::render('Dashboard');
     })->name('dashboard');
@@ -296,9 +301,52 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
     });
 
+    Route::prefix('projects/{project}')->group(function () {
 
+        Route::post('milestones', 
+            [MilestoneController::class, 'store']
+        )->name('milestones.store');
 
-        
+        Route::post('milestones/{milestone}/action-tasks',
+            [MilestoneController::class, 'storeActionTask']
+        )->name('milestone.action-tasks.store');
+
+        Route::patch('action-tasks/{task}',
+            [MilestoneController::class, 'updateActionTask']
+        )->name('milestone.action-tasks.update');
+
+        Route::delete('action-tasks/{task}',
+            [MilestoneController::class, 'destroyActionTask']
+        )->name('milestone.action-tasks.destroy');
+
+        Route::post('milestones/{milestone}/phases',
+            [MilestoneController::class, 'storePhase']
+        )->name('milestone.phases.store');
+
+        Route::patch('phases/{phase}',
+            [MilestoneController::class, 'updatePhase']
+        )->name('milestone.phases.update');
+
+        Route::post('phases/reorder',
+            [MilestoneController::class, 'reorderPhases']
+        )->name('milestone.phases.reorder');
+
+        Route::post('phases/{phase}/status',
+            [MilestoneController::class, 'changePhaseStatus']
+        )->name('milestone.phases.status');
+
+        Route::post('phases/{phase}/tasks',
+            [MilestoneController::class, 'storePhaseTask']
+        )->name('milestone.phase-tasks.store');
+
+        Route::patch('phase-tasks/{task}',
+            [MilestoneController::class, 'updatePhaseTask']
+        )->name('milestone.phase-tasks.update');
+
+        Route::delete('phase-tasks/{task}',
+            [MilestoneController::class, 'destroyPhaseTask']
+        )->name('milestone.phase-tasks.destroy');
+    });        
 });
 
 
