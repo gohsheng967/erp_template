@@ -1,10 +1,14 @@
 <script setup>
 import { ref, computed, nextTick  } from 'vue'
 import { router } from '@inertiajs/vue3'
+import { getCurrentInstance } from 'vue'
 
 import Actions from './Actions.vue'
 import DeleteConfirmation from '@/Components/DeleteConfirmation.vue'
 import ClaimShowModal from '@/Pages/Transactions/Claims/Partials/ClaimShowModal.vue'
+
+import { useFormat } from '@/Composables/useFormat'
+const { formatCurrency } = useFormat()
 
 const props = defineProps({
     claims: {
@@ -173,14 +177,6 @@ function printClaim(claim = null) {
 /* =========================
    HELPERS
 ========================= */
-
-function formatCurrency(value) {
-    return new Intl.NumberFormat('en-MY', {
-        style: 'currency',
-        currency: 'MYR',
-        minimumFractionDigits: 2,
-    }).format(value ?? 0)
-}
 
 function rowClass(row) {
     // ✅ draft highlight when items == total

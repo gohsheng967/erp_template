@@ -19,7 +19,7 @@ import { Head } from '@inertiajs/vue3';
 
                 <!-- COMPANY PROFILE FORM CARD -->
                 <div class="bg-white p-4 shadow sm:rounded-lg sm:p-8">
-                    <UpdateCompanyProfileForm />
+                <UpdateCompanyProfileForm />
                 </div>
 
             </div>

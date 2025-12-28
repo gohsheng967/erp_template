@@ -9,9 +9,12 @@ import DocumentationTab from "./Tabs/DocumentationTab.vue";
 import FunctionalityTab from "./Tabs/AccountingTab.vue";
 import MilestonesTab from "./Tabs/MilestonesTab.vue";
 import AccountingTab from "./Tabs/AccountingTab.vue";
+import { useFormat } from '@/Composables/useFormat'
 
-const page = usePage();
-const project = page.props.project;
+const { capitalize, formatCurrency } = useFormat()
+
+const page = usePage()
+const project = ref(page.props.project)
 
 // Current active tab
 const activeTab = ref("overview");
@@ -22,6 +25,14 @@ const tabs = [
     { key: "accounting", label: "Accounting" },
     { key: "milestones", label: "Milestones" },
 ];
+
+function onBudgetUpdated(newBudget) {
+    project.value = {
+        ...project.value,
+        budget: Number(newBudget),
+    }
+}
+
 </script>
 
 <template>
@@ -36,7 +47,7 @@ const tabs = [
                     <div>
                         <h2 class="text-2xl font-bold text-gray-800">{{ project.name }}</h2>
                         <p class="text-gray-500 text-sm">
-                            Project Code: {{ project.code }} · Status: {{ project.status }}
+                            Project Code: {{ project.code }} · Status: {{ capitalize(project.status) }}
                         </p>
                     </div>
 
@@ -83,6 +94,7 @@ const tabs = [
                 <AccountingTab
                     v-if="activeTab === 'accounting'"
                     :project="project"
+                    @budget-updated="onBudgetUpdated"
                 />
 
                 <MilestonesTab

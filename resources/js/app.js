@@ -5,7 +5,7 @@ import { createInertiaApp } from '@inertiajs/vue3'
 import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers'
 import { createApp, h, ref } from 'vue'
 import { ZiggyVue } from '../../vendor/tightenco/ziggy'
-import { capitalize, titleCase } from './helpers/string'
+import { capitalize, titleCase, formatCurrency } from './helpers/string'
 import axios from 'axios'
 import Toast from "@/Components/Toast.vue"
 import "@mdi/font/css/materialdesignicons.min.css"
@@ -39,6 +39,7 @@ createInertiaApp({
         // ✅ Global helpers
         app.config.globalProperties.$capitalize = capitalize
         app.config.globalProperties.$titleCase = titleCase
+        app.config.globalProperties.$formatCurrency = formatCurrency
 
         // ✅ GLOBAL TOAST REF
         const toastRef = ref(null)

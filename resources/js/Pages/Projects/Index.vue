@@ -206,7 +206,7 @@ function resetFilters() {
 
                                     <!-- VIEW -->
                                     <Link
-                                        :href="route('projects.show', prj.id)"
+                                        :href="route('projects.show', prj.uuid)"
                                         class="text-indigo-600 hover:text-indigo-800"
                                         title="View"
                                     >
@@ -215,7 +215,7 @@ function resetFilters() {
 
                                     <!-- EDIT (PENCIL) -->
                                     <Link
-                                        :href="route('projects.edit', prj.id)"
+                                        :href="route('projects.edit', prj.uuid)"
                                         class="text-blue-600 hover:text-blue-800"
                                         title="Edit"
                                     >

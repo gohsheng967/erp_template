@@ -109,6 +109,13 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     Route::delete('/projects/{project}', [ProjectController::class, 'destroy'])
         ->name('projects.destroy');
 
+    Route::patch('/projects/{project}/budget', [ProjectController::class, 'updateBudget'])
+        ->name('projects.update-budget');
+
+
+    Route::get('/projects/{project}/claims/summary', [ProjectController::class, 'summary'])
+        ->name('projects.claims.summary');
+
         // ------------------------------
     // PURCHASE ORDERS
     // ------------------------------

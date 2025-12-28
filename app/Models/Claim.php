@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Model; 
 use Str;
 
 class Claim extends Model
@@ -17,6 +17,10 @@ class Claim extends Model
             }
         });
     }
+
+    protected $casts = [
+        'created_at' => 'datetime:Y-m-d H:i',
+    ];
 
     public function items()
     {

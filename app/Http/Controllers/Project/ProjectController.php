@@ -8,6 +8,7 @@ use App\Models\Client;
 use App\Models\User;
 use App\Models\Department;
 use App\Models\FileCategory;
+use App\Models\Claim;
 
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -105,10 +106,11 @@ class ProjectController extends Controller
     /**
      * SHOW PROJECT DETAIL (To be used later for tabs)
      */
-    public function show(Project $project)
+    public function show($uuid)
     {
+        $project = Project::where('uuid', $uuid)->firstOrFail();
         $project->load(['client', 'manager']);
-
+        $project->refresh(); 
         return Inertia::render('Projects/Show', [
             'project' => $project,
             'documents' => $project->documents()->with('user', 'category')->get(),
@@ -119,8 +121,10 @@ class ProjectController extends Controller
     /**
      * SHOW EDIT FORM
      */
-    public function edit(Project $project)
+    public function edit($uuid)
     {
+        $project = Project::where('uuid', $uuid)->firstOrFail();
+
         return Inertia::render('Projects/Edit', [
             'project'     => $project,
             'clients'     => Client::select('id','name')->orderBy('name')->get(),
@@ -162,4 +166,58 @@ class ProjectController extends Controller
         return redirect()->route('projects.index')
             ->with('success', 'Project deleted.');
     }
+
+    public function summary(Project $project)
+    {
+        $baseQuery = Claim::where('project_id', $project->id);
+
+        $summary = [
+            'pending_approval' => (clone $baseQuery)
+                ->where('status', 'submitted')
+                ->count(),
+
+            'pending_payment' => (clone $baseQuery)
+                ->where('status', 'approved')
+                ->count(),
+
+            'total_approved_amount' => (clone $baseQuery)
+                ->where('status', 'approved')
+                ->sum('total_amount'),
+
+            'total_paid_amount' => (clone $baseQuery)
+                ->where('status', 'paid')
+                ->sum('total_amount'),
+        ];
+
+        $pendingClaims = (clone $baseQuery)
+            ->whereIn('status', ['draft', 'submitted', 'approved'])
+            ->latest()
+            ->get([
+                'id',
+                'uuid',
+                'title',
+                'total_amount',
+                'status',
+                'created_at',
+            ]);
+
+        return response()->json([
+            'summary' => $summary,
+            'pending_claims' => $pendingClaims,
+        ]);
+    }
+
+    public function updateBudget(Request $request, Project $project)
+    {
+        $validated = $request->validate([
+            'budget' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        $project->update([
+            'budget' => $validated['budget'],
+        ]);
+
+        return back()->with('success', 'Budget updated successfully');
+    }
+
 }

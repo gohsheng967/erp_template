@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted } from "vue";
+import { useFormat } from '@/Composables/useFormat'
 import {
     Chart,
     ArcElement,
@@ -28,10 +29,11 @@ Chart.register(
 const props = defineProps({
     project: Object
 });
+const { capitalize, formatCurrency } = useFormat()
 
 // Dummy values
 const usedBudget = 80000;
-const totalBudget = props.project.budget ?? 250000;
+const totalBudget = formatCurrency(props.project.budget);
 const remainingBudget = totalBudget - usedBudget;
 
 // animation refs
@@ -166,7 +168,7 @@ onMounted(() => {
             <div class="bg-white shadow-md rounded-xl p-6 border hover:shadow-lg transition">
                 <p class="text-gray-500 text-sm">Total Budget</p>
                 <p class="text-3xl font-bold mt-1">
-                    RM {{ totalBudget.toLocaleString() }}
+                    {{ totalBudget }}
                 </p>
             </div>
 

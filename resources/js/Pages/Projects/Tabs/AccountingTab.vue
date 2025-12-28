@@ -1,9 +1,38 @@
 <script setup>
-import { ref } from "vue";
+import { ref, inject, watch } from "vue";
+import { useForm, router } from '@inertiajs/vue3'
+
+import Claim from './Child/Claim.vue'
+ 
+const toast = inject("toast", null)
 
 const props = defineProps({
     project: Object
 });
+
+const currentBudget = ref(props.project.budget ?? 0)
+
+const emit = defineEmits(['budget-updated'])
+
+function saveBudget() {
+    budgetForm.patch(
+        route('projects.update-budget', props.project.id),
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                const saved = Number(budgetForm.budget)
+
+                budgetForm.defaults({ budget: saved })
+                budgetForm.reset()
+
+                currentBudget.value = saved
+
+                toast?.value?.show('Budget updated', 'success')
+            },
+        }
+    )
+}
+
 
 /* -----------------------------
    Collapse States
@@ -13,38 +42,24 @@ const showClaim = ref(false);
 const showPurchase = ref(false);
 const showInvoice = ref(false);
 
-/* -----------------------------
-   CLAIM HISTORY + NEW CLAIM
------------------------------- */
-const claims = ref([
-    { id: 1, type: "Travel", amount: 120.50, date: "2025-02-05", status: "Approved" },
-    { id: 2, type: "Food & Beverage", amount: 45.90, date: "2025-02-07", status: "Pending" }
-]);
+const budgetForm = useForm({
+    budget: currentBudget.value ?? 0,
+})
 
-const newClaim = ref({
-    type: "",
-    amount: null,
-    date: "",
-});
+watch(
+    () => props.project.budget,
+    val => {
+        const normalized = Number(val ?? 0)
 
-function createClaim() {
-    if (!newClaim.value.type || !newClaim.value.amount || !newClaim.value.date) {
-        alert("Please fill in all fields.");
-        return;
+        currentBudget.value = normalized
+
+        budgetForm.defaults({
+            budget: normalized,
+        })
+
+        budgetForm.reset()
     }
-
-    claims.value.push({
-        id: Date.now(),
-        type: newClaim.value.type,
-        amount: parseFloat(newClaim.value.amount),
-        date: newClaim.value.date,
-        status: "Pending"
-    });
-
-    newClaim.value.type = "";
-    newClaim.value.amount = null;
-    newClaim.value.date = "";
-}
+)
 
 
 /* -----------------------------
@@ -164,27 +179,59 @@ function toggleRow(id) {
         <!-- 1) EDIT BUDGET -->
         <!-- =============================== -->
         <div class="bg-white rounded-xl shadow-md border">
-            <button @click="showBudget = !showBudget" class="w-full flex justify-between items-center p-4 text-left">
+            <button
+                @click="showBudget = !showBudget"
+                class="w-full flex justify-between items-center p-4 text-left"
+            >
                 <span class="text-lg font-semibold">Edit Budget</span>
-                <svg :class="showBudget ? 'rotate-180' : ''" class="h-5 w-5 transition" fill="none"
-                     viewBox="0 0 24 24" stroke="currentColor">
+                <svg
+                    :class="showBudget ? 'rotate-180' : ''"
+                    class="h-5 w-5 transition"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M19 9l-7 7-7-7" />
+                        d="M19 9l-7 7-7-7" />
                 </svg>
             </button>
 
             <div v-show="showBudget" class="p-6 border-t space-y-4">
                 <p class="text-gray-600">
                     Current Budget:
-                    <span class="font-semibold">RM {{ props.project.budget?.toLocaleString() ?? '200,000' }}</span>
+                    <span class="font-semibold ml-1">
+                        {{ $formatCurrency(currentBudget) }}
+                    </span>
+
+                    <span
+                        v-if="budgetForm.isDirty"
+                        class="text-xs text-orange-600 ml-2"
+                    >
+                        Unsaved
+                    </span>
                 </p>
 
-                <div class="flex gap-4">
-                    <input type="number" class="border px-3 py-2 rounded-md w-64" placeholder="Enter new budget" />
+                <div class="flex gap-4 items-center">
+                    <input
+                        v-model="budgetForm.budget"
+                        type="number"
+                        step="0.01"
+                        class="border px-3 py-2 rounded-md w-64"
+                        placeholder="Enter new budget"
+                    />
 
-                    <button class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
+                    <button
+                        @click="saveBudget"
+                        :disabled="budgetForm.processing"
+                        class="px-4 py-2 bg-indigo-600 text-white rounded-md
+                            hover:bg-indigo-700 disabled:opacity-50"
+                    >
                         Save Budget
                     </button>
+                </div>
+
+                <div v-if="budgetForm.errors.budget" class="text-sm text-red-500">
+                    {{ budgetForm.errors.budget }}
                 </div>
             </div>
         </div>
@@ -207,71 +254,9 @@ function toggleRow(id) {
 
             <div v-show="showClaim" class="p-6 border-t space-y-6">
 
-                <!-- CREATE CLAIM FORM -->
-                <div class="bg-gray-50 rounded-lg p-4 space-y-4 border">
-                    <h3 class="font-semibold text-gray-700">Submit New Claim</h3>
-
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label class="block text-gray-700 text-sm mb-1">Claim Type</label>
-                            <select v-model="newClaim.type" class="border px-3 py-2 rounded-md w-full">
-                                <option disabled value="">Select type</option>
-                                <option>Travel</option>
-                                <option>Food & Beverage</option>
-                                <option>Tools</option>
-                                <option>Misc</option>
-                            </select>
-                        </div>
-
-                        <div>
-                            <label class="block text-gray-700 text-sm mb-1">Amount</label>
-                            <input v-model="newClaim.amount" type="number"
-                                   class="border px-3 py-2 rounded-md w-full" placeholder="0.00">
-                        </div>
-
-                        <div>
-                            <label class="block text-gray-700 text-sm mb-1">Date</label>
-                            <input v-model="newClaim.date" type="date"
-                                   class="border px-3 py-2 rounded-md w-full">
-                        </div>
-                    </div>
-
-                    <button @click="createClaim"
-                            class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">
-                        Submit Claim
-                    </button>
-                </div>
-
-
-                <!-- CLAIM HISTORY TABLE -->
-                <div>
-                    <h3 class="font-semibold text-gray-700 mb-2">Claim History</h3>
-
-                    <table class="min-w-full text-sm divide-y divide-gray-200 bg-white rounded-lg shadow">
-                        <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-3 py-2 text-left">Type</th>
-                            <th class="px-3 py-2 text-left">Amount</th>
-                            <th class="px-3 py-2 text-left">Date</th>
-                            <th class="px-3 py-2 text-left">Status</th>
-                        </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-200">
-                        <tr v-for="c in claims" :key="c.id">
-                            <td class="px-3 py-2">{{ c.type }}</td>
-                            <td class="px-3 py-2">RM {{ c.amount.toFixed(2) }}</td>
-                            <td class="px-3 py-2">{{ c.date }}</td>
-                            <td class="px-3 py-2">
-                                <span :class="c.status === 'Approved' ? 'text-green-600' : 'text-yellow-600'"
-                                      class="font-semibold">
-                                    {{ c.status }}
-                                </span>
-                            </td>
-                        </tr>
-                        </tbody>
-                    </table>
-                </div>
-
+                <Claim
+                    :project-id="project.id"
+                />
             </div>
         </div>
 
