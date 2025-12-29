@@ -46,7 +46,6 @@ class PurchaseRequestToPurchaseOrderService
                 'order_date' => now(),
                 'expected_delivery_date' => $meta['expected_delivery_date'] ?? null,
                 'status' => 'issued',
-                'terms' => $meta['terms'] ?? null,
                 'remark' => $meta['remark'] ?? null,
             ]);
 

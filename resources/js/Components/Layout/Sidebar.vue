@@ -36,7 +36,7 @@ const menuTransactions = [
     { name: "Claims", route: "claims.index", active: () => route().current("claims.*") },
     { name: "Invoice", route: "invoice.index", active: () => route().current("invoice.*") },
     { name: "Purchase Request", route: "purchase-request.index", active: () => route().current("purchase-request.*") },
-    { name: "Purchase Order", route: "purchase.index", active: () => route().current("purchase.*") },
+    { name: "Purchase Order", route: "purchase-orders.index", active: () => route().current("purchase-orders.*") },
 ]
 
 // ---------------- STACKHOLDER SUBMENU ----------------

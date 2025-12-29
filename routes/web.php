@@ -20,6 +20,7 @@ use App\Http\Controllers\Project\MilestoneController;
 
 use App\Http\Controllers\Transactions\ClaimsController;
 use App\Http\Controllers\Transactions\PurchaseRequestController;
+use App\Http\Controllers\Transactions\PurchaseOrderController;
 
 use App\Http\Controllers\Pdf\ClaimPdfController;
 
@@ -170,14 +171,24 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         // ------------------------------
     // PURCHASE ORDERS
     // ------------------------------
-    Route::prefix('purchase')->name('purchase.')->group(function () {
-        Route::get('/', [PurchaseOrderController::class, 'index'])->name('index');
-        Route::get('/create', [PurchaseOrderController::class, 'create'])->name('create');
-        Route::post('/', [PurchaseOrderController::class, 'store'])->name('store');
-        Route::get('/{order}', [PurchaseOrderController::class, 'show'])->name('show');
-        Route::get('/{order}/edit', [PurchaseOrderController::class, 'edit'])->name('edit');
-        Route::put('/{order}', [PurchaseOrderController::class, 'update'])->name('update');
-        Route::delete('/{order}', [PurchaseOrderController::class, 'destroy'])->name('destroy');
+    Route::prefix('purchase-orders')->name('purchase-orders.')->group(function () {
+        Route::get('/', [PurchaseOrderController::class, 'index'])
+            ->name('index');
+
+        Route::get('/{uuid}', [PurchaseOrderController::class, 'show'])
+            ->name('show');
+
+        Route::post('/{uuid}/submit', [PurchaseOrderController::class, 'submit'])
+            ->name('submit');
+
+        Route::post('/{uuid}/confirm-order', [PurchaseOrderController::class, 'confirmOrder'])
+            ->name('confirm-order');
+
+        Route::post('/{uuid}/cancel', [PurchaseOrderController::class, 'cancel'])
+            ->name('cancel');
+
+        Route::post('/{uuid}/update-terms', [PurchaseOrderController::class, 'updateTerms'])->name('update-terms');
+
     });
 
     // ------------------------------

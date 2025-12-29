@@ -31,6 +31,10 @@ class PurchaseOrder extends Model
             }
         });
     }
+    
+    protected $casts = [
+        'terms' => 'array',
+    ];
 
     public function purchaseRequest()
     {
@@ -60,8 +64,19 @@ class PurchaseOrder extends Model
         return $this->hasMany(PurchaseDelivery::class);
     }
 
-    public function approver()
+    public function confirmBy()
     {
-        return $this->belongsTo(User::class, 'approver_id');
+        return $this->belongsTo(User::class, 'confirmed_by');
     }
+
+    public function attachments()
+    {
+        return $this->morphMany(Attachment::class, 'attachable');
+    }
+
+    public function signedPo()
+    {
+        return $this->morphOne(Attachment::class, 'attachable');
+    }
+
 }

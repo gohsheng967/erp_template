@@ -29,7 +29,7 @@ return new class extends Migration
             $table->string('status')->default('draft');
             // draft | issued | partially_delivered | completed | cancelled
 
-            $table->text('terms')->nullable();
+            $table->json('terms')->nullable();
             $table->text('remark')->nullable();
             $table->datetime('approved_at')->nullable();
             $table->unsignedBigInteger('approver_id')->nullable();

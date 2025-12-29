@@ -47,13 +47,13 @@ class PurchaseOrderItem extends Model
        DERIVED VALUES
     ====================== */
 
-    public function getDeliveredQuantityAttribute()
-    {
-        return $this->deliveries()->sum('received_quantity');
-    }
+    // public function getDeliveredQuantityAttribute()
+    // {
+    //     return $this->deliveries()->sum('received_quantity');
+    // }
 
-    public function getRemainingQuantityAttribute()
-    {
-        return $this->quantity - $this->delivered_quantity;
-    }
+    // public function getRemainingQuantityAttribute()
+    // {
+    //     return $this->quantity - $this->delivered_quantity;
+    // }
 }
