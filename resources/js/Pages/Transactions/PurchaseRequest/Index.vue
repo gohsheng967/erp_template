@@ -44,6 +44,8 @@ const tabs = [
     { key: 'submitted', label: 'Submitted' },
     { key: 'approved',  label: 'Approved' },
     { key: 'rejected',  label: 'Rejected' },
+    { key: 'issued',  label: 'PO Issued' },
+
 ]
 
 const badgeTabs = ['submitted', 'approved']

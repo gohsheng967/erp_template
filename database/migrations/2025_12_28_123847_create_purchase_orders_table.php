@@ -17,19 +17,13 @@ return new class extends Migration
 
             $table->string('code')->unique(); // PO-2025-0001
 
-            $table->foreignId('purchase_request_id')
-                ->constrained()
-                ->cascadeOnDelete();
+            $table->unsignedBigInteger('purchase_request_id');
+            $table->unsignedBigInteger('supplier_id');
 
-            $table->foreignId('purchase_quotation_id')
-                ->constrained()
-                ->restrictOnDelete();
-
-            $table->string('supplier_name'); // snapshot
             $table->decimal('total_amount', 15, 2);
-            $table->string('currency', 10)->default('MYR');
 
             $table->date('order_date')->nullable();
+
             $table->date('expected_delivery_date')->nullable();
 
             $table->string('status')->default('draft');
@@ -37,6 +31,8 @@ return new class extends Migration
 
             $table->text('terms')->nullable();
             $table->text('remark')->nullable();
+            $table->datetime('approved_at')->nullable();
+            $table->unsignedBigInteger('approver_id')->nullable();
 
             $table->timestamps();
         });

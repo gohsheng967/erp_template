@@ -23,6 +23,23 @@ const companyProfile = ref(null)
 const approvalRemark = ref('')
 const selectedQuotationId = ref(null)
 
+const canSelectQuotation = computed(() => {
+  return fullRequest.value?.status === 'submitted'
+})
+
+watch(
+  () => fullRequest.value,
+  (val) => {
+    if (
+      val?.status === 'approved' &&
+      val?.approved_quotation_id
+    ) {
+      selectedQuotationId.value = val.approved_quotation_id
+    }
+  },
+  { immediate: true }
+)
+
 /* =====================
    LOAD PR (ALWAYS FRESH)
 ===================== */
@@ -42,6 +59,14 @@ async function loadRequest() {
     )
     fullRequest.value = res.data.request
     companyProfile.value = res.data.company
+
+    if (
+      fullRequest.value.status === 'approved' &&
+      fullRequest.value.approved_quotation_id
+    ) {
+      selectedQuotationId.value =
+        fullRequest.value.approved_quotation_id
+    }
 
   } catch (e) {
     console.error(e)
@@ -188,7 +213,7 @@ function closeModal() {
             <div
               v-for="q in fullRequest.quotations ?? []"
               :key="q.id"
-              @click="selectedQuotationId = q.id"
+              @click="canSelectQuotation && (selectedQuotationId = q.id)"
               class="relative cursor-pointer border rounded-md p-3 flex items-start gap-3 transition"
               :class="{
                 'border-indigo-600 bg-indigo-50': selectedQuotationId === q.id,

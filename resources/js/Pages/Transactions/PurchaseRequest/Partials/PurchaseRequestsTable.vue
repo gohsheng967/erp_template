@@ -16,7 +16,7 @@ const props = defineProps({
         required: true,
     },
     status: {
-        type: String, // draft | submitted | approved | rejected
+        type: String, // draft | submitted | approved | issued | rejected
         required: true,
     },
 })
@@ -51,6 +51,13 @@ const columnsByStatus = {
         'action',
     ],
 
+    issued: [
+        'pr_no',
+        'po_no',
+        'approved_quotation',
+        'reviewer_remark',
+    ],
+
     rejected: [
         'pr_no',
         'title',
@@ -63,6 +70,7 @@ const columnsByStatus = {
 
 const columnLabels = {
     pr_no: 'PR No',
+    po_no: 'PO No',
     title: 'Title / Purpose',
     requester: 'Requested By',
     total_amount: 'Total Amount',
@@ -70,13 +78,14 @@ const columnLabels = {
     submitted_at: 'Submitted At',
     approved_by: 'Approved By',
     approved_at: 'Approved At',
+    reviewer_remark: 'Approver Remark',
+    approved_quotation: 'Approved Quotation',
     action: 'Action',
 }
 
 const visibleColumns = computed(() =>
     columnsByStatus[props.status] ?? []
 )
-
 
 /* =========================
    SUBTOTAL
@@ -127,9 +136,21 @@ function closeDelete() {
 }
 
 /* =========================
+   ROW CLICK (ISSUED ONLY)
+========================= */
+function onRowClick(pr) {
+    if (props.status !== 'issued') return
+    if (!pr.purchase_order?.uuid) return
+
+    router.visit(
+        route('purchase-orders.show', pr.purchase_order.uuid)
+    )
+}
+
+/* =========================
    HELPERS
 ========================= */
-function rowClass(row) {
+function rowClass() {
     return 'hover:bg-gray-50'
 }
 
@@ -137,6 +158,12 @@ function renderCell(row, col) {
     switch (col) {
         case 'pr_no':
             return row.code
+
+        case 'po_no':
+            return row.purchase_order?.code ?? '-'
+
+        case 'reviewer_remark':
+            return row.reviewer_remark ?? '-'
 
         case 'title':
             return row.title
@@ -154,7 +181,7 @@ function renderCell(row, col) {
             return row.submitted_at ?? '-'
 
         case 'approved_by':
-            return row.approved_by?.name ?? '-'
+            return row.approver?.name ?? '-'
 
         case 'approved_at':
             return row.approved_at ?? '-'
@@ -167,7 +194,6 @@ function renderCell(row, col) {
 
 <template>
     <div class="overflow-x-auto border rounded bg-white">
-
         <table class="min-w-full text-sm">
 
             <!-- HEADER -->
@@ -192,7 +218,14 @@ function renderCell(row, col) {
                 <tr
                     v-for="pr in prs.data"
                     :key="pr.uuid"
-                    :class="['border-t', rowClass(pr)]"
+                    :class="[
+                        'border-t',
+                        rowClass(),
+                        status === 'issued'
+                            ? 'cursor-pointer hover:bg-indigo-50'
+                            : ''
+                    ]"
+                    @click="onRowClick(pr)"
                 >
                     <td
                         v-for="col in visibleColumns"
@@ -209,11 +242,30 @@ function renderCell(row, col) {
                             :pr="pr"
                             :status="status"
                             @delete="askDelete"
-                            @view="emit('view', $event)"   
+                            @view="emit('view', $event)"
                         />
 
+                        <!-- APPROVED QUOTATION ICON -->
+                        <a
+                            v-else-if="col === 'approved_quotation'
+                                && pr.approved_quotation?.attachment?.url"
+                            :href="pr.approved_quotation.attachment.url"
+                            target="_blank"
+                            @click.stop
+                            class="inline-flex items-center justify-center text-indigo-600 hover:text-indigo-800"
+                            title="View approved quotation"
+                        >
+                            <i class="mdi mdi-paperclip text-lg"></i>
+                        </a>
 
-                        <!-- CELL -->
+                        <span
+                            v-else-if="col === 'approved_quotation'"
+                            class="text-gray-400"
+                        >
+                            -
+                        </span>
+
+                        <!-- NORMAL CELLS -->
                         <span v-else>
                             {{ renderCell(pr, col) }}
                         </span>

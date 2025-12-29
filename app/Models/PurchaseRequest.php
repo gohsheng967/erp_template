@@ -51,7 +51,7 @@ class PurchaseRequest extends Model
 
     public function purchaseOrder()
     {
-        return $this->hasOne(PurchaseOrder::class);
+        return $this->hasOne(PurchaseOrder::class, 'purchase_request_id');
     }
 
     public function requester()

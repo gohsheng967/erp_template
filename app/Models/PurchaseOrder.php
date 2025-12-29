@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Str;
 
 class PurchaseOrder extends Model
 {
@@ -10,7 +11,7 @@ class PurchaseOrder extends Model
         'code',
         'purchase_request_id',
         'purchase_quotation_id',
-        'supplier_name',
+        'supplier_id',
         'total_amount',
         'currency',
         'order_date',
@@ -18,7 +19,18 @@ class PurchaseOrder extends Model
         'status',
         'terms',
         'remark',
+        'approved_at',
+        'approver_id',
     ];
+
+    protected static function booted()
+    {
+        static::creating(function ($model) {
+            if (!$model->uuid) {
+                $model->uuid = (string) Str::uuid();
+            }
+        });
+    }
 
     public function purchaseRequest()
     {
@@ -33,6 +45,11 @@ class PurchaseOrder extends Model
         );
     }
 
+    public function supplier()
+    {
+        return $this->belongsTo(Supplier::class);
+    }
+
     public function items()
     {
         return $this->hasMany(PurchaseOrderItem::class);
@@ -42,5 +59,9 @@ class PurchaseOrder extends Model
     {
         return $this->hasMany(PurchaseDelivery::class);
     }
-}
 
+    public function approver()
+    {
+        return $this->belongsTo(User::class, 'approver_id');
+    }
+}

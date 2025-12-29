@@ -15,6 +15,7 @@ use Inertia\Inertia;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
+use App\Services\Document\PurchaseRequestToPurchaseOrderService;
 use DB;
 
 class PurchaseRequestController extends Controller
@@ -29,16 +30,12 @@ class PurchaseRequestController extends Controller
             'to'     => $request->get('to'),
         ];
 
-        $baseQuery = PurchaseRequest::query()
-            ->with([
-                'requester',
-                'approver',
-            ])
-            ->withCount([
-                'items',
-                'quotations',
-            ])
-            ->withSum('items as total_amount', 'total_price')
+        /*
+        |--------------------------------------------------------------------------
+        | 1️⃣ Base Filter Query (NO relations, NO aggregates)
+        |--------------------------------------------------------------------------
+        */
+        $filterQuery = PurchaseRequest::query()
             ->when($filters['search'], function ($q) use ($filters) {
                 $q->where(function ($qq) use ($filters) {
                     $qq->where('code', 'like', "%{$filters['search']}%")
@@ -55,38 +52,80 @@ class PurchaseRequestController extends Controller
                 $q->whereDate('created_at', '<=', $filters['to'])
             );
 
+        /*
+        |--------------------------------------------------------------------------
+        | 2️⃣ Listing Query (relations + aggregates ONLY)
+        |--------------------------------------------------------------------------
+        */
+        $listQuery = (clone $filterQuery)
+            ->with([
+                'requester',
+                'approver',
+                'purchaseOrder',
+                'approvedQuotation.attachment',
+            ])
+            ->withCount([
+                'items',
+                'quotations',
+            ])
+            ->withSum('items as total_amount', 'total_price');
+
+        /*
+        |--------------------------------------------------------------------------
+        | 3️⃣ Tabs Data
+        |--------------------------------------------------------------------------
+        */
         $purchaseRequests = [
-            'draft' => (clone $baseQuery)
+            'draft' => (clone $listQuery)
                 ->where('status', 'draft')
                 ->latest()
                 ->paginate(10),
 
-            'submitted' => (clone $baseQuery)
+            'submitted' => (clone $listQuery)
                 ->where('status', 'submitted')
                 ->latest('updated_at')
                 ->paginate(10),
 
-            'approved' => (clone $baseQuery)
+            'approved' => (clone $listQuery)
                 ->where('status', 'approved')
                 ->latest('updated_at')
                 ->paginate(10),
 
-            'rejected' => (clone $baseQuery)
+            'rejected' => (clone $listQuery)
                 ->where('status', 'rejected')
                 ->latest('updated_at')
                 ->paginate(10),
+
+            'issued' => (clone $listQuery)
+                ->where('status', 'issued')
+                ->latest('updated_at')
+                ->paginate(10),
         ];
 
+        /*
+        |--------------------------------------------------------------------------
+        | 4️⃣ Tab Counters (FAST & SAFE)
+        |--------------------------------------------------------------------------
+        */
         $counts = [
-            'submitted' => (clone $baseQuery)
+            'submitted' => (clone $filterQuery)
                 ->where('status', 'submitted')
                 ->count(),
 
-            'approved' => (clone $baseQuery)
+            'approved' => (clone $filterQuery)
                 ->where('status', 'approved')
+                ->count(),
+
+            'issued' => (clone $filterQuery)
+                ->where('status', 'issued')
                 ->count(),
         ];
 
+        /*
+        |--------------------------------------------------------------------------
+        | 5️⃣ Render
+        |--------------------------------------------------------------------------
+        */
         return Inertia::render('Transactions/PurchaseRequest/Index', [
             'purchaseRequests' => $purchaseRequests,
             'counts'           => $counts,
@@ -94,6 +133,7 @@ class PurchaseRequestController extends Controller
             'activeTab'        => $tab,
         ]);
     }
+
 
     public function store(Request $request)
     {
@@ -538,13 +578,11 @@ class PurchaseRequestController extends Controller
         ]);
     }
 
-    public function approval(Request $request, string $uuid)
+    public function approval(Request $request, string $uuid, PurchaseRequestToPurchaseOrderService $prToPo) 
     {
         $data = $request->validate([
             'status' => ['required', 'in:approved,rejected'],
             'remark' => ['nullable', 'string'],
-
-            // 👇 required only when approving
             'quotation_id' => [
                 'nullable',
                 'required_if:status,approved',
@@ -552,46 +590,68 @@ class PurchaseRequestController extends Controller
             ],
         ]);
 
-        $pr = PurchaseRequest::where('uuid', $uuid)->firstOrFail();
+        $pr = PurchaseRequest::with('items')
+            ->where('uuid', $uuid)
+            ->firstOrFail();
 
         if ($pr->status !== 'submitted') {
             abort(422, 'Purchase request not in submitted state');
         }
 
-        if ($data['status'] === 'approved') {
-            $quotationId = $data['quotation_id'];
+        /* ======================
+        REJECT
+        ====================== */
+        if ($data['status'] === 'rejected') {
+            $pr->update([
+                'status'          => 'rejected',
+                'reviewer_remark' => $data['remark'],
+                'reviewer'     => auth()->id(),
+                'approved_at'     => now(),
+            ]);
 
-            $belongs = $pr->quotations()
-                ->where('purchase_quotations.id', $quotationId)
-                ->exists();
-
-            if (! $belongs) {
-                throw ValidationException::withMessages([
-                    'quotation_id' => 'Invalid quotation selected for this purchase request.',
-                ]);
-            }
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Purchase request rejected',
+            ]);
         }
 
-        $pr->update([
-            'status'                => $data['status'],
-            'reviewer_remark'       => $data['remark'],
-            'approver_id'           => auth()->id(),
-            'approved_at'           => now(),
+        /* ======================
+        APPROVE
+        ====================== */
 
-            'approved_quotation_id' =>
-                $data['status'] === 'approved'
-                    ? $data['quotation_id']
-                    : null,
+        $quotation = PurchaseQuotation::where('id', $data['quotation_id'])->firstOrFail();
+
+        // 1️⃣ approve PR
+        $pr->update([
+            'status'                => 'approved',
+            'reviewer_remark'       => $data['remark'],
+            'reviewer'           => auth()->id(),
+            'approved_at'           => now(),
+            'approved_quotation_id' => $quotation->id,
         ]);
+
+        // 2️⃣ build PO items FROM PR ITEMS ✅
+        $items = $pr->items->map(fn ($item) => [
+            'item_name'                => $item->title,
+            'description'              => $item->description,
+            'quantity'                 => $item->quantity,
+            'unit_price'               => $item->unit_price,
+            'total_amount'             => $item->quantity * $item->unit_price
+        ])->toArray();
+
+        // 3️⃣ call PR → PO service
+        $po = $prToPo->createPO($pr, $quotation->supplier_id, $items, [
+                'terms'    => $quotation->terms ?? null,
+                'remark'   => 'Auto-created from approved PR',
+            ]
+        );
 
         return response()->json([
             'status'  => 'success',
-            'message' =>
-                $data['status'] === 'approved'
-                    ? 'Purchase request approved'
-                    : 'Purchase request rejected',
-        ]);
-    }
+            'message' => 'Purchase request approved and purchase order created',
+            'po_id'   => $po->id,
+        ]);    
+}
 
     public function destroy(string $uuid)
     {
@@ -612,5 +672,4 @@ class PurchaseRequestController extends Controller
 
         return back()->with('success', 'Purchase request deleted');
     }
-
 }
