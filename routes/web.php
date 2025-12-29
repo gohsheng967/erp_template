@@ -9,6 +9,7 @@ use App\Http\Controllers\FileCategoryController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\WidgetController;
+use App\Http\Controllers\SupplierController;
 
 use App\Http\Controllers\Project\ProjectController;
 use App\Http\Controllers\Project\ProjectDocumentController;
@@ -39,7 +40,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
     Route::get('action-task-count', [WidgetController::class, 'actionTask'])->name('priority-summary');
     Route::get('action-task-list',  [WidgetController::class, 'actionTaskList'])->name('priority-list');
-    
+
     Route::get('/dashboard', function () {
         return Inertia::render('Dashboard');
     })->name('dashboard');
@@ -198,8 +199,27 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     Route::prefix('clients')->resource('clients', ClientController::class)->except(['create', 'edit']);
 
     Route::prefix('suppliers')->name('suppliers.')->group(function () {
-        Route::get('/', [ClaimController::class, 'index'])->name('index');
+
+        Route::get('/', [SupplierController::class, 'index'])->name('index');
+        Route::get('/create', [SupplierController::class, 'create'])->name('create');
+        Route::post('/', [SupplierController::class, 'store'])->name('store');
+
+        Route::get('/search', [SupplierController::class, 'search'])->name('search');
+        Route::post('/inline', [SupplierController::class, 'inlineStore'])->name('inline');
+        Route::get('/{uuid}', [SupplierController::class, 'show'])->name('show');
+        Route::get('/{uuid}/edit', [SupplierController::class, 'edit'])->name('edit');
+        Route::post('/{uuid}', [SupplierController::class, 'update'])->name('update');
+
+        Route::delete('/{uuid}', [SupplierController::class, 'destroy'])->name('destroy');
+
+        Route::patch('/{uuid}/note', [SupplierController::class, 'updateNote'])->name('update-note');
+
+        Route::post('/{uuid}/purchase-quotations/upload', [SupplierController::class, 'upload'])->name('purchase-quotations.upload');
+        Route::delete('/{uuid}/purchase-quotations/{quotation}', [SupplierController::class, 'destroyQuotation'])->name('purchase-quotations.destroy');
     });
+
+
+
 
 
     // ------------------------------

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
+use Str;
 
 class Attachment extends Model
 {
@@ -16,6 +17,15 @@ class Attachment extends Model
         'mime_type',
         'file_size',
     ];
+
+    protected static function booted()
+    {
+        static::creating(function ($model) {
+            if (!$model->uuid) {
+                $model->uuid = (string) Str::uuid();
+            }
+        });
+    }
 
     public function attachable()
     {

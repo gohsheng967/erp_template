@@ -25,11 +25,6 @@ watch(open, (val) => {
 // SUBMENU DEFINITIONS
 // =============================
 
-// ---------------- DOCUMENT SUBMENU ----------------
-const menuDocuments = [
-    { name: "Document Types", route: "documents.types", active: () => route().current("documents.types") },
-]
-
 // ---------------- INVENTORY SUBMENU ----------------
 const menuInventory = [
     { name: "Office Inventory", route: "inventory.office", active: () => route().current("inventory.office") },
@@ -46,7 +41,7 @@ const menuTransactions = [
 // ---------------- STACKHOLDER SUBMENU ----------------
 const menuStakeholders = [
     { name: "Clients", route: "clients.index", active: () => route().current("clients.*") },
-    { name: "Supplier", route: "suppliers.index", active: () => route().current("suppliers.*") },
+    { name: "Suppliers", route: "suppliers.index", active: () => route().current("suppliers.*") },
 ]
 
 // ---------------- SETTINGS SUBMENU ----------------
@@ -106,20 +101,10 @@ const menu = reactive([
         name: "Stakeholders",
         type: "dropdown",
         open: false,
-        active: () => route().current("inventory.*"),
+        active: () => route().current("suppliers.*") ||
+            route().current("clients.*"),
         icon: `<i class="mdi mdi-account-multiple-outline"></i>`,
         children: menuStakeholders,
-    },
-
-
-    // DOCUMENTS
-    {
-        name: "Documents",
-        type: "dropdown",
-        open: false,
-        active: () => route().current("documents.*"),
-        icon: `<i class="mdi mdi-file-document-outline"></i>`,
-        children: menuDocuments,
     },
 ])
 </script>
