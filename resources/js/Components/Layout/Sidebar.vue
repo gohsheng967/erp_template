@@ -33,9 +33,10 @@ const menuInventory = [
 
 // ---------------- TRANSACTIONS SUBMENU ----------------
 const menuTransactions = [
-    { name: "Purchase Order", route: "purchase.index", active: () => route().current("purchase.*") },
     { name: "Claims", route: "claims.index", active: () => route().current("claims.*") },
     { name: "Invoice", route: "invoice.index", active: () => route().current("invoice.*") },
+    { name: "Purchase Request", route: "purchase-request.index", active: () => route().current("purchase-request.*") },
+    { name: "Purchase Order", route: "purchase.index", active: () => route().current("purchase.*") },
 ]
 
 // ---------------- STACKHOLDER SUBMENU ----------------
@@ -79,6 +80,7 @@ const menu = reactive([
         type: "dropdown",
         open: false,
         active: () =>
+            route().current("purchase-request.*") ||
             route().current("purchase.*") ||
             route().current("claims.*") ||
             route().current("invoice.*"),

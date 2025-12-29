@@ -80,12 +80,6 @@ function formatCurrency(value) {
 
         <!-- COMPANY INFO -->
         <div class="flex gap-3 max-w-[65%]">
-            <img
-                v-if="company.logo"
-                :src="`/storage/${company.logo}`"
-                class="h-12 object-contain"
-            />
-
             <div>
                 <div class="font-semibold text-base">
                     {{ company.company_name }}

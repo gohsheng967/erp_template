@@ -19,6 +19,8 @@ use App\Http\Controllers\Project\ProjectTaskController;
 use App\Http\Controllers\Project\MilestoneController;
 
 use App\Http\Controllers\Transactions\ClaimsController;
+use App\Http\Controllers\Transactions\PurchaseRequestController;
+
 use App\Http\Controllers\Pdf\ClaimPdfController;
 
 use App\Http\Controllers\Auth\MFASetupController;
@@ -216,11 +218,27 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
         Route::post('/{uuid}/purchase-quotations/upload', [SupplierController::class, 'upload'])->name('purchase-quotations.upload');
         Route::delete('/{uuid}/purchase-quotations/{quotation}', [SupplierController::class, 'destroyQuotation'])->name('purchase-quotations.destroy');
+
+        Route::get('/simple-list/options', [SupplierController::class, 'list'])->name('simple-list');
     });
 
+    Route::prefix('purchase-request')->name('purchase-request.')->group(function () {
+        Route::get('/',[PurchaseRequestController::class, 'index'])->name('index');
+        Route::post('/purchase-quotations', [PurchaseRequestController::class, 'addQuotations'])->name('add-quote');
+        Route::get('/init-form',[PurchaseRequestController::class, 'initPurchaseRequestForm'])->name('init-form');
+        Route::get('/{uuid}/show',[PurchaseRequestController::class, 'show'])->name('show');
+        Route::post('/', [PurchaseRequestController::class, 'store'])->name('store');
+        Route::get('/{uuid}/edit', [PurchaseRequestController::class, 'edit'])->name('edit');
+        Route::put('{uuid}', [PurchaseRequestController::class, 'update'])->name('update');
+        Route::post('{uuid}/submit', [PurchaseRequestController::class, 'submit'])->name('submit');
+        Route::get('{uuid}/supplier/{supplier_uuid}/quotations', [PurchaseRequestController::class, 'quotations'])->name('quotations');
+        Route::post('/{uuid}/quotations/attach', [PurchaseRequestController::class, 'attachQuotation'])->name('quotations.attach');
+        Route::delete('/{uuid}/quotations/{quotationUuid}', [PurchaseRequestController::class, 'detachQuotation'])->name('detach-quotation');
 
+        Route::delete('/{uuid}', [PurchaseRequestController::class, 'destroy'])->name('destroy');
+        Route::post('/{uuid}/approval', [PurchaseRequestController::class, 'approval'])->name('approval');
 
-
+    });
 
     // ------------------------------
     // INVOICE

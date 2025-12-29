@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('purchase_requests', function (Blueprint $table) {
             $table->id();
             $table->uuid('uuid')->unique();
-            $table->string('code')->unique(); // PR-2025-0001
+            $table->string('code')->nullable(); // PR-2025-0001
             $table->string('title');
             $table->text('purpose')->nullable();
 

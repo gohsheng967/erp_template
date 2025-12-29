@@ -58,7 +58,7 @@ class SupplierController extends Controller
     {
         $data = $request->validate([
             'company_name'     => 'required|string|max:255',
-            'registration_no'  => 'required|string|max:100|unique',
+            'registration_no'  => 'required|string|max:100|unique:'.Supplier::class,
             'contact_person'   => 'nullable|string|max:255',
             'contact_phone'    => 'nullable|string|max:50',
             'email'            => 'nullable|email|max:255',
@@ -204,7 +204,7 @@ class SupplierController extends Controller
             'quotations' => ['required', 'array'],
             'quotations.*.file' => ['required', 'file', 'mimes:pdf', 'max:10240'],
             'quotations.*.amount' => ['required', 'numeric', 'min:0'],
-            'quotations.*.currency' => ['required', 'string', 'max:10'],
+            'quotations.*.quotation_no' => ['required', 'string'],
             'quotations.*.delivery_time' => ['nullable', 'string', 'max:50'],
             'quotations.*.terms' => ['nullable', 'string'],
         ]);
@@ -220,7 +220,7 @@ class SupplierController extends Controller
                 $quotation = PurchaseQuotation::create([
                     'supplier_id'   => $supplier->id, 
                     'amount'        => $data['amount'],
-                    'currency'      => $data['currency'],
+                    'quotation_no'  => $data['quotation_no'],
                     'delivery_time' => $data['delivery_time'] ?? null,
                     'terms'         => $data['terms'] ?? null,
                 ]);
@@ -273,4 +273,15 @@ class SupplierController extends Controller
             'message' => 'Quotation deleted successfully.'
         ]);
     }
+
+    public function list()
+    {
+        $list = Supplier::query()
+            ->where('status', 'active')
+            ->orderBy('company_name')
+            ->get(['uuid', 'company_name']);
+
+        return response()->json($list);
+    }
+
 }

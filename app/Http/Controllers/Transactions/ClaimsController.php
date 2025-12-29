@@ -287,10 +287,7 @@ class ClaimsController extends Controller
 
             /* -------- Generate claim number on submit -------- */
             if ($validated['status'] === 'submitted' && !$claim->claim_no) {
-                $claim->claim_no = RunningNumberService::next(
-                    documentType: 'claim',
-                    prefix: 'CLM'
-                );
+                $claim->claim_no = RunningNumberService::next(documentType: 'claim');
                 $claim->submitted_at = now();
             }
 

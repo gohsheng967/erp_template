@@ -22,7 +22,7 @@ export function formatCurrency(
     }).format(value ?? 0)
 }
 
-export function formatDate(
+export function formatDateTime(
     value
 ) {
     if (!value) return "-"
@@ -32,5 +32,16 @@ export function formatDate(
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
+    })
+}
+
+export function formatDate(
+    value
+) {
+    if (!value) return "-"
+    return new Date(value).toLocaleString("en-MY", {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
     })
 }

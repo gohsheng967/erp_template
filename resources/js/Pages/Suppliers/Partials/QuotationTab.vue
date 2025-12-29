@@ -4,6 +4,7 @@ import { Link, router } from '@inertiajs/vue3'
 import axios from 'axios'
 
 import DeleteConfirmation from '@/Components/DeleteConfirmation.vue'
+import AddQuotationsModal from '@/Components/AddQuotationsModal.vue'
 
 const toast = inject('toast', null)
 const showTerms = ref(false)
@@ -12,6 +13,8 @@ function openTerms(q) {
   activeTerms.value = q.terms
   showTerms.value = true
 }
+
+const showAddToPR = ref(false)
 
 /* ======================
    PROPS
@@ -53,7 +56,7 @@ function addFiles(fileList) {
       uploadItems.value.push({
         file,
         amount: '',
-        currency: 'MYR',
+        quotation_no: '',
         delivery_time: '',
         terms: '',
       })
@@ -96,7 +99,7 @@ async function uploadQuotations() {
   uploadItems.value.forEach((q, i) => {
     form.append(`quotations[${i}][file]`, q.file)
     form.append(`quotations[${i}][amount]`, q.amount)
-    form.append(`quotations[${i}][currency]`, q.currency)
+    form.append(`quotations[${i}][quotation_no]`, q.quotation_no)
     form.append(`quotations[${i}][delivery_time]`, q.delivery_time)
     form.append(`quotations[${i}][terms]`, q.terms)
   })
@@ -158,6 +161,17 @@ async function confirmDeleteQuotation() {
   }
 }
 
+function handleAddSuccess() {
+  showAddToPR.value = false
+  selected.value = []
+
+  toast?.value?.show(
+    'Quotation(s) added to Purchase Request',
+    'success'
+  )
+
+  router.reload({ preserveScroll: true })
+}
 
 /* ======================
    LINKED PR WIDGET
@@ -167,14 +181,6 @@ function toggleWidget(id) {
     activeQuotationId.value === id ? null : id
 }
 
-/* ======================
-   SELECTION
-====================== */
-function toggleSelect(id) {
-  selected.value.includes(id)
-    ? selected.value = selected.value.filter(v => v !== id)
-    : selected.value.push(id)
-}
 </script>
 
 <template>
@@ -241,13 +247,9 @@ function toggleSelect(id) {
             placeholder="Amount *"
             class="border rounded-md px-2 py-1.5 text-sm" />
 
-          <select v-model="q.currency"
-            class="border rounded-md px-2 py-1.5 text-sm">
-            <option>MYR</option>
-            <option>USD</option>
-            <option>SGD</option>
-            <option>CNY</option>
-          </select>
+          <input v-model="q.quotation_no" type="text" 
+            placeholder="Quotation No *"
+            class="border rounded-md px-2 py-1.5 text-sm" />
 
           <input v-model="q.delivery_time" type="number"
             placeholder="Delivery"
@@ -270,6 +272,19 @@ function toggleSelect(id) {
       </div>
     </div>
 
+
+    <div
+      v-if="selected.length"
+      class="flex justify-end mb-3"
+    >
+      <button
+        @click="showAddToPR = true"
+        class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+      >
+        Add to Purchase Request ({{ selected.length }})
+      </button>
+    </div>
+
     <!-- =====================
          QUOTATION LIST
     ====================== -->
@@ -278,7 +293,7 @@ function toggleSelect(id) {
         <thead class="bg-gray-100">
           <tr>
             <th class="px-4 py-3"></th>
-            <th class="px-4 py-3 text-center">Currency</th>
+            <th class="px-4 py-3 text-center">Quotation No</th>
             <th class="px-4 py-3 text-center">Amount</th>
             <th class="px-4 py-3 text-center">Delivery</th>
             <th class="px-4 py-3 text-center">Notes</th>
@@ -290,12 +305,14 @@ function toggleSelect(id) {
         <tbody>
           <tr v-for="q in quotations.data" :key="q.id" class="border-t">
             <td class="text-center">
-              <input type="checkbox"
-                :checked="selected.includes(q.id)"
-                @change="toggleSelect(q.id)" />
+              <input
+                type="checkbox"
+                :value="q.id"
+                v-model="selected"
+              />
             </td>
 
-            <td class="text-center py-2">{{ q.currency }}</td>
+            <td class="text-center py-2">{{ q.quotation_no }}</td>
             <td class="text-center py-2">{{ q.amount }}</td>
             <td class="text-center py-2">{{ q.delivery_time }}</td>
             <td class="px-4 py-2 text-center">
@@ -335,7 +352,7 @@ function toggleSelect(id) {
                 <ul class="space-y-1">
                   <li v-for="pr in q.purchase_requests" :key="pr.id">
                     <Link
-                      :href="route('purchase-requests.show', pr.id)"
+                      :href="route('purchase-request.show', pr.id)"
                       target="_blank"
                       class="text-indigo-600 hover:underline text-sm"
                     >
@@ -414,6 +431,14 @@ function toggleSelect(id) {
       @confirm="confirmDeleteQuotation"
       @close="showDeleteConfirm = false"
     />
+
+    <AddQuotationsModal
+        v-if="showAddToPR"
+        :quotation-ids="selected"
+        @close="showAddToPR = false"
+        @success="handleAddSuccess"
+      />
+
 
   <!-- =====================
       TERMS MODAL

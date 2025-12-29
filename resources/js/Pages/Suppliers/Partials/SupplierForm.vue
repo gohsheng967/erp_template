@@ -68,8 +68,9 @@ function submit() {
                 emit('saved')
                 emit('close')
             },
-            onError: () => {
-                toast?.value?.show('Failed to create supplier', 'error')
+            onError: (e) => {
+                console.log(e)
+                toast?.value?.show(e, 'error')
             },
         })
     }

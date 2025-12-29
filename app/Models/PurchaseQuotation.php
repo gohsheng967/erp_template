@@ -15,6 +15,7 @@ class PurchaseQuotation extends Model
         'supplier_name',
         'supplier_pic_name',
         'supplier_pic_contact',
+        'quotation_no',
         'amount',
         'currency',
         'delivery_time',
