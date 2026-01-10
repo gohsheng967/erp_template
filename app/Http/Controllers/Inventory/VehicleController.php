@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\InventoryItem;
 use App\Models\InventoryVehicle;
 use App\Models\InventoryAllocation;
+use App\Models\InventoryInsurance;
 use App\Models\User;
 use App\Models\Project;
 use Illuminate\Support\Facades\Storage;
@@ -404,5 +405,376 @@ class VehicleController extends Controller
                 ->orderBy('code')
                 ->get(),
         ]);
+    }
+
+    public function compliance(string $uuid)
+    {
+        $inventoryItem = InventoryItem::where('uuid', $uuid)->firstOrFail();
+
+        $insurance = $inventoryItem->insurances()
+            ->with('attachment')
+            ->where('status', 'active')
+            ->latest('expiry_date')
+            ->first();
+
+        $insuranceHistory = $inventoryItem->insurances()
+            ->with('attachment')
+            ->orderBy('status')
+            ->latest('expiry_date')
+            ->get();
+
+        $roadtax = $inventoryItem->roadtaxes()
+            ->with('attachment')
+            ->latest('expiry_date')
+            ->first();
+
+        return response()->json([
+            'insurance'         => $insurance,
+            'insurance_history' => $insuranceHistory,
+            'roadtax'           => $roadtax,
+        ]);
+    }
+
+    public function storeInsurance(Request $request, string $uuid)
+    {
+        $inventoryItem = InventoryItem::where('uuid', $uuid)->firstOrFail();
+
+        $isRenew = $request->input('_mode') === 'renew';
+
+        $previousInsurance = null;
+        if ($isRenew) {
+            $previousInsurance = $inventoryItem->insurances()
+                ->where('status', 'active')
+                ->orderByDesc('expiry_date')
+                ->first();
+        }
+
+        /* =========================
+        BASE RULES (ARRAY FORM)
+        ========================= */
+        $rules = [
+            'provider'        => ['nullable', 'string', 'max:255'],
+            'policy_number'   => ['nullable', 'string', 'max:255'],
+            'coverage_type'   => ['nullable', 'string', 'max:100'],
+            'start_date'      => ['nullable', 'date'],
+            'expiry_date'     => ['required', 'date', 'after:start_date'],
+            'coverage_amount' => ['nullable', 'numeric', 'min:0'],
+            'premium_amount'  => ['nullable', 'numeric', 'min:0'],
+            'document'        => ['nullable', 'file', 'max:10240'],
+        ];
+
+        /* =========================
+        RENEW-ONLY VALIDATION
+        ========================= */
+        if ($isRenew && $previousInsurance) {
+            $rules['start_date'][] = function ($attr, $value, $fail) use ($previousInsurance) {
+                if ($value && strtotime($value) < strtotime($previousInsurance->expiry_date)) {
+                    $fail('Renewal start date cannot be earlier than previous expiry date.');
+                }
+            };
+
+            $rules['expiry_date'][] = function ($attr, $value, $fail) use ($previousInsurance) {
+                if (strtotime($value) <= strtotime($previousInsurance->expiry_date)) {
+                    $fail('Renewal expiry date must be after previous expiry date.');
+                }
+            };
+        }
+
+        $data = $request->validate($rules, [
+            'expiry_date.required' => 'Expiry date is required.',
+            'expiry_date.after'    => 'Expiry date must be after the start date.',
+            'document.file'        => 'Uploaded policy document is invalid.',
+            'document.max'         => 'Policy document must not exceed 10MB.',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            /* =========================
+            EXPIRE CURRENT INSURANCE
+            ========================= */
+            $inventoryItem->insurances()
+                ->where('status', 'active')
+                ->update(['status' => 'expired']);
+
+            /* =========================
+            CREATE NEW INSURANCE
+            ========================= */
+            $insurance = $inventoryItem->insurances()->create([
+                ...$data,
+                'status' => 'active',
+            ]);
+
+            /* =========================
+            STORE DOCUMENT
+            ========================= */
+            if ($request->hasFile('document')) {
+                $file = $request->file('document');
+
+                $path = $file->store('insurance-documents', 'public');
+
+                $attachment = Attachment::create([
+                    'category'        => 'inventory_insurance',
+                    'attachable_type' => InventoryInsurance::class,
+                    'attachable_id'   => $insurance->id,
+                    'file_path'       => $path,
+                    'original_name'   => $file->getClientOriginalName(),
+                    'mime_type'       => $file->getClientMimeType(),
+                    'file_size'       => $file->getSize(),
+                    'created_by'      => auth()->id(),
+                ]);
+
+                $insurance->update([
+                    'document_id' => $attachment->id,
+                ]);
+            }
+
+            DB::commit();
+
+            return redirect()
+                ->back()
+                ->with(
+                    'success',
+                    $isRenew
+                        ? 'Insurance renewed successfully.'
+                        : 'Insurance saved successfully.'
+                );
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+
+    public function renewInsurance(Request $request, string $uuid)
+    {
+        $request->merge(['_mode' => 'renew']);
+
+        return $this->storeInsurance($request, $uuid);
+    }
+
+    public function updateInsurance(Request $request, string $uuid, int $insuranceId) 
+    {
+        $inventoryItem = InventoryItem::where('uuid', $uuid)->firstOrFail();
+
+        $insurance = $inventoryItem->insurances()
+            ->where('id', $insuranceId)
+            ->firstOrFail();
+
+        $data = $request->validate([
+            'provider'        => 'nullable|string|max:255',
+            'policy_number'   => 'nullable|string|max:255',
+            'coverage_type'   => 'nullable|string|max:100',
+            'start_date'      => 'nullable|date',
+            'expiry_date'     => 'required|date|after:start_date',
+            'coverage_amount' => 'nullable|numeric|min:0',
+            'premium_amount'  => 'nullable|numeric|min:0',
+            'document'        => 'nullable|file|max:10240',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            $insurance->update($data);
+
+            /* =========================
+            REPLACE DOCUMENT
+            ========================= */
+            if ($request->hasFile('document')) {
+
+                // 🔥 delete old attachment first
+                if ($insurance->document_id) {
+                    $this->deleteAttachment(
+                        Attachment::find($insurance->document_id)
+                    );
+                }
+
+                $file = $request->file('document');
+                $path = $file->store('insurance-documents', 'public');
+
+                $attachment = Attachment::create([
+                    'category'        => 'inventory_insurance',
+                    'attachable_type' => InventoryInsurance::class,
+                    'attachable_id'   => $insurance->id,
+                    'file_path'       => $path,
+                    'original_name'   => $file->getClientOriginalName(),
+                    'mime_type'       => $file->getClientMimeType(),
+                    'file_size'       => $file->getSize(),
+                    'created_by'      => auth()->id(),
+                ]);
+
+                $insurance->update([
+                    'document_id' => $attachment->id,
+                ]);
+            }
+
+            DB::commit();
+
+            return redirect()
+                ->back()
+                ->with('success', 'Insurance updated successfully.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    public function renewRoadtax(Request $request, string $uuid)
+    {
+        $request->merge(['_mode' => 'renew']);
+
+        return $this->storeRoadtax($request, $uuid);
+    }
+
+
+    public function updateRoadtax(Request $request, string $uuid, int $roadtaxId)
+    {
+        $inventoryItem = InventoryItem::where('uuid', $uuid)->firstOrFail();
+
+        $roadtax = $inventoryItem->roadtaxes()->findOrFail($roadtaxId);
+
+        $data = $request->validate([
+            'start_date'  => ['nullable', 'date'],
+            'expiry_date' => ['required', 'date', 'after:start_date'],
+            'amount'      => ['nullable', 'numeric', 'min:0'],
+            'document'    => ['nullable', 'file', 'max:10240'],
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            $roadtax->update($data);
+
+            if ($request->hasFile('document')) {
+                $file = $request->file('document');
+
+                $path = $file->store('roadtax-documents', 'public');
+
+                $attachment = Attachment::create([
+                    'category'        => 'inventory_roadtax',
+                    'attachable_type' => InventoryRoadtax::class,
+                    'attachable_id'   => $roadtax->id,
+                    'file_path'       => $path,
+                    'original_name'   => $file->getClientOriginalName(),
+                    'mime_type'       => $file->getClientMimeType(),
+                    'file_size'       => $file->getSize(),
+                    'created_by'      => auth()->id(),
+                ]);
+
+                $roadtax->update([
+                    'document_id' => $attachment->id,
+                ]);
+            }
+
+            DB::commit();
+
+            return redirect()
+                ->back()
+                ->with('success', 'Roadtax updated successfully.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    public function storeRoadtax(Request $request, string $uuid)
+    {
+        $inventoryItem = InventoryItem::where('uuid', $uuid)->firstOrFail();
+
+        // latest roadtax (for renew validation)
+        $previousRoadtax = $inventoryItem->roadtaxes()
+            ->orderByDesc('expiry_date')
+            ->first();
+
+        $isRenew = $request->input('_mode') == 'renew';
+
+        $rules = [
+            'start_date'  => ['nullable', 'date'],
+            'expiry_date' => ['required', 'date', 'after:start_date'],
+            'amount'      => ['nullable', 'numeric', 'min:0'],
+            'document'    => ['nullable', 'file', 'max:10240'],
+        ];
+
+        // 🔒 RENEW-ONLY VALIDATION
+        if ($isRenew && $previousRoadtax) {
+            $rules['start_date'][] = function ($attr, $value, $fail) use ($previousRoadtax) {
+                if ($value && strtotime($value) < strtotime($previousRoadtax->expiry_date)) {
+                    $fail('Renewal start date cannot be earlier than previous expiry date.');
+                }
+            };
+
+            $rules['expiry_date'][] = function ($attr, $value, $fail) use ($previousRoadtax) {
+                if (strtotime($value) <= strtotime($previousRoadtax->expiry_date)) {
+                    $fail('Renewal expiry date must be after previous expiry date.');
+                }
+            };
+        }
+
+        $data = $request->validate($rules, [
+            'expiry_date.required' => 'Expiry date is required.',
+            'expiry_date.after'    => 'Expiry date must be after start date.',
+        ]);
+
+        DB::beginTransaction();
+
+        try {
+            /* =========================
+            CREATE ROADTAX (ADD / RENEW)
+            ========================= */
+            $roadtax = $inventoryItem->roadtaxes()->create($data);
+
+            /* =========================
+            STORE DOCUMENT
+            ========================= */
+            if ($request->hasFile('document')) {
+                $file = $request->file('document');
+
+                $path = $file->store('roadtax-documents', 'public');
+
+                $attachment = Attachment::create([
+                    'category'        => 'inventory_roadtax',
+                    'attachable_type' => InventoryRoadtax::class,
+                    'attachable_id'   => $roadtax->id,
+                    'file_path'       => $path,
+                    'original_name'   => $file->getClientOriginalName(),
+                    'mime_type'       => $file->getClientMimeType(),
+                    'file_size'       => $file->getSize(),
+                    'created_by'      => auth()->id(),
+                ]);
+
+                $roadtax->update([
+                    'document_id' => $attachment->id,
+                ]);
+            }
+
+            DB::commit();
+
+            return redirect()
+                ->back()
+                ->with('success', $isRenew
+                    ? 'Roadtax renewed successfully.'
+                    : 'Roadtax added successfully.'
+                );
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    protected function deleteAttachment(?Attachment $attachment): void
+    {
+        if (! $attachment) {
+            return;
+        }
+
+        if ($attachment->file_path && Storage::disk('public')->exists($attachment->file_path)) {
+            Storage::disk('public')->delete($attachment->file_path);
+        }
+
+        $attachment->delete();
     }
 }

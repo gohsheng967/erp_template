@@ -20,16 +20,22 @@ return new class extends Migration
 
             $table->string('provider')->nullable();
             $table->string('policy_number')->nullable();
+            $table->string('coverage_type')->nullable();
 
             $table->date('start_date')->nullable();
             $table->date('expiry_date');
 
             $table->decimal('coverage_amount', 15, 2)->nullable();
+            $table->decimal('premium_amount', 15, 2)->nullable();
             $table->unsignedBigInteger('document_id')->nullable();
+
+            $table->enum('status', ['active', 'expired', 'cancelled'])
+                ->default('active');
 
             $table->timestamps();
 
             $table->index(['inventory_item_id', 'expiry_date']);
+            $table->index(['inventory_item_id', 'status']);
         });
     }
 

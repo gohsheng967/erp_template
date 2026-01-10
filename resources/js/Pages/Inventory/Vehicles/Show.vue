@@ -4,6 +4,7 @@ import { router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import { useFormat } from '@/Composables/useFormat'
 import AllocateForm from './Partials/AllocateForm.vue'
+import ComplianceTab from './Partials/ComplianceTab.vue'
 
 const props = defineProps({
     vehicle: Object,
@@ -282,10 +283,10 @@ function isExpiring(date) {
                                 <span
                                     class="font-medium"
                                     :class="isExpiring(vehicle.insurances[0].expiry_date)
-                                        ? 'text-yellow-700'
-                                        : 'text-green-700'"
+                                        ? 'text-yellow-500'
+                                        : 'text-green-500'"
                                 >
-                                    {{ vehicle.insurances[0].expiry_date }}
+                                    {{ formatDate(vehicle.insurances[0].expiry_date) }}
                                 </span>
                             </div>
                             <span v-else class="text-red-600 animate-pulse">
@@ -299,10 +300,10 @@ function isExpiring(date) {
                                 <span
                                     class="font-medium"
                                     :class="isExpiring(vehicle.roadtaxes[0].expiry_date)
-                                        ? 'text-yellow-700'
-                                        : 'text-green-700'"
+                                        ? 'text-yellow-500'
+                                        : 'text-green-500'"
                                 >
-                                    {{ vehicle.roadtaxes[0].expiry_date }}
+                                    {{ formatDate(vehicle.roadtaxes[0].expiry_date) }}
                                 </span>
                             </div>
                             <span v-else class="text-red-600 animate-pulse">
@@ -329,7 +330,7 @@ function isExpiring(date) {
         <div class="bg-white rounded-xl border">
             <div class="flex gap-6 px-6 border-b">
                 <button
-                    v-for="t in ['details', 'insurance', 'roadtax', 'saman']"
+                    v-for="t in ['details', 'compliance', 'saman']"
                     :key="t"
                     class="py-4 text-sm font-medium capitalize"
                     :class="tab === t
@@ -373,7 +374,11 @@ function isExpiring(date) {
                         </div>
                     </div>
                 </div>
-
+                <div v-else-if="tab === 'compliance'">
+                    <ComplianceTab
+                        :vehicle-uuid="vehicle.uuid"
+                    />
+                </div>
                 <div v-else class="text-gray-400 text-sm">
                     This section will be implemented next.
                 </div>

@@ -24,4 +24,15 @@ class InventoryRoadtax extends Model
     {
         return $this->belongsTo(InventoryItem::class, 'inventory_item_id');
     }
+
+    public function attachment()
+    {
+        return $this->morphOne(Attachment::class, 'attachable')
+            ->latestOfMany();
+    }
+
+    public function attachments()
+    {
+        return $this->morphMany(Attachment::class, 'attachable');
+    }
 }

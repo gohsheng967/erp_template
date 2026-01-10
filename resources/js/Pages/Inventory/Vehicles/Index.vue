@@ -6,7 +6,7 @@ import { useFormat } from '@/Composables/useFormat'
 import VehicleForm from './Partials/VehicleForm.vue'
 import AllocateForm from './Partials/AllocateForm.vue'
 
-const { capitalize } = useFormat()
+const { capitalize, formatDate } = useFormat()
 
 /* =========================
    MODAL STATE
@@ -294,7 +294,7 @@ function isExpiring(date) {
                                     ? 'bg-yellow-100 text-yellow-700'
                                     : 'bg-green-100 text-green-700'"
                             >
-                                {{ item.latest_insurance.expiry_date }}
+                                {{ formatDate(item.latest_insurance.expiry_date) }}
                             </span>
                             <span v-else class="text-gray-400">-</span>
                         </td>
@@ -308,7 +308,7 @@ function isExpiring(date) {
                                     ? 'bg-yellow-100 text-yellow-700'
                                     : 'bg-green-100 text-green-700'"
                             >
-                                {{ item.latest_roadtax.expiry_date }}
+                                {{ formatDate(item.latest_roadtax.expiry_date) }}
                             </span>
                             <span v-else class="text-gray-400">-</span>
                         </td>

@@ -299,10 +299,16 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
             Route::get('/{uuid}', [VehicleController::class, 'show'])->name('show');
             Route::get('/{uuid}/qr', [VehicleController::class, 'qrCode'])->name('qr');
             Route::post('/{uuid}/allocate', [VehicleController::class, 'allocate'])->name('allocate');            
-            Route::get('users/list', [VehicleController::class, 'loadUsers'])->name('allocatable.users');
-            Route::get('projects/list', [VehicleController::class, 'loadProjects'])->name('allocatable.projects');
+            Route::get('/users/list', [VehicleController::class, 'loadUsers'])->name('allocatable.users');
+            Route::get('/projects/list', [VehicleController::class, 'loadProjects'])->name('allocatable.projects');
+            Route::get('/{uuid}/compliance', [VehicleController::class, 'compliance'])->name('compliance');
+            Route::post('{uuid}/insurance', [VehicleController::class, 'storeInsurance'])->name('insurance.store');
+            Route::post('{uuid}/insurance/{insurance}', [VehicleController::class, 'updateInsurance'])->name('insurance.update');
+            Route::post('{uuid}/insurance/trigger/renew', [VehicleController::class, 'renewInsurance'])->name('insurance.renew');
 
-
+            Route::post('{uuid}/roadtax', [VehicleController::class, 'storeRoadtax'])->name('roadtax.store');
+            Route::post('{uuid}/roadtax/{roadtax}', [VehicleController::class, 'updateRoadtax'])->name('roadtax.update');
+            Route::post('{uuid}/roadtax/trigger/renew', [VehicleController::class, 'renewRoadtax'])->name('roadtax.renew');
 
             // Route::post('/{uuid}/insurance', [VehicleController::class, 'storeInsurance'])->name('insurance.store');
             // Route::post('/{uuid}/roadtax', [VehicleController::class, 'storeRoadtax'])->name('roadtax.store');
