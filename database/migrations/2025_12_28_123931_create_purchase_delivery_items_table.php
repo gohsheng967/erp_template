@@ -13,18 +13,28 @@ return new class extends Migration
     {
         Schema::create('purchase_delivery_items', function (Blueprint $table) {
             $table->id();
-            $table->uuid('uuid')->unique();
 
             $table->foreignId('purchase_delivery_id')
                 ->constrained()
                 ->cascadeOnDelete();
 
             $table->foreignId('purchase_order_item_id')
-                ->constrained();
+                ->constrained()
+                ->restrictOnDelete();
 
-            $table->decimal('delivered_quantity', 12, 2);
+            $table->decimal('quantity', 12, 2);
+
+            // Destination tracking (warehouse / site / dept / project)
+            $table->string('destination')->nullable();
+
+            $table->string('remark')->nullable();
 
             $table->timestamps();
+
+            $table->index([
+                'purchase_delivery_id',
+                'purchase_order_item_id'
+            ], 'ppid');
         });
 
     }

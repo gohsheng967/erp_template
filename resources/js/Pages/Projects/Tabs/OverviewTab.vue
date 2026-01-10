@@ -108,33 +108,50 @@ function saveMemo() {
 function renderBudgetDoughnut() {
     if (!doughnutRef.value) return
 
-    // destroy old chart (important on re-fetch)
     if (doughnutChart) {
         doughnutChart.destroy()
     }
 
+    const po = kpi.value.breakdown.purchase_orders || 0
+    const claim = kpi.value.breakdown.claims || 0
+    const remaining = kpi.value.budget.remaining || 0
+
     doughnutChart = new Chart(doughnutRef.value, {
         type: "doughnut",
         data: {
-            labels: ["Used", "Remaining"],
+            labels: [
+                "Purchase Orders (Committed)",
+                "Claims (Spent)",
+                "Remaining Budget",
+            ],
             datasets: [
                 {
-                    data: [
-                        kpi.value.budget.used,
-                        kpi.value.budget.remaining
+                    data: [po, claim, remaining],
+                    backgroundColor: [
+                        "#6366f1", // indigo → PO
+                        "#f59e0b", // amber → Claim
+                        "#e5e7eb", // gray → Remaining
                     ],
-                    backgroundColor: ["#6366f1", "#e0e7ff"],
                     borderWidth: 2,
+                    hoverOffset: 6,
                 }
             ]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false }
-            },
             cutout: "65%",
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label(ctx) {
+                            const value = ctx.raw ?? 0
+                            return `${ctx.label}: RM ${value.toLocaleString()}`
+                        }
+                    }
+                }
+            },
             animation: {
                 animateRotate: true,
                 animateScale: true,
@@ -144,6 +161,7 @@ function renderBudgetDoughnut() {
         }
     })
 }
+
 
 
 onMounted(() => {

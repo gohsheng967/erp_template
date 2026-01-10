@@ -3,7 +3,8 @@ import { ref, inject, watch } from "vue";
 import { useForm, router } from '@inertiajs/vue3'
 
 import Claim from './Child/Claim.vue'
- 
+import PurchaseRequest from './Child/PurchaseRequest.vue'
+
 const toast = inject("toast", null)
 
 const props = defineProps({
@@ -60,73 +61,6 @@ watch(
         budgetForm.reset()
     }
 )
-
-
-/* -----------------------------
-   PURCHASE REQUESTS
------------------------------- */
-const purchaseRequests = ref([
-    {
-        id: 1,
-        item: "Laptop",
-        qty: 1,
-        amount: 3500,
-        date: "2025-02-01",
-        status: "Approved",
-        stages: [
-            { title: "Preparing PO", date: "2025-02-01", completed: true },
-            { title: "Sent to Supplier", date: "2025-02-02", completed: true },
-            { title: "Supplier Processing", date: "2025-02-03", completed: true },
-            { title: "Shipped Out", date: "2025-02-05", completed: false },
-            { title: "Delivered", date: "-", completed: false },
-        ]
-    },
-
-    {
-        id: 2,
-        item: "Printer Toner",
-        qty: 3,
-        amount: 450,
-        date: "2025-02-03",
-        status: "Pending",
-        stages: [
-            { title: "Preparing PO", date: "2025-02-03", completed: true },
-            { title: "Sent to Supplier", date: "-", completed: false },
-            { title: "Supplier Processing", date: "-", completed: false },
-            { title: "Shipped Out", date: "-", completed: false },
-            { title: "Delivered", date: "-", completed: false },
-        ]
-    }
-]);
-
-
-const newPurchase = ref({
-    item: "",
-    qty: null,
-    amount: null,
-    date: "",
-});
-
-function createPurchaseRequest() {
-    if (!newPurchase.value.item || !newPurchase.value.qty || !newPurchase.value.amount || !newPurchase.value.date) {
-        alert("Please fill in all fields.");
-        return;
-    }
-
-    purchaseRequests.value.push({
-        id: Date.now(),
-        item: newPurchase.value.item,
-        qty: newPurchase.value.qty,
-        amount: newPurchase.value.amount,
-        date: newPurchase.value.date,
-        status: "Pending"
-    });
-
-    newPurchase.value.item = "";
-    newPurchase.value.qty = null;
-    newPurchase.value.amount = null;
-    newPurchase.value.date = "";
-}
 
 
 /* -----------------------------
@@ -278,131 +212,7 @@ function toggleRow(id) {
             </button>
 
             <div v-show="showPurchase" class="p-6 border-t space-y-6">
-
-                <!-- CREATE PURCHASE REQUEST -->
-                <div class="bg-gray-50 rounded-lg p-4 border space-y-4">
-                    <h3 class="font-semibold text-gray-700">Create Purchase Request</h3>
-
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div>
-                            <label class="text-sm text-gray-700">Item</label>
-                            <input v-model="newPurchase.item"
-                                   class="border px-3 py-2 rounded-md w-full" placeholder="Laptop / Tools">
-                        </div>
-
-                        <div>
-                            <label class="text-sm text-gray-700">Quantity</label>
-                            <input v-model="newPurchase.qty"
-                                   type="number" class="border px-3 py-2 rounded-md w-full" placeholder="1">
-                        </div>
-
-                        <div>
-                            <label class="text-sm text-gray-700">Amount (RM)</label>
-                            <input v-model="newPurchase.amount"
-                                   type="number" class="border px-3 py-2 rounded-md w-full" placeholder="0.00">
-                        </div>
-
-                        <div>
-                            <label class="text-sm text-gray-700">Date</label>
-                            <input v-model="newPurchase.date"
-                                   type="date" class="border px-3 py-2 rounded-md w-full">
-                        </div>
-                    </div>
-
-                    <button @click="createPurchaseRequest"
-                            class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-                        Submit Purchase Request
-                    </button>
-                </div>
-
-
-                <!-- PURCHASE REQUEST HISTORY TABLE WITH EXPANDABLE ROWS -->
-                <div>
-                    <h3 class="font-semibold text-gray-700 mb-2">Purchase Request History</h3>
-
-                    <table class="min-w-full text-sm divide-y divide-gray-200 bg-white rounded-lg shadow">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-3 py-2 text-left">Item</th>
-                                <th class="px-3 py-2 text-left">Qty</th>
-                                <th class="px-3 py-2 text-left">Amount</th>
-                                <th class="px-3 py-2 text-left">Date</th>
-                                <th class="px-3 py-2 text-left">Status</th>
-                            </tr>
-                        </thead>
-
-                        <tbody class="divide-y divide-gray-200">
-
-                            <!-- MAIN ROWS -->
-                            <template v-for="pr in purchaseRequests" :key="pr.id">
-
-                                <!-- CLICKABLE MAIN ROW -->
-                                <tr 
-                                    @click="toggleRow(pr.id)"
-                                    class="cursor-pointer hover:bg-gray-50 transition"
-                                >
-                                    <td class="px-3 py-2 flex items-center gap-2">
-                                        <svg 
-                                            :class="expandedRow === pr.id ? 'rotate-90' : ''"
-                                            class="h-4 w-4 text-gray-500 transition"
-                                            fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                d="M9 5l7 7-7 7" />
-                                        </svg>
-                                        {{ pr.item }}
-                                    </td>
-                                    <td class="px-3 py-2">{{ pr.qty }}</td>
-                                    <td class="px-3 py-2">RM {{ pr.amount.toLocaleString() }}</td>
-                                    <td class="px-3 py-2">{{ pr.date }}</td>
-                                    <td class="px-3 py-2">
-                                        <span 
-                                            :class="pr.status === 'Approved' ? 'text-green-600' : 'text-yellow-600'"
-                                            class="font-semibold"
-                                        >
-                                            {{ pr.status }}
-                                        </span>
-                                    </td>
-                                </tr>
-
-                                <!-- EXPANDED CHILD ROW -->
-                                <tr v-if="expandedRow === pr.id" class="bg-gray-50">
-                                    <td colspan="5" class="px-6 py-4">
-
-                                        <h4 class="font-medium text-gray-700 mb-2">
-                                            Progress Stages
-                                        </h4>
-
-                                        <!-- STAGE LIST -->
-                                        <div class="space-y-3">
-
-                                            <div 
-                                                v-for="(stage, idx) in pr.stages"
-                                                :key="idx"
-                                                class="flex items-start gap-3"
-                                            >
-                                                <!-- Bullet / Completed indicator -->
-                                                <div 
-                                                    :class="stage.completed ? 'bg-green-500' : 'bg-gray-400'"
-                                                    class="w-3 h-3 rounded-full mt-1"
-                                                ></div>
-
-                                                <!-- Title + Date -->
-                                                <div>
-                                                    <p class="font-medium text-gray-800">{{ stage.title }}</p>
-                                                    <p class="text-xs text-gray-500">{{ stage.date }}</p>
-                                                </div>
-                                            </div>
-
-                                        </div>
-
-                                    </td>
-                                </tr>
-
-                            </template>
-
-                        </tbody>
-                    </table>
-                </div>
+                <PurchaseRequest :project-id="project.id" />
             </div>
         </div>
 

@@ -77,6 +77,12 @@ function createInvoice(po) {
         })
     )
 }
+
+function goToDelivery(po) {
+    router.visit(
+        route('purchase-orders.deliveries.index', po.uuid)
+    )
+}
 </script>
 
 <template>
@@ -145,7 +151,7 @@ function createInvoice(po) {
             <PurchaseOrdersTable
                 :pos="purchaseOrders"
                 @view="viewPO"
-                @delivery="updateDelivery"
+                @delivery="goToDelivery"
                 @invoice="createInvoice"
             />
 

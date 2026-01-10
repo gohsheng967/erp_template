@@ -125,6 +125,9 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     Route::get('/projects/{project}/claims/summary', [ProjectController::class, 'summary'])
         ->name('projects.claims.summary');
 
+    Route::get('/projects/{project}/purchase-requests/summary', [ProjectController::class, 'purchaseRequestSummary'])
+        ->name('projects.pr.summary');
+
     Route::get('projects/{project}/overview/kpi',  [ProjectController::class, 'kpi'])
         ->name('projects.overview.kpi');
 
@@ -188,6 +191,12 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
             ->name('cancel');
 
         Route::post('/{uuid}/update-terms', [PurchaseOrderController::class, 'updateTerms'])->name('update-terms');
+
+        Route::get('/{uuid}/deliveries', [PurchaseOrderController::class, 'deliveries'])->name('deliveries.index');
+        
+        Route::post('/{uuid}/deliveries', [PurchaseOrderController::class, 'storeDelivery']) ->name('deliveries.store');
+        
+        Route::delete('/{uuid}/deliveries', [PurchaseOrderController::class, 'destroyDelivery']) ->name('deliveries.destroy');
 
     });
 

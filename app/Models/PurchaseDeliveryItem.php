@@ -6,11 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class PurchaseDeliveryItem extends Model
 {
-    protected $fillable = [
-        'purchase_delivery_id',
-        'purchase_order_item_id',
-        'delivered_quantity',
-    ];
+    protected $guarded = [];
 
     public function delivery()
     {
@@ -22,10 +18,13 @@ class PurchaseDeliveryItem extends Model
 
     public function orderItem()
     {
-        return $this->belongsTo(
-            PurchaseOrderItem::class,
-            'purchase_order_item_id'
-        );
+        return $this->belongsTo(PurchaseOrderItem::class, 'purchase_order_item_id');
     }
+
+    public function warehouse()
+    {
+        return $this->belongsTo(Warehouse::class, 'destination');
+    }
+    
 }
 

@@ -3,16 +3,20 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Str;
 
 class PurchaseDelivery extends Model
 {
-    protected $fillable = [
-        'purchase_order_id',
-        'delivery_code',
-        'delivery_date',
-        'status',
-        'remark',
-    ];
+    protected $guarded = [];
+
+    protected static function booted()
+    {
+        static::creating(function ($model) {
+            if (!$model->uuid) {
+                $model->uuid = (string) Str::uuid();
+            }
+        });
+    }
 
     public function purchaseOrder()
     {
@@ -22,5 +26,15 @@ class PurchaseDelivery extends Model
     public function items()
     {
         return $this->hasMany(PurchaseDeliveryItem::class);
+    }
+
+    public function attachments()
+    {
+        return $this->morphMany(Attachment::class, 'attachable');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 }

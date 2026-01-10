@@ -305,7 +305,7 @@ function closeModal() {
 <!-- =====================
      ORDER CONFIRMATION
 ===================== -->
-<div v-if="isConfirmed" class="space-y-4">
+<div class="space-y-4">
 
     <div>
         <label class="text-xs text-gray-500">

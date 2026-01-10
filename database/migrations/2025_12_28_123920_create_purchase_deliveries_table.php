@@ -13,19 +13,38 @@ return new class extends Migration
     {
         Schema::create('purchase_deliveries', function (Blueprint $table) {
             $table->id();
+
             $table->uuid('uuid')->unique();
 
             $table->foreignId('purchase_order_id')
                 ->constrained()
                 ->cascadeOnDelete();
 
-            $table->string('delivery_code')->unique(); // DO-2025-0001
-            $table->date('delivery_date')->nullable();
+            // Timeline content
+            $table->string('title');
+            $table->text('description')->nullable();
 
-            $table->string('status')->default('pending');
-            // pending | partial | completed
+            // Delivery state
+            $table->enum('status', [
+                'transit',
+                'warehouse',
+                'returned',
+            ])->index();
 
-            $table->text('remark')->nullable();
+            // Progress type
+            $table->enum('delivery_type', [
+                'partial',
+                'full',
+            ])->default('partial')->index();
+
+            // Logical date shown on timeline (NOT created_at)
+            $table->date('delivery_date')->index();
+
+            // Audit
+            $table->foreignId('created_by')
+                ->nullable()
+                ->constrained('users')
+                ->nullOnDelete();
 
             $table->timestamps();
         });

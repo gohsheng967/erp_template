@@ -11,6 +11,8 @@ use App\Models\FileCategory;
 use App\Models\Claim;
 use App\Models\ProjectActivityLog;
 use App\Models\ProjectDocument;
+use App\Models\PurchaseOrder;
+use App\Models\PurchaseRequest;
 
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -240,7 +242,12 @@ class ProjectController extends Controller
 
     public function kpi(Project $project)
     {
-        $purchaseOrderUsed = 0;
+        $purchaseOrderUsed = (float) PurchaseOrder::whereHas(
+            'purchaseRequest',
+            fn ($q) => $q->where('project_id', $project->id)
+        )
+        ->whereNotNull('confirmed_at') 
+        ->sum('total_amount');
 
         $claimUsed = (float) $project->claims()
             ->whereIn('status', ['approved', 'paid'])
@@ -252,7 +259,22 @@ class ProjectController extends Controller
         $total = (float) ($project->budget ?? 0);
         $remaining = max($total - $used, 0);
 
-        $topCosts = $project->claims()
+        $poCosts = PurchaseOrder::whereHas(
+            'purchaseRequest',
+            fn ($q) => $q->where('project_id', $project->id)
+        )
+        ->whereNotNull('confirmed_at')
+        ->orderByDesc('total_amount')
+        ->limit(5)
+        ->get()
+        ->map(fn ($po) => [
+            'id'     => $po->id,
+            'label'  => $po->code ?? 'PO #' . $po->id,
+            'amount' => (float) $po->total_amount,
+            'type'   => 'purchase_order',
+        ]);
+
+        $claimCosts  = $project->claims()
             ->whereIn('status', ['approved', 'paid'])
             ->orderByDesc('total_amount')
             ->limit(5)
@@ -265,6 +287,12 @@ class ProjectController extends Controller
                 'amount' => (float) $claim->total_amount,
                 'type' => 'claim',
             ]);
+
+        $topCosts = $poCosts
+            ->merge($claimCosts)
+            ->sortByDesc('amount')
+            ->take(10)
+            ->values();
 
         // 🔥 Recent activities (latest 5)
         $recentActivities = ProjectActivityLog::with('user')
@@ -325,5 +353,45 @@ class ProjectController extends Controller
         };
     }
     
+    public function purchaseRequestSummary(Project $project)
+    {
+        // =========================
+        // PURCHASE REQUEST SUMMARY
+        // =========================
 
+        $pendingApproval = $project->purchaseRequests()
+            ->whereIn('status', ['draft', 'submitted'])
+            ->count();
+
+        $confirmedPOAmount = (float) PurchaseOrder::whereHas(
+            'purchaseRequest',
+            fn ($q) => $q->where('project_id', $project->id)
+        )
+        ->whereNotNull('confirmed_at')
+        ->sum('total_amount');
+
+        // =========================
+        // PENDING PR LIST
+        // =========================
+        $pendingPRs = $project->purchaseRequests()
+            ->whereIn('status', ['draft', 'submitted'])
+            ->latest()
+            ->limit(5)
+            ->get()
+            ->map(fn ($pr) => [
+                'id'         => $pr->id,
+                'uuid'       => $pr->uuid,
+                'title'      => $pr->title,
+                'status'     => $pr->status,
+                'created_at' => $pr->created_at->toDateString(),
+            ]);
+
+        return response()->json([
+            'summary' => [
+                'pending_approval' => $pendingApproval,
+                'total_po_amount'  => $confirmedPOAmount,
+            ],
+            'pending_requests' => $pendingPRs,
+        ]);
+    }
 }

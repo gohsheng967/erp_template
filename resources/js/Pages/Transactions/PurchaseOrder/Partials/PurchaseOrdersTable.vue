@@ -142,7 +142,7 @@ function isOverdue(po) {
                             <!-- UPDATE DELIVERY -->
                             <button
                                 @click.stop="emit('delivery', po)"
-                                title="Update Delivery"
+                                title="Go To Delivery"
                                 class="text-gray-600 hover:text-orange-600"
                             >
                                 <i class="mdi mdi-truck-outline text-lg"></i>
