@@ -57,4 +57,10 @@ class Project extends Model
     {
         return $this->hasMany(Milestone::class);
     }
+
+    public function inventoryAllocations()
+    {
+        return $this->morphMany(InventoryAllocation::class, 'allocatable');
+    }
+
 }

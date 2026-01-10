@@ -81,5 +81,8 @@ class User extends Authenticatable
         return new UserResource($this);
     }
 
-
+    public function inventoryAllocations()
+    {
+        return $this->morphMany(InventoryAllocation::class, 'allocatable');
+    }
 }

@@ -27,8 +27,8 @@ watch(open, (val) => {
 
 // ---------------- INVENTORY SUBMENU ----------------
 const menuInventory = [
-    { name: "Office Inventory", route: "inventory.office", active: () => route().current("inventory.office") },
-    { name: "Operation Inventory", route: "inventory.operation", active: () => route().current("inventory.operation") }
+    { name: "Vehicles", route: "inventory.vehicles.index", active: () => route().current("inventory.vehicles.index") },
+    { name: "Stock", route: "inventory.vehicles.index", active: () => route().current("inventory.vehicles.index") }
 ]
 
 // ---------------- TRANSACTIONS SUBMENU ----------------

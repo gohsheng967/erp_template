@@ -22,6 +22,9 @@ use App\Http\Controllers\Transactions\ClaimsController;
 use App\Http\Controllers\Transactions\PurchaseRequestController;
 use App\Http\Controllers\Transactions\PurchaseOrderController;
 
+use App\Http\Controllers\Inventory\VehicleController;
+
+
 use App\Http\Controllers\Pdf\ClaimPdfController;
 
 use App\Http\Controllers\Auth\MFASetupController;
@@ -34,6 +37,18 @@ use Illuminate\Foundation\Application;
 // Redirect directly to login
 Route::get('/', function () {
     return redirect()->route('login');
+});
+
+Route::prefix('public')->name('public.')->group(function () {
+
+    Route::get('/vehicles/{publicUuid}', 
+        [PublicInventoryController::class, 'vehicle']
+    )->name('vehicles.show');
+
+    // future
+    // Route::get('/equipment/{publicUuid}', ...)->name('equipment.show');
+    // Route::get('/assets/{publicUuid}', ...)->name('assets.show');
+
 });
 
 // ===============================
@@ -273,18 +288,29 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::delete('/{invoice}', [InvoiceController::class, 'destroy'])->name('destroy');
     });
 
-    // ------------------------------
-    // OFFICE INVENTORY
-    // ------------------------------
-    Route::get('/inventory/office', [InventoryController::class, 'office'])
-        ->name('inventory.office');
-    // ------------------------------
-    // OPERATION INVENTORY
-    // ------------------------------
-    Route::get('/inventory/operation', [InventoryController::class, 'operation'])
-        ->name('inventory.operation');
+    Route::prefix('inventory')->name('inventory.')->group(function () {
+
+        Route::prefix('vehicles')->name('vehicles.')->group(function () {
+
+            Route::get('/', [VehicleController::class, 'index'])->name('index');
+            Route::post('/', [VehicleController::class, 'store'])->name('store');
+            Route::put('/{uuid}', [VehicleController::class, 'update'])->name('update');
+            Route::delete('/{uuid}', [VehicleController::class, 'destroy'])->name('destroy');
+            Route::get('/{uuid}', [VehicleController::class, 'show'])->name('show');
+            Route::get('/{uuid}/qr', [VehicleController::class, 'qrCode'])->name('qr');
+            Route::post('/{uuid}/allocate', [VehicleController::class, 'allocate'])->name('allocate');            
+            Route::get('users/list', [VehicleController::class, 'loadUsers'])->name('allocatable.users');
+            Route::get('projects/list', [VehicleController::class, 'loadProjects'])->name('allocatable.projects');
 
 
+
+            // Route::post('/{uuid}/insurance', [VehicleController::class, 'storeInsurance'])->name('insurance.store');
+            // Route::post('/{uuid}/roadtax', [VehicleController::class, 'storeRoadtax'])->name('roadtax.store');
+            // Route::post('/{uuid}/saman', [VehicleController::class, 'storeSaman'])->name('saman.store');
+
+        });
+        
+    });
     // ----------------------------------------
     // MILESTONES
     // ----------------------------------------

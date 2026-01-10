@@ -21,4 +21,9 @@ class Client extends Model
     {
         return $this->hasMany(Project::class, 'client_id');
     }
+
+    public function inventoryAllocations()
+    {
+        return $this->morphMany(InventoryAllocation::class, 'allocatable');
+    }
 }
