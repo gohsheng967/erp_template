@@ -21,6 +21,7 @@ use App\Http\Controllers\Project\MilestoneController;
 use App\Http\Controllers\Transactions\ClaimsController;
 use App\Http\Controllers\Transactions\PurchaseRequestController;
 use App\Http\Controllers\Transactions\PurchaseOrderController;
+use App\Http\Controllers\Transactions\InvoiceController;
 
 use App\Http\Controllers\Inventory\VehicleController;
 

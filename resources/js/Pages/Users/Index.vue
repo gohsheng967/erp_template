@@ -137,29 +137,24 @@ function openEdit(user) {
 
                             <!-- ACTIONS -->
                             <td class="px-4 py-3 text-center">
-                                <div class="flex justify-center gap-3">
+                                <div class="flex justify-center gap-2">
 
                                     <!-- EDIT -->
                                     <button
                                         v-if="!user.is_protected"
                                         @click="openEdit(user)"
-                                        class="text-indigo-600 hover:text-indigo-800"
+                                        class="action-btn text-indigo-600 hover:bg-indigo-50"
+                                        title="Edit user"
                                     >
-                                        <!-- pencil svg -->
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5"
-                                            fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                                d="M16.862 3.487l3.651 3.65M10.5 9.75l6.362-6.263m-6.362 6.263L4.5 15.75v3.75h3.75l6.363-6.263m-3.888-3.738l3.887 3.738" />
-                                        </svg>
+                                        <i class="mdi mdi-pencil-outline"></i>
                                     </button>
 
-                                    <!-- EDIT (disabled) -->
-                                    <span v-else class="opacity-30 cursor-not-allowed">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5"
-                                            fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                                d="M16.862 3.487l3.651 3.65M10.5 9.75l6.362-6.263m-6.362 6.263L4.5 15.75v3.75h3.75l6.363-6.263m-3.888-3.738l3.887 3.738" />
-                                        </svg>
+                                    <span
+                                        v-else
+                                        class="action-btn text-gray-300 cursor-not-allowed"
+                                        title="Protected user"
+                                    >
+                                        <i class="mdi mdi-pencil-outline"></i>
                                     </span>
 
                                     <!-- RESET PASSWORD -->
@@ -168,27 +163,17 @@ function openEdit(user) {
                                         :href="route('users.reset-password', user.id)"
                                         method="post"
                                         as="button"
-                                        class="text-yellow-600 hover:text-yellow-800"
+                                        class="action-btn text-amber-600 hover:bg-amber-50"
+                                        title="Reset password"
                                     >
-                                        <!-- key svg -->
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5"
-                                            fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                                d="M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                                d="M6 21l6-6m0 0l4 4m-4-4v-4" />
-                                        </svg>
+                                        <i class="mdi mdi-key-outline"></i>
                                     </Link>
 
-                                    <!-- RESET DISABLED -->
-                                    <span v-else class="opacity-30 cursor-not-allowed">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5"
-                                            fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                                d="M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                                d="M6 21l6-6m0 0l4 4m-4-4v-4" />
-                                        </svg>
+                                    <span
+                                        v-else
+                                        class="action-btn text-gray-300 cursor-not-allowed"
+                                    >
+                                        <i class="mdi mdi-key-outline"></i>
                                     </span>
 
                                     <!-- ACTIVATE / SUSPEND -->
@@ -197,24 +182,17 @@ function openEdit(user) {
                                         :href="route('users.toggle-status', user.id)"
                                         method="post"
                                         as="button"
-                                        class="text-red-600 hover:text-red-800"
+                                        class="action-btn text-red-600 hover:bg-red-50"
+                                        title="Suspend / Activate"
                                     >
-                                        <!-- ban icon -->
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5"
-                                            fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                                d="M18.364 5.636l-12.728 12.728m0 0A9 9 0 1118.364 5.636M5.636 18.364l12.728-12.728" />
-                                        </svg>
+                                        <i class="mdi mdi-account-cancel-outline"></i>
                                     </Link>
 
-                                    <!-- DISABLED ACTION -->
-                                    <span v-else class="opacity-30 cursor-not-allowed">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5"
-                                            fill="none" viewBox="0 0 24 24"
-                                            stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                                                d="M18.364 5.636l-12.728 12.728m0 0A9 9 0 1118.364 5.636M5.636 18.364l12.728-12.728" />
-                                        </svg>
+                                    <span
+                                        v-else
+                                        class="action-btn text-gray-300 cursor-not-allowed"
+                                    >
+                                        <i class="mdi mdi-account-cancel-outline"></i>
                                     </span>
 
                                 </div>
