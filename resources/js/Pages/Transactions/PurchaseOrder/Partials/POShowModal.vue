@@ -1,12 +1,11 @@
 <script setup>
-import { ref, watch, nextTick, computed, inject  } from 'vue'
+import { ref, watch, nextTick, computed, inject } from 'vue'
 import axios from 'axios'
 import POShowA4 from './POShowA4.vue'
 import { useFormat } from '@/Composables/useFormat'
 
 const toast = inject('toast', null)
 const { formatDateTime } = useFormat()
-
 
 /* =========================
    PROPS / EMITS
@@ -24,28 +23,22 @@ const emit = defineEmits(['close', 'refresh'])
    STATE
 ========================= */
 const loading = ref(false)
-const submittingConfirm = ref(false)
-const submittingTerms = ref(false)
 const printing = ref(false)
+const submittingConfirm = ref(false)
 
 const fullPO = ref(null)
 const company = ref(null)
 
-/* ---- Order confirmation ---- */
+/* ---- confirm form ---- */
 const orderDate = ref('')
 const signedPOFile = ref(null)
 
-/* ---- Terms & Conditions ---- */
-const termsList = ref([])
-const isConfirmed = computed(() =>
-    Boolean(fullPO.value?.confirmed_by)
-)
 /* =========================
    DERIVED
 ========================= */
-const hasSignedPO = computed(() =>
-    Boolean(fullPO.value?.signed_po_path)
-)
+const status = computed(() => fullPO.value?.status)
+const isIssued = computed(() => status.value === 'issued')
+const isConfirmed = computed(() => status.value === 'confirmed')
 
 /* =========================
    LOAD PO
@@ -65,23 +58,10 @@ async function loadPO() {
         fullPO.value = res.data.po
         company.value = res.data.company ?? null
 
-        orderDate.value = fullPO.value.order_date
-        signedPOFile.value = null
-
-        if (Array.isArray(fullPO.value.terms)) {
-            termsList.value = [...fullPO.value.terms]
-        } else if (typeof fullPO.value.terms === 'string') {
-            termsList.value = fullPO.value.terms
-                .split(/\r?\n/)
-                .map(t => t.replace(/^\d+\.\s*/, '').trim())
-                .filter(Boolean)
-        } else {
-            termsList.value = []
-        }
-
+        orderDate.value = fullPO.value.order_date ?? ''
 
     } catch (e) {
-        console.error('Failed to load PO', e)
+        toast?.value?.show('Failed to load purchase order', 'error')
     } finally {
         loading.value = false
     }
@@ -94,41 +74,9 @@ watch(
 )
 
 /* =========================
-   SAVE TERMS & CONDITIONS
+   CONFIRM ORDER
 ========================= */
-async function saveTerms() {
-    if (!fullPO.value) return
-
-    submittingTerms.value = true
-
-    try {
-        await axios.post(
-            route('purchase-orders.update-terms', fullPO.value.uuid),
-            {
-                terms: termsList.value,
-            }
-        )
-
-        toast?.value?.show('Terms & Conditions saved', 'success')
-
-        await loadPO()
-        emit('refresh')
-
-    } catch (e) {
-        toast?.value?.show(
-            e.response?.data?.message ?? 'Failed to save T&C',
-            'error'
-        )
-    } finally {
-        submittingTerms.value = false
-    }
-}
-
-
-/* =========================
-   SAVE ORDER CONFIRMATION
-========================= */
-async function saveConfirmation() {
+async function confirmOrder() {
     if (!fullPO.value) return
 
     submittingConfirm.value = true
@@ -137,18 +85,14 @@ async function saveConfirmation() {
         const fd = new FormData()
         fd.append('order_date', orderDate.value)
 
-        if (signedPOFile.value && !hasSignedPO.value) {
+        if (signedPOFile.value) {
             fd.append('signed_po', signedPOFile.value)
         }
 
         await axios.post(
             route('purchase-orders.confirm-order', fullPO.value.uuid),
             fd,
-            {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            }
+            { headers: { 'Content-Type': 'multipart/form-data' } }
         )
 
         toast?.value?.show('Purchase Order confirmed', 'success')
@@ -158,7 +102,7 @@ async function saveConfirmation() {
 
     } catch (e) {
         toast?.value?.show(
-            e.response?.data?.message ?? 'Order confirmation failed',
+            e.response?.data?.message ?? 'Confirmation failed',
             'error'
         )
     } finally {
@@ -170,16 +114,13 @@ async function saveConfirmation() {
    PRINT
 ========================= */
 function printPage() {
-  printing.value = true
-
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.print()
-        printing.value = false
-      })
+    printing.value = true
+    nextTick(() => {
+        requestAnimationFrame(() => {
+            window.print()
+            printing.value = false
+        })
     })
-  })
 }
 
 /* =========================
@@ -195,10 +136,10 @@ function closeModal() {
 <div class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center no-print">
 <div class="bg-gray-100 w-full h-full md:h-[90vh] md:w-[90vw] rounded shadow-xl overflow-hidden">
 
-<!-- HEADER -->
+<!-- ================= HEADER ================= -->
 <div class="sticky top-0 bg-white border-b px-6 py-3 flex items-center no-print">
     <h2 class="font-semibold text-lg">
-        Purchase Order — {{ fullPO?.code }}
+        Purchase Order — {{ fullPO?.code ?? '-' }}
     </h2>
 
     <div class="ml-auto flex items-center gap-3">
@@ -218,10 +159,10 @@ function closeModal() {
     </div>
 </div>
 
-<!-- BODY -->
+<!-- ================= BODY ================= -->
 <div class="flex h-[calc(100%-56px)] gap-6 p-6">
 
-<!-- LEFT: A4 -->
+<!-- ================= LEFT : A4 ================= -->
 <div class="flex-1 overflow-auto bg-gray-100">
     <div v-if="loading" class="text-center py-24 text-gray-400">
         Loading purchase order…
@@ -242,132 +183,117 @@ function closeModal() {
     </Teleport>
 </div>
 
-<!-- RIGHT: SIDEBAR -->
+<!-- ================= RIGHT : SIDEBAR ================= -->
 <div
     v-if="fullPO"
     class="w-[360px] shrink-0 bg-white border rounded-lg p-4 space-y-6 overflow-auto no-print"
 >
 
-<!-- STATUS -->
-<div>
-    <div class="text-xs text-gray-500">Status</div>
-    <div class="font-semibold uppercase">
-        {{ fullPO.status }}
-    </div>
-</div>
+<!-- ================= STATUS ================= -->
+<div class="space-y-3">
 
-<!-- =====================
-     TERMS & CONDITIONS
-===================== -->
-<div v-if="!isConfirmed"
- class="space-y-3 border-b pb-4">
-    <div class="flex items-center justify-between">
-        <label class="text-sm font-medium">
-            Terms & Conditions
-        </label>
-        <span class="text-xs text-gray-400">
-            Numbered
-        </span>
-    </div>
-
+    <!-- DRAFT -->
     <div
-        v-for="(term, i) in termsList"
-        :key="i"
-        class="flex gap-2"
+        v-if="status === 'draft'"
+        class="p-4 rounded-lg bg-gray-100 border"
     >
-        <span class="text-sm text-gray-500 pt-2">
-            {{ i + 1 }}.
-        </span>
-
-        <textarea
-            v-model="termsList[i]"
-            rows="2"
-            class="flex-1 border rounded px-2 py-1 text-sm"
-        />
-    </div>
-
-    <button
-        class="text-xs text-indigo-600"
-        @click="termsList.push('')"
-    >
-        + Add Term
-    </button>
-
-    <button
-        class="w-full py-2 bg-gray-800 text-white rounded disabled:opacity-40"
-        @click="saveTerms"
-        :disabled="submittingTerms"
-    >
-        Save T&amp;C
-    </button>
-</div>
-
-<!-- =====================
-     ORDER CONFIRMATION
-===================== -->
-<div class="space-y-4">
-
-    <div>
-        <label class="text-xs text-gray-500">
-            Order Date
-        </label>
-        <div class="font-medium">
-            {{ fullPO.order_date }}
+        <div class="flex items-center gap-2 text-gray-600">
+            <i class="mdi mdi-pencil-outline text-xl"></i>
+            <span class="font-semibold">Draft</span>
         </div>
     </div>
 
-    <div class="space-y-2">
-        <label class="text-xs text-gray-500">
-            Signed Purchase Order
-        </label>
+    <!-- ISSUED -->
+    <div
+        v-else-if="status === 'issued'"
+        class="p-4 rounded-lg bg-blue-50 border border-blue-200 space-y-3"
+    >
+        <div class="flex items-center gap-2 text-blue-700">
+            <i class="mdi mdi-truck-fast-outline text-xl"></i>
+            <span class="font-semibold">Purchase Order Issued</span>
+        </div>
 
-    <div class="mt-3 p-4 rounded-lg bg-green-50 border border-green-200 text-sm space-y-3">
+        <div class="text-xs text-gray-600">
+            Awaiting confirmation with signed purchase order.
+        </div>
+    </div>
 
-        <!-- HEADER -->
+    <!-- CONFIRMED -->
+    <div
+        v-else-if="status === 'confirmed'"
+        class="p-4 rounded-lg bg-green-50 border border-green-200 space-y-3"
+    >
         <div class="flex items-center gap-2 text-green-700">
             <i class="mdi mdi-shield-check-outline text-xl"></i>
-            <span class="font-semibold">
-                Order Confirmed
-            </span>
+            <span class="font-semibold">Order Confirmed</span>
         </div>
 
-        <!-- CONFIRMED BY -->
-        <div class="pl-7 space-y-1">
-            <div class="font-semibold text-gray-900">
+        <div class="text-sm">
+            <div class="font-medium">
                 {{ fullPO.confirm_by?.name }}
             </div>
-
             <div class="text-xs text-gray-600">
                 {{ formatDateTime(fullPO.confirmed_at) }}
             </div>
         </div>
 
-        <!-- SIGNED DOCUMENT -->
-        <div class="pl-7 pt-2 border-t border-green-200 space-y-1">
-            <div class="text-xs text-gray-500">
-                Signed Purchase Order
-            </div>
+        <a
+            :href="fullPO.signed_po.url"
+            target="_blank"
+            class="inline-flex items-center gap-2 text-sm text-indigo-600 hover:underline"
+        >
+            <i class="mdi mdi-file-pdf-box text-lg"></i>
+            View signed PO
+        </a>
 
-            <a
-                :href="fullPO.signed_po.url"
-                target="_blank"
-                class="inline-flex items-center gap-2
-                    text-sm font-medium text-indigo-600 hover:underline"
-            >
-                <i class="mdi mdi-file-pdf-box text-lg"></i>
-                View signed document
-            </a>
-
-            <div class="text-[11px] text-gray-500 flex items-center gap-1">
-                <i class="mdi mdi-lock-outline"></i>
-                Document is locked and cannot be replaced
-            </div>
+        <div class="text-[11px] text-gray-500 flex items-center gap-1">
+            <i class="mdi mdi-lock-outline"></i>
+            Document is locked
         </div>
-
     </div>
 
+</div>
 
+<!-- ================= CONFIRM FORM ================= -->
+<div
+    v-if="isIssued"
+    class="border-t pt-4 space-y-4"
+>
+    <div class="text-sm font-semibold">
+        Confirm Purchase Order
     </div>
+
+    <div>
+        <label class="text-xs text-gray-500">
+            Order Date
+        </label>
+        <input
+            type="date"
+            v-model="orderDate"
+            class="w-full border rounded px-2 py-1 text-sm"
+        />
+    </div>
+
+    <div>
+        <label class="text-xs text-gray-500">
+            Signed Purchase Order
+        </label>
+        <input
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png"
+            @change="e => signedPOFile = e.target.files[0]"
+            class="w-full text-sm"
+        />
+    </div>
+
+    <button
+        @click="confirmOrder"
+        :disabled="submittingConfirm || !orderDate"
+        class="w-full py-2 bg-green-600 text-white rounded
+               disabled:opacity-40"
+    >
+        Confirm Order
+    </button>
 </div>
 
 </div>
@@ -375,7 +301,3 @@ function closeModal() {
 </div>
 </div>
 </template>
-
-<style>
-
-</style>

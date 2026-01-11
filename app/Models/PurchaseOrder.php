@@ -21,6 +21,8 @@ class PurchaseOrder extends Model
         'remark',
         'approved_at',
         'approver_id',
+        'confirmed_at',
+        'confirmed_by'
     ];
 
     protected static function booted()

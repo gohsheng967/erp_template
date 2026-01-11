@@ -64,6 +64,7 @@ class PurchaseOrderController extends Controller
                     'id'              => $po->id,
                     'uuid'            => $po->uuid,
                     'code'            => $po->code,
+                    'status'          => $po->status,
                     'created_at'      => $po->created_at,
                     'confirmed_at'    => $po->confirmed_at,
                     'order_date'      => $po->order_date,
@@ -118,54 +119,76 @@ class PurchaseOrderController extends Controller
     {
         $po = PurchaseOrder::where('uuid', $uuid)->firstOrFail();
 
-        // 1️⃣ Prevent double confirmation
-        if ($po->confirmed_at) {
-            abort(422, 'Purchase Order already confirmed.');
-        }
-
-        // 2️⃣ Validate order date
-        $request->validate([
-            'order_date' => ['required', 'date'],
-            'signed_po'  => ['nullable', 'file', 'mimes:pdf,jpg,png'],
-        ]);
-
-        // 3️⃣ Check if signed PO already exists
-        $hasSignedPO = $po->attachments()->exists();
-
-        // 4️⃣ If no existing signed PO, require upload
-        if (!$hasSignedPO && !$request->hasFile('signed_po')) {
-            abort(422, 'Signed PO is required before confirmation.');
-        }
-
-        // 5️⃣ Upload signed PO (ONCE ONLY)
-        if ($request->hasFile('signed_po')) {
-
-            if ($hasSignedPO) {
-                abort(422, 'Signed PO already uploaded.');
-            }
-
-            $file = $request->file('signed_po');
-            $path = $file->store('purchase-orders/signed', 'public');
-
-            $po->attachments()->create([
-                'category'       => 'signed_po',
-                'file_path'      => $path,
-                'original_name'  => $file->getClientOriginalName(),
+        /* =========================
+        STATUS GUARD
+        ========================= */
+        if ($po->status !== 'issued') {
+            throw ValidationException::withMessages([
+                'status' => 'Only issued purchase orders can be confirmed.',
             ]);
         }
 
-        $po->order_date   = $request->order_date;
-        $po->confirmed_at = now();
-        $po->confirmed_by = auth()->id();
-        $po->save();
+        if ($po->confirmed_at) {
+            throw ValidationException::withMessages([
+                'status' => 'Purchase order already confirmed.',
+            ]);
+        }
+
+        /* =========================
+        VALIDATION
+        ========================= */
+        $data = $request->validate([
+            'order_date' => ['required', 'date'],
+            'signed_po'  => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+        ]);
+
+        DB::transaction(function () use ($po, $data, $request) {
+
+            /* =========================
+            SIGNED PO HANDLING
+            ========================= */
+            $hasSignedPO = $po->attachments()->exists();
+
+            if (!$hasSignedPO && !$request->hasFile('signed_po')) {
+                throw ValidationException::withMessages([
+                    'signed_po' => 'Signed PO is required before confirmation.',
+                ]);
+            }
+
+            if ($request->hasFile('signed_po')) {
+
+                if ($hasSignedPO) {
+                    throw ValidationException::withMessages([
+                        'signed_po' => 'Signed PO already uploaded.',
+                    ]);
+                }
+
+                $file = $request->file('signed_po');
+                $path = $file->store('purchase-orders/signed', 'public');
+
+                $po->attachments()->create([
+                    'file_path'     => $path,
+                    'original_name' => $file->getClientOriginalName(),
+                    'created_by'    => auth()->id(),
+                ]);
+            }
+
+            /* =========================
+            CONFIRM PO
+            ========================= */
+            $po->update([
+                'order_date'    => $data['order_date'],
+                'status'        => 'confirmed',   // ✅ CRITICAL
+                'confirmed_at'  => now(),
+                'confirmed_by'  => auth()->id(),
+            ]);
+        });
 
         return response()->json([
             'success' => true,
-            'confirmed_at' => $po->confirmed_at,
+            'status'  => 'confirmed',
         ]);
     }
-
-
 
     public function updateTerms(Request $request, string $uuid)
     {
@@ -337,7 +360,6 @@ class PurchaseOrderController extends Controller
                     $path = $file->store('purchase-deliveries', 'public');
 
                     Attachment::create([
-                        'category'        => 'purchase_delivery',
                         'attachable_type' => PurchaseDelivery::class, // ✅ CORRECT
                         'attachable_id'   => $delivery->id,           // ✅ CORRECT
                         'file_path'       => $path,
