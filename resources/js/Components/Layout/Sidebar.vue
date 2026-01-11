@@ -87,7 +87,14 @@ const menu = reactive([
         icon: `<i class="mdi mdi-swap-horizontal"></i>`,
         children: menuTransactions,
     },
-
+    {
+        name: "Petty Cash",
+        route: "petty-cash.index",
+        type: "link",
+        active: () => route().current("petty-cash.*"),
+        icon: `<i class="mdi mdi-cash-multiple"></i>
+`,
+    },
     // INVENTORY
     {
         name: "Inventory",

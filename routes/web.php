@@ -23,6 +23,10 @@ use App\Http\Controllers\Transactions\PurchaseRequestController;
 use App\Http\Controllers\Transactions\PurchaseOrderController;
 use App\Http\Controllers\Transactions\InvoiceController;
 
+use App\Http\Controllers\PettyCash\PettyCashController;
+use App\Http\Controllers\PettyCash\PettyCashUsageController;
+use App\Http\Controllers\PettyCash\PettyCashTopupController;
+
 use App\Http\Controllers\Inventory\VehicleController;
 
 
@@ -231,6 +235,26 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::post('/{claim}/paid', [ClaimsController::class, 'markPaid'])->name('paid');
     });
 
+    Route::prefix('petty-cash')->name('petty-cash.')->group(function () {
+        Route::get('/', [PettyCashController::class, 'index'])->name('index');
+        Route::post('/usage', [PettyCashUsageController::class, 'store'])->name('usage.store');
+
+        Route::get('/topups', [PettyCashTopupController::class, 'index'])->name('topups.index');
+        Route::post('/topups', [PettyCashTopupController::class, 'store'])->name('topups.store');
+        Route::post('/topups/{topup}/approve', [PettyCashTopupController::class, 'approve'])->name('topups.approve');
+        Route::post('/topups/{topup}/pay', [PettyCashTopupController::class, 'pay'])->name('topups.pay');
+        Route::delete('/topups/{topup}', [PettyCashTopupController::class, 'destroy'])->name('topups.destroy');
+
+        Route::get('/wallets', [PettyCashWalletController::class, 'index'])->name('wallets.index');
+
+        Route::get('/wallets/{wallet}', [PettyCashStatementController::class, 'show'])->name('wallets.show');
+
+        Route::post('/wallets/{wallet}/statements', [PettyCashStatementController::class, 'store'])->name('statements.store');
+
+        Route::post('/wallets/{wallet}/statements/{statement}/lock', [PettyCashStatementController::class, 'lock'])->name('statements.lock');
+    });
+
+
     // ------------------------------
     // STAKEHOLDERS
     // ------------------------------
@@ -310,7 +334,6 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
             Route::post('{uuid}/roadtax', [VehicleController::class, 'storeRoadtax'])->name('roadtax.store');
             Route::post('{uuid}/roadtax/{roadtax}', [VehicleController::class, 'updateRoadtax'])->name('roadtax.update');
             Route::post('{uuid}/roadtax/trigger/renew', [VehicleController::class, 'renewRoadtax'])->name('roadtax.renew');
-
             // Route::post('/{uuid}/insurance', [VehicleController::class, 'storeInsurance'])->name('insurance.store');
             // Route::post('/{uuid}/roadtax', [VehicleController::class, 'storeRoadtax'])->name('roadtax.store');
             // Route::post('/{uuid}/saman', [VehicleController::class, 'storeSaman'])->name('saman.store');
