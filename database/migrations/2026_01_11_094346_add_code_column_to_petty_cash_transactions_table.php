@@ -11,12 +11,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('petty_cash_topups', function (Blueprint $table) {
-            $table->string('payment_ref_no')->nullable()->after('amount');
-        });
-
         Schema::table('petty_cash_transactions', function (Blueprint $table) {
-            $table->string('source_ref_no')->nullable()->after('source');
+            $table->string('code')->nullable()->unique();
         });
     }
 
@@ -25,12 +21,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('petty_cash_topups', function (Blueprint $table) {
-            $table->dropColumn('payment_ref_no');
-        });
-
         Schema::table('petty_cash_transactions', function (Blueprint $table) {
-            $table->dropColumn('source_ref_no');
+            $table->dropColumn('code');
         });
     }
 };

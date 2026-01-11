@@ -13,12 +13,16 @@ class PettyCashTransaction extends Model
         'wallet_id',
         'type',
         'source',
-        'claim_id',
+        'source_type',
+        'source_id',
         'debit_amount',
         'credit_amount',
         'balance_after',
         'transaction_date',
         'created_by',
+        'code',
+        'source_ref_no',
+        'display_type'
     ];
 
     protected $casts = [
@@ -48,4 +52,16 @@ class PettyCashTransaction extends Model
     {
         return $this->morphMany(Attachment::class, 'attachable');
     }
+
+    public function sourceable()
+    {
+        return $this->morphTo(
+            name: 'sourceable',
+            type: 'source_type',
+            id: 'source_id'
+        );
+    }
+
+
+
 }

@@ -6,5 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 
 class Warehouse extends Model
 {
-    //
+    protected $fillable = [
+        'title',
+        'address',
+        'status',
+    ];
+
+    protected $casts = [
+        'status' => 'integer',
+    ];
 }
+

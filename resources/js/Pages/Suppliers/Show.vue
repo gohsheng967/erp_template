@@ -4,6 +4,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import { Link } from '@inertiajs/vue3'
 import OverviewTab from './Partials/OverviewTab.vue'
 import QuotationTab from './Partials/QuotationTab.vue'
+import PurchaseOrderTab from './Partials/PurchaseOrderTab.vue'
 
 const props = defineProps({
     supplier: {
@@ -18,7 +19,12 @@ const props = defineProps({
         type: Object,
         required: true,
     },
+    purchaseOrders: {
+        type: Array,
+        required: true,
+    },
 })
+
 
 const activeTab = ref('overview')
 
@@ -210,9 +216,11 @@ const activeTab = ref('overview')
                     :supplier="supplier"
                 />
 
-                <div v-if="activeTab === 'orders'" class="text-sm text-gray-500">
-                    Purchase Orders tab coming soon…
-                </div>
+                <PurchaseOrderTab
+                    v-if="activeTab === 'orders'"
+                    :orders="purchaseOrders"
+                />
+
 
                 <div v-if="activeTab === 'invoices'" class="text-sm text-gray-500">
                     Invoices tab coming soon…

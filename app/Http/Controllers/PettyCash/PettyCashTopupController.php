@@ -137,7 +137,7 @@ class PettyCashTopupController extends Controller
         }
 
         PettyCashTopup::create([
-            'topup_no'     => RunningNumberService::next('pct'),
+            'topup_no'     => RunningNumberService::next('petty_cash_topup'),
             'wallet_id'    => $wallet->id,
             'amount'       => $validated['amount'],
             'reason'       => $validated['reason'],

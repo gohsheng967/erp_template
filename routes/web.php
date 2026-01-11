@@ -10,6 +10,7 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\WidgetController;
 use App\Http\Controllers\SupplierController;
+use App\Http\Controllers\WarehouseController;
 
 use App\Http\Controllers\Project\ProjectController;
 use App\Http\Controllers\Project\ProjectDocumentController;
@@ -26,6 +27,8 @@ use App\Http\Controllers\Transactions\InvoiceController;
 use App\Http\Controllers\PettyCash\PettyCashController;
 use App\Http\Controllers\PettyCash\PettyCashUsageController;
 use App\Http\Controllers\PettyCash\PettyCashTopupController;
+use App\Http\Controllers\PettyCash\PettyCashWalletController;
+use App\Http\Controllers\PettyCash\PettyCashStatementController;
 
 use App\Http\Controllers\Inventory\VehicleController;
 
@@ -246,12 +249,9 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::delete('/topups/{topup}', [PettyCashTopupController::class, 'destroy'])->name('topups.destroy');
 
         Route::get('/wallets', [PettyCashWalletController::class, 'index'])->name('wallets.index');
+        Route::get('/wallets/{walletUuid}', [PettyCashStatementController::class, 'show'])->name('wallets.show');
+        Route::post('/wallets/claims', [PettyCashStatementController::class, 'storeClaim'])->name('wallets.store.claims');
 
-        Route::get('/wallets/{wallet}', [PettyCashStatementController::class, 'show'])->name('wallets.show');
-
-        Route::post('/wallets/{wallet}/statements', [PettyCashStatementController::class, 'store'])->name('statements.store');
-
-        Route::post('/wallets/{wallet}/statements/{statement}/lock', [PettyCashStatementController::class, 'lock'])->name('statements.lock');
     });
 
 
@@ -460,7 +460,14 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::delete('phase-tasks/{task}',
             [MilestoneController::class, 'destroyPhaseTask']
         )->name('milestone.phase-tasks.destroy');
-    });        
+    });    
+    
+    Route::prefix('warehouses')->group(function () {
+        Route::resource('/', WarehouseController::class)
+            ->names('warehouses')
+            ->except(['show']);
+    });
+
 });
 
 

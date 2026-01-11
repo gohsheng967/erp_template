@@ -237,7 +237,7 @@ function printPage() {
 <div>
     <div class="text-xs text-gray-500">Status</div>
     <div class="font-semibold uppercase">
-        {{ fullClaim.status }}
+        {{ fullClaim.status }} 
     </div>
 </div>
 
@@ -331,7 +331,7 @@ function printPage() {
                 v-if="!paymentVouchers.length"
                 class="text-xs text-gray-400"
             >
-                No payment voucher uploaded
+                <span class="text-xs" v-if="fullClaim.status == 'paid' && !fullClaim.paid_by">Petty Cash</span>
             </li>
         </ul>
     </div>

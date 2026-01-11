@@ -34,14 +34,7 @@ class Supplier extends Model
 
     public function purchaseOrders()
     {
-        return $this->hasManyThrough(
-            PurchaseOrder::class,
-            PurchaseQuotation::class,
-            'supplier_id',             
-            'purchase_quotation_id',  
-            'id',                       
-            'id'                        
-        );
+        return $this->hasMany(PurchaseOrder::class);
     }
 
     public function invoices()

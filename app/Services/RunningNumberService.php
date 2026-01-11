@@ -25,6 +25,8 @@ class RunningNumberService
                     'purchase_request' => 'PR',
                     'purchase_order'   => 'PO',
                     'claim'            => 'CLM',
+                    'petty_cash_transaction' => 'PCT',
+                    'petty_cash_topup' => 'PTP',
                     default            => strtoupper(substr($documentType, 0, 3)),
                 };
 

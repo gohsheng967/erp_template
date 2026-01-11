@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use App\Models\PurchaseQuotation;
+use App\Models\PurchaseOrder;
 use App\Models\Attachment;
 use App\Models\Supplier;
 
@@ -76,27 +77,69 @@ class SupplierController extends Controller
         $supplier = Supplier::where('uuid', $uuid)->firstOrFail();
 
         $quotations = $supplier->quotations()
-            ->with([
-                'attachment',
-                'purchaseRequests:id,code'
-            ])
+            ->with(['attachment', 'purchaseRequests:id,code'])
             ->withCount('purchaseRequests as pr_count')
             ->latest()
-            ->paginate(10);
+            ->paginate(10)
+            ->withQueryString();
+
+        /* =========================
+        PURCHASE ORDERS SNAPSHOT
+        ========================= */
+        $purchaseOrders = PurchaseOrder::with(['items'])
+            ->where('supplier_id', $supplier->id)
+            ->latest('order_date')
+            ->take(20)
+            ->get()
+            ->map(function ($po) {
+
+                $totalOrdered   = $po->items->sum('quantity');
+                $totalDelivered = $po->items->sum('delivered_quantity');
+
+                $deliveryPercent = $totalOrdered > 0
+                    ? min(100, round(($totalDelivered / $totalOrdered) * 100))
+                    : 0;
+
+                return [
+                    'uuid'              => $po->uuid,
+                    'code'              => $po->code,
+                    'order_date'        => $po->order_date,
+                    'status'            => $po->status,
+                    'total_items'       => $po->items->count(),
+
+                    // delivery insight (REAL DATA)
+                    'ordered_qty'       => $totalOrdered,
+                    'delivered_qty'     => $totalDelivered,
+                    'delivery_percent'  => $deliveryPercent,
+                ];
+            });
+        $stats = [
+            'quotations' => $supplier->quotations()->count(),
+
+            'orders' => $supplier->purchaseOrders()->count(),
+
+            'open_orders' => $supplier->purchaseOrders()
+                ->whereIn('status', ['confirmed'])
+                ->count(),
+
+            'invoices' => 0,
+            'unpaid_invoices' => 0,
+            'total_spend' => $supplier->purchaseOrders()
+                ->where('status', 'completed')
+                ->sum('total_amount'),
+
+            'currency' => 'MYR',
+        ];
 
 
         return Inertia::render('Suppliers/Show', [
-            'supplier' => $supplier,
-            'quotations' => $quotations,
-            'stats' => [
-                'quotations'  => $quotations->count(),
-                'orders'      => $supplier->purchaseOrders()->count(),
-                'invoices'    => 0,
-                'total_spend' => 0,
-                'currency'    => 'MYR',
-            ],
+            'supplier'        => $supplier,
+            'quotations'      => $quotations,
+            'purchaseOrders'  => $purchaseOrders,
+            'stats' => $stats,
         ]);
     }
+
 
     public function update(Request $request, string $uuid)
     {

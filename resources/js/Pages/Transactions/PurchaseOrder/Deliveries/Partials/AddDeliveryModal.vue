@@ -173,7 +173,7 @@ async function submit() {
                         class="w-full border rounded px-2 py-1 text-sm"
                     >
                         <option value="transit">Transit</option>
-                        <option value="warehouse">Warehouse</option>
+                        <option value="warehouse">Warehouse / Office</option>
                         <option value="returned">Returned</option>
                     </select>
                 </div>
@@ -199,12 +199,12 @@ async function submit() {
 
             <!-- WAREHOUSE -->
             <div v-if="form.status === 'warehouse'">
-                <label class="text-xs text-gray-500">Warehouse</label>
+                <label class="text-xs text-gray-500">Warehouse / Office</label>
                 <select
                     v-model="form.warehouse_id"
                     class="w-full border rounded px-2 py-1 text-sm"
                 >
-                    <option disabled value="">Select warehouse</option>
+                    <option disabled value="">Select warehouse / office</option>
                     <option
                         v-for="w in warehouses"
                         :key="w.id"
