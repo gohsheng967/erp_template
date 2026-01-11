@@ -19,6 +19,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Validation\ValidationException;
 use DB;
 use Illuminate\Support\Str;
+use App\Services\InventoryService;
 
 class PurchaseOrderController extends Controller
 {
@@ -223,6 +224,7 @@ class PurchaseOrderController extends Controller
 
     public function storeDelivery(Request $request, string $uuid)
     {
+
         $purchaseOrder = PurchaseOrder::with('items')
             ->where('uuid', $uuid)
             ->firstOrFail();
@@ -301,12 +303,23 @@ class PurchaseOrderController extends Controller
                     }
 
                     // create delivery item
-                    PurchaseDeliveryItem::create([
+                    $deliveryItem = PurchaseDeliveryItem::create([
                         'purchase_delivery_id' => $delivery->id,
                         'purchase_order_item_id' => $poItem->id,
                         'quantity'     => $itemData['quantity'],
-                        'destination'  => $itemData['warehouse_id'] ?? null,
+                        'destination'  => $validated['warehouse_id'] ?? null,
                         'remark'       => $itemData['remark'] ?? null,
+                    ]);
+
+                    $inventory = app(InventoryService::class);
+
+                    $inventory->stockIn([
+                        'warehouse_id' => $validated['warehouse_id'],
+                        'purchase_order_item_id' => $poItem->id,
+                        'quantity' => $itemData['quantity'],
+                        'reference_type' => PurchaseDeliveryItem::class,
+                        'reference_id' => $deliveryItem->id,
+                        'remark' => 'Purchase delivery',
                     ]);
 
                     // update delivered qty
@@ -386,6 +399,18 @@ class PurchaseOrderController extends Controller
                 Storage::disk('public')->delete($file->file_path);
                 $file->delete();
             }
+
+            $inventory = app(InventoryService::class);
+
+            $inventory->stockOut([
+                'warehouse_id' => $item->destination,
+                'purchase_order_item_id' => $item->purchase_order_item_id,
+                'quantity' => $item->quantity,
+                'reference_type' => PurchaseDeliveryItem::class,
+                'reference_id' => $item->id,
+                'remark' => 'Delivery cancelled',
+            ]);
+
 
             /* =========================
             DELETE ITEMS

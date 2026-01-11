@@ -31,6 +31,7 @@ use App\Http\Controllers\PettyCash\PettyCashWalletController;
 use App\Http\Controllers\PettyCash\PettyCashStatementController;
 
 use App\Http\Controllers\Inventory\VehicleController;
+use App\Http\Controllers\Inventory\StockController;
 
 
 use App\Http\Controllers\Pdf\ClaimPdfController;
@@ -338,6 +339,14 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
             // Route::post('/{uuid}/roadtax', [VehicleController::class, 'storeRoadtax'])->name('roadtax.store');
             // Route::post('/{uuid}/saman', [VehicleController::class, 'storeSaman'])->name('saman.store');
 
+        });
+
+        Route::prefix('stocks')->name('stocks.')->group(function () {
+            Route::get('/', [StockController::class, 'index'])->name('index');
+            Route::get('/movements', [StockController::class, 'movements'])->name('movements');
+            Route::post('/issue', [StockController::class, 'issue'])->name('issue');
+            Route::post('/transfer', [StockController::class, 'transfer'])->name('transfer');
+            Route::post('/adjust', [StockController::class, 'adjust'])->name('adjust');
         });
         
     });
