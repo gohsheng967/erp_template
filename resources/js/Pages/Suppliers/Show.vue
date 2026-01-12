@@ -5,6 +5,7 @@ import { Link } from '@inertiajs/vue3'
 import OverviewTab from './Partials/OverviewTab.vue'
 import QuotationTab from './Partials/QuotationTab.vue'
 import PurchaseOrderTab from './Partials/PurchaseOrderTab.vue'
+import InvoicesTab from './Partials/InvoicesTab.vue'
 
 const props = defineProps({
     supplier: {
@@ -23,6 +24,9 @@ const props = defineProps({
         type: Array,
         required: true,
     },
+    invoices: {
+        type: Object
+    }
 })
 
 
@@ -221,12 +225,10 @@ const activeTab = ref('overview')
                     :orders="purchaseOrders"
                 />
 
-
-                <div v-if="activeTab === 'invoices'" class="text-sm text-gray-500">
-                    Invoices tab coming soon…
-                </div>
-
-
+                <InvoicesTab
+                    v-if="activeTab === 'invoices'"
+                    :invoices="invoices"
+                />
             </div>
 
         </div>

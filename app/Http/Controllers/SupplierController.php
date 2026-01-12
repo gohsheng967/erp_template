@@ -83,6 +83,14 @@ class SupplierController extends Controller
             ->paginate(10)
             ->withQueryString();
 
+        $invoices = $supplier->invoices()
+        ->with([
+            'purchaseOrder:id,code',
+        ])
+        ->orderByDesc('invoice_date')
+        ->paginate(10)
+        ->withQueryString();
+
         /* =========================
         PURCHASE ORDERS SNAPSHOT
         ========================= */
@@ -122,8 +130,12 @@ class SupplierController extends Controller
                 ->whereIn('status', ['confirmed'])
                 ->count(),
 
-            'invoices' => 0,
-            'unpaid_invoices' => 0,
+            'invoices' => $supplier->invoices()->count(),
+
+            'unpaid_invoices' => $supplier->invoices()
+                ->whereIn('status', ['confirmed', 'partially_paid'])
+                ->count(),
+
             'total_spend' => $supplier->purchaseOrders()
                 ->where('status', 'completed')
                 ->sum('total_amount'),
@@ -136,8 +148,10 @@ class SupplierController extends Controller
             'supplier'        => $supplier,
             'quotations'      => $quotations,
             'purchaseOrders'  => $purchaseOrders,
-            'stats' => $stats,
+            'invoices'        => $invoices,
+            'stats'           => $stats,
         ]);
+
     }
 
 
