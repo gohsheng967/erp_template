@@ -22,7 +22,7 @@ use App\Http\Controllers\Project\MilestoneController;
 use App\Http\Controllers\Transactions\ClaimsController;
 use App\Http\Controllers\Transactions\PurchaseRequestController;
 use App\Http\Controllers\Transactions\PurchaseOrderController;
-use App\Http\Controllers\Transactions\InvoiceController;
+use App\Http\Controllers\Transactions\ArInvoiceController;
 
 use App\Http\Controllers\PettyCash\PettyCashController;
 use App\Http\Controllers\PettyCash\PettyCashUsageController;
@@ -237,6 +237,35 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::delete('/{claim}', [ClaimsController::class, 'destroy'])->name('destroy');
         Route::post('/{claim}/approval', [ClaimsController::class, 'approval'])->name('approval');
         Route::post('/{claim}/paid', [ClaimsController::class, 'markPaid'])->name('paid');
+    });
+
+    Route::prefix('ar-invoices')->name('ar-invoices.')->group(function () {
+        Route::get('/', [ArInvoiceController::class, 'index'])
+            ->name('index');
+
+        Route::get('/create', [ArInvoiceController::class, 'create'])
+            ->name('create');
+
+        Route::post('/', [ArInvoiceController::class, 'store'])
+            ->name('store');
+
+        Route::get('/{invoice}', [ArInvoiceController::class, 'show'])
+            ->name('show');
+
+        Route::get('/{invoice}/edit', [ArInvoiceController::class, 'edit'])
+            ->name('edit');
+
+        Route::post('/{invoice}', [ArInvoiceController::class, 'update'])
+            ->name('update');
+
+        Route::post('/{invoice}', [ArInvoiceController::class, 'cancel'])
+            ->name('destroy');
+
+        Route::post('/{invoice}/approval', [ArInvoiceController::class, 'approval'])
+            ->name('approval');
+
+        Route::post('/{invoice}/received', [ArInvoiceController::class, 'markReceived'])
+            ->name('received');
     });
 
     Route::prefix('petty-cash')->name('petty-cash.')->group(function () {
