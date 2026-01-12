@@ -5,6 +5,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 
 import PurchaseOrdersTable from './Partials/PurchaseOrdersTable.vue'
 import POShowModal from './Partials/POShowModal.vue'
+import CreateApInvoiceModal from './Partials/CreateApInvoiceModal.vue'
 
 const page = usePage()
 
@@ -27,6 +28,14 @@ const dateTo   = ref(filters.to ?? null)
 const showPOModal = ref(false)
 const activePO = ref(null)
 
+
+const showInvoiceModal = ref(false)
+const selectedPo = ref(null)
+
+function openInvoiceModal(po) {
+    selectedPo.value = po
+    showInvoiceModal.value = true
+}
 /* ========================
    Actions
 ======================== */
@@ -71,11 +80,8 @@ function updateDelivery(po) {
 }
 
 function createInvoice(po) {
-    router.visit(
-        route('invoices.create', {
-            purchase_order: po.uuid,
-        })
-    )
+    selectedPo.value = po
+    showInvoiceModal.value = true
 }
 
 function goToDelivery(po) {
@@ -155,6 +161,11 @@ function goToDelivery(po) {
                 @invoice="createInvoice"
             />
 
+            <CreateApInvoiceModal
+                v-if="showInvoiceModal"
+                :po="selectedPo"
+                @close="showInvoiceModal = false"
+            />
             <!-- PAGINATION -->
             <div
                 v-if="purchaseOrders?.links?.length"

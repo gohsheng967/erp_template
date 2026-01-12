@@ -76,6 +76,7 @@ class PurchaseOrderController extends Controller
 
                     // (still placeholder, future phase)
                     'payment_status'   => 'pending',
+                    'items'            => $po->items
                 ];
             });
 

@@ -34,6 +34,7 @@ const menuInventory = [
 // ---------------- TRANSACTIONS SUBMENU ----------------
 const menuTransactions = [
     { name: "Claims", route: "claims.index", active: () => route().current("claims.*") },
+    { name: "AP Invoice", route: "ap-invoices.index", active: () => route().current("ap-invoices.*") },
     { name: "AR Invoice", route: "ar-invoices.index", active: () => route().current("ar-invoices.*") },
     { name: "Purchase Request", route: "purchase-request.index", active: () => route().current("purchase-request.*") },
     { name: "Purchase Order", route: "purchase-orders.index", active: () => route().current("purchase-orders.*") },

@@ -23,6 +23,7 @@ use App\Http\Controllers\Transactions\ClaimsController;
 use App\Http\Controllers\Transactions\PurchaseRequestController;
 use App\Http\Controllers\Transactions\PurchaseOrderController;
 use App\Http\Controllers\Transactions\ArInvoiceController;
+use App\Http\Controllers\Transactions\ApInvoiceController;
 
 use App\Http\Controllers\PettyCash\PettyCashController;
 use App\Http\Controllers\PettyCash\PettyCashUsageController;
@@ -270,6 +271,37 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::post('/{invoice}/received', [ArInvoiceController::class, 'markReceived'])
             ->name('received');
     });
+
+    Route::prefix('ap-invoices')->name('ap-invoices.')->group(function () {
+
+        // LIST (later)
+        Route::get('/', [ApInvoiceController::class, 'index'])
+            ->name('index');
+
+        // STORE (used by modal)
+        Route::post('/', [ApInvoiceController::class, 'store'])->name('store');
+
+        Route::post('/{uuid}/cancel', [ApInvoiceController::class, 'cancel'])->name('cancel');
+
+        // SHOW (invoice detail page)
+        Route::get('{uuid}', [ApInvoiceController::class, 'show'])
+            ->name('show');
+
+        // DOWNLOAD / VIEW ATTACHMENT (optional)
+        Route::get('{uuid}/document', [ApInvoiceController::class, 'document'])
+            ->name('document');
+
+        Route::post('{uuid}/payments', [ApInvoiceController::class, 'storePayment'])
+            ->name('payments.store');
+
+        Route::post('payments/{uuid}/update', [ApInvoiceController::class, 'updatePayment'])
+            ->name('payments.update');
+
+        // CANCEL payment
+        Route::post('payments/{uuid}/cancel', [ApInvoiceController::class, 'cancelPayment'])
+            ->name('payments.cancel');
+    });
+
 
     Route::prefix('petty-cash')->name('petty-cash.')->group(function () {
         Route::get('/', [PettyCashController::class, 'index'])->name('index');

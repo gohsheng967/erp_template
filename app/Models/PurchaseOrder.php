@@ -81,4 +81,9 @@ class PurchaseOrder extends Model
         return $this->morphOne(Attachment::class, 'attachable');
     }
 
+    public function apInvoice()
+    {
+        return $this->hasOne(ApInvoice::class);
+    }
+
 }
