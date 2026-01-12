@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from "vue";
-import { Link, usePage } from "@inertiajs/vue3";
+import { Link, usePage, router } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import CreateUserModal from "./Partials/CreateUserModal.vue";
 import EditUserModal from "./Partials/EditUserModal.vue";
@@ -12,190 +12,119 @@ const filters = page.props.filters;
 const departments = page.props.departments;
 const rolesByDept = page.props.rolesByDept;
 
-// UI States
+/* =====================
+   UI STATE
+===================== */
 const showCreate = ref(false);
 const showEdit = ref(false);
 const selectedUser = ref(null);
 
-// Search box composable
 const search = ref(filters.search ?? "");
 const statusFilter = ref(filters.status ?? "");
 
-// Open edit modal
+/* =====================
+   ACTIONS
+===================== */
 function openEdit(user) {
     selectedUser.value = user;
     showEdit.value = true;
 }
 
+function refreshUsers() {
+    router.get(
+        route("users.index"),
+        {
+            search: search.value,
+            status: statusFilter.value,
+        },
+        {
+            preserveScroll: true,
+            preserveState: false,
+            replace: true,
+            only: ["users"],
+        }
+    );
+}
 </script>
 
 <template>
     <AuthenticatedLayout>
 
-        <!-- PAGE HEADER -->
+        <!-- HEADER -->
         <template #header>
             <div class="flex justify-between items-center">
-                <h2 class="font-semibold text-xl text-gray-800">User Management</h2>
-
+                <h2 class="text-xl font-semibold">User Management</h2>
                 <button
                     @click="showCreate = true"
-                    class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 shadow"
+                    class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                 >
                     + Create User
                 </button>
             </div>
         </template>
 
-        <!-- PAGE CONTENT -->
         <div class="p-6 space-y-6">
 
             <!-- FILTERS -->
-            <div class="bg-white p-4 rounded-lg shadow flex items-end gap-4 w-full">
+            <div class="bg-white p-4 rounded shadow flex gap-4">
+                <input
+                    v-model="search"
+                    placeholder="Search"
+                    class="input w-full"
+                    @keyup.enter="refreshUsers"
+                />
 
-                <!-- SEARCH -->
-                <div class="flex flex-col w-full">
-                    <label class="block text-sm font-small text-gray-700">Search</label>
-                    <input
-                        v-model="search"
-                        type="text"
-                        placeholder="Name / Email / Identity No"
-                        @keyup.enter="$inertia.get(route('users.index'), { search, status: statusFilter })"
-                        class="border rounded-md px-3 py-2 w-full"
-                    />
-                </div>
-
-                <!-- STATUS -->
-                <div class="flex flex-col w-40">
-                    <label class="block text-sm font-medium text-gray-700">Status</label>
-                    <select
-                        v-model="statusFilter"
-                        class="border rounded-md px-3 py-2 w-full"
-                        @change="$inertia.get(route('users.index'), { search, status: statusFilter })"
-                    >
-                        <option value="">All</option>
-                        <option value="1">Active</option>
-                        <option value="0">Suspended</option>
-                    </select>
-                </div>
-
-                <!-- APPLY BUTTON -->
-                <button
-                    class="px-4 py-2 h-10 bg-gray-200 rounded hover:bg-gray-300"
-                    @click="$inertia.get(route('users.index'), { search, status: statusFilter })"
+                <select
+                    v-model="statusFilter"
+                    class="input w-40"
+                    @change="refreshUsers"
                 >
-                    Apply
-                </button>
+                    <option value="">All</option>
+                    <option value="1">Active</option>
+                    <option value="0">Suspended</option>
+                </select>
 
+                <button class="btn" @click="refreshUsers">Apply</button>
             </div>
 
-
-            <!-- USERS TABLE -->
-            <div class="bg-white shadow rounded-lg overflow-hidden">
-                <table class="min-w-full divide-y divide-gray-200">
+            <!-- TABLE -->
+            <div class="bg-white shadow rounded overflow-hidden">
+                <table class="w-full">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Identity No</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Departments / Roles</th>
-                            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
+                            <th class="th">Identity</th>
+                            <th class="th">Name</th>
+                            <th class="th">Email</th>
+                            <th class="th">Departments / Roles</th>
+                            <th class="th text-center">Status</th>
+                            <th class="th text-center">Actions</th>
                         </tr>
                     </thead>
-
-                    <tbody class="divide-y divide-gray-200 bg-white">
+                    <tbody>
                         <tr v-for="user in users.data" :key="user.id">
-
-                            <!-- Identity No -->
-                            <td class="px-4 py-3 text-sm">{{ user.identity_no }}</td>
-
-                            <!-- Name -->
-                            <td class="px-4 py-3 text-sm font-medium text-gray-900">
-                                {{ user.name }}
-                            </td>
-
-                            <!-- Email -->
-                            <td class="px-4 py-3 text-sm">{{ user.email }}</td>
-
-                            <!-- Departments / Roles -->
-                            <td class="px-4 py-3 text-sm">
-                                <div v-for="a in user.assignments" :key="a.department_id">
-                                    <span class="font-semibold">{{ a.department }}</span> —
-                                    <span>{{ a.role }}</span>
+                            <td class="td">{{ user.identity_no }}</td>
+                            <td class="td font-semibold">{{ user.name }}</td>
+                            <td class="td">{{ user.email }}</td>
+                            <td class="td">
+                                <div v-for="a in user.assignments">
+                                    <strong>{{ a.department }}</strong> — {{ a.role }}
                                 </div>
                             </td>
-
-                            <!-- STATUS -->
-                            <td class="px-4 py-3 text-center">
+                            <td class="td text-center">
                                 <span
-                                    :class="user.status ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
-                                    class="px-2 py-1 rounded text-xs"
+                                    :class="user.status ? 'ok' : 'bad'"
+                                    class="badge"
                                 >
-                                    {{ user.status ? 'Active' : 'Suspended' }}
+                                    {{ user.status ? "Active" : "Suspended" }}
                                 </span>
                             </td>
-
-                            <!-- ACTIONS -->
-                            <td class="px-4 py-3 text-center">
-                                <div class="flex justify-center gap-2">
-
-                                    <!-- EDIT -->
-                                    <button
-                                        v-if="!user.is_protected"
-                                        @click="openEdit(user)"
-                                        class="action-btn text-indigo-600 hover:bg-indigo-50"
-                                        title="Edit user"
-                                    >
-                                        <i class="mdi mdi-pencil-outline"></i>
-                                    </button>
-
-                                    <span
-                                        v-else
-                                        class="action-btn text-gray-300 cursor-not-allowed"
-                                        title="Protected user"
-                                    >
-                                        <i class="mdi mdi-pencil-outline"></i>
-                                    </span>
-
-                                    <!-- RESET PASSWORD -->
-                                    <Link
-                                        v-if="!user.is_protected"
-                                        :href="route('users.reset-password', user.id)"
-                                        method="post"
-                                        as="button"
-                                        class="action-btn text-amber-600 hover:bg-amber-50"
-                                        title="Reset password"
-                                    >
-                                        <i class="mdi mdi-key-outline"></i>
-                                    </Link>
-
-                                    <span
-                                        v-else
-                                        class="action-btn text-gray-300 cursor-not-allowed"
-                                    >
-                                        <i class="mdi mdi-key-outline"></i>
-                                    </span>
-
-                                    <!-- ACTIVATE / SUSPEND -->
-                                    <Link
-                                        v-if="!user.is_protected"
-                                        :href="route('users.toggle-status', user.id)"
-                                        method="post"
-                                        as="button"
-                                        class="action-btn text-red-600 hover:bg-red-50"
-                                        title="Suspend / Activate"
-                                    >
-                                        <i class="mdi mdi-account-cancel-outline"></i>
-                                    </Link>
-
-                                    <span
-                                        v-else
-                                        class="action-btn text-gray-300 cursor-not-allowed"
-                                    >
-                                        <i class="mdi mdi-account-cancel-outline"></i>
-                                    </span>
-
-                                </div>
+                            <td class="td text-center">
+                                <button
+                                    @click="openEdit(user)"
+                                    class="action text-indigo-600"
+                                >
+                                    ✎
+                                </button>
                             </td>
                         </tr>
                     </tbody>
@@ -203,23 +132,15 @@ function openEdit(user) {
             </div>
 
             <!-- PAGINATION -->
-            <div class="mt-4 flex gap-1">
-
+            <div class="flex gap-1">
                 <Link
-                    v-for="link in users.links"
-                    :key="link.label"
-                    :href="link.url ?? ''"
-                    v-html="link.label"
-                    class="px-3 py-1 rounded border text-sm"
-                    :class="{
-                        'bg-indigo-600 text-white': link.active,
-                        'text-gray-500 cursor-not-allowed': !link.url
-                    }"
-                    :disabled="!link.url"
+                    v-for="l in users.links"
+                    :href="l.url ?? ''"
+                    v-html="l.label"
+                    class="px-3 py-1 border rounded"
+                    :class="{ 'bg-indigo-600 text-white': l.active }"
                 />
-
             </div>
-
         </div>
 
         <!-- MODALS -->
@@ -227,6 +148,7 @@ function openEdit(user) {
             v-model="showCreate"
             :departments="departments"
             :roles-by-dept="rolesByDept"
+            @created="refreshUsers"
         />
 
         <EditUserModal
@@ -238,3 +160,14 @@ function openEdit(user) {
 
     </AuthenticatedLayout>
 </template>
+
+<style scoped>
+.input { @apply border rounded px-3 py-2; }
+.btn { @apply px-4 py-2 bg-gray-200 rounded hover:bg-gray-300; }
+.th { @apply px-4 py-3 text-left text-xs uppercase text-gray-500; }
+.td { @apply px-4 py-3 text-sm; }
+.badge { @apply px-2 py-1 text-xs rounded; }
+.ok { @apply bg-green-100 text-green-700; }
+.bad { @apply bg-red-100 text-red-700; }
+.action { @apply hover:bg-gray-100 px-2 py-1 rounded; }
+</style>

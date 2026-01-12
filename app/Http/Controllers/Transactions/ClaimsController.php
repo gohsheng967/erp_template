@@ -36,13 +36,12 @@ class ClaimsController extends Controller
 
         $search = $request->search;
 
-        $baseQuery = Claim::query()
-            ->with([
-                'project:id,name',
-                'issuer:id,name',
-            ])
-            ->withCount('items')
-            ->withSum('items', 'amount')
+        /*
+        |--------------------------------------------------------------------------
+        | BASE FILTER (NO ORDER BY)
+        |--------------------------------------------------------------------------
+        */
+        $filterQuery = Claim::query()
             ->when($search, function ($q) use ($search) {
                 $q->where(function ($q) use ($search) {
                     $q->where('claim_no', 'like', "%{$search}%")
@@ -57,16 +56,34 @@ class ClaimsController extends Controller
             )
             ->when($to, fn ($q) =>
                 $q->whereDate('claims.created_at', '<=', $to)
-            )
+            );
+
+        /*
+        |--------------------------------------------------------------------------
+        | LIST QUERY (WITH ORDER BY)
+        |--------------------------------------------------------------------------
+        */
+        $listQuery = (clone $filterQuery)
+            ->with([
+                'project:id,name',
+                'issuer:id,name',
+            ])
+            ->withCount('items')
+            ->withSum('items', 'amount')
             ->orderByDesc('claims.created_at');
 
-        $draft = (clone $baseQuery)->where('status', 'draft')->paginate(15)->withQueryString();
-        $submitted = (clone $baseQuery)->where('status', 'submitted')->paginate(15)->withQueryString();
-        $approved = (clone $baseQuery)->where('status', 'approved')->paginate(15)->withQueryString();
-        $rejected = (clone $baseQuery)->where('status', 'rejected')->paginate(15)->withQueryString();
-        $paymentMade = (clone $baseQuery)->where('status', 'paid')->paginate(15)->withQueryString();
+        $draft       = (clone $listQuery)->where('status', 'draft')->paginate(15)->withQueryString();
+        $submitted   = (clone $listQuery)->where('status', 'submitted')->paginate(15)->withQueryString();
+        $approved    = (clone $listQuery)->where('status', 'approved')->paginate(15)->withQueryString();
+        $rejected    = (clone $listQuery)->where('status', 'rejected')->paginate(15)->withQueryString();
+        $paymentMade = (clone $listQuery)->where('status', 'paid')->paginate(15)->withQueryString();
 
-        $countsRaw = (clone $baseQuery)
+        /*
+        |--------------------------------------------------------------------------
+        | COUNTS (GROUP BY — NO ORDER BY)
+        |--------------------------------------------------------------------------
+        */
+        $countsRaw = (clone $filterQuery)
             ->whereIn('status', ['submitted', 'approved'])
             ->select('status', DB::raw('COUNT(*) as total'))
             ->groupBy('status')
@@ -77,18 +94,17 @@ class ClaimsController extends Controller
             'approved'  => (int) ($countsRaw['approved'] ?? 0),
         ];
 
-        $projectDonutRaw = Claim::query()
+        /*
+        |--------------------------------------------------------------------------
+        | DONUT — BY PROJECT
+        |--------------------------------------------------------------------------
+        */
+        $projectDonutRaw = (clone $filterQuery)
             ->leftJoin('projects', 'projects.id', '=', 'claims.project_id')
-            ->when($from, fn ($q) =>
-                $q->whereDate('claims.created_at', '>=', $from)
-            )
-            ->when($to, fn ($q) =>
-                $q->whereDate('claims.created_at', '<=', $to)
-            )
             ->where('claims.status', $tab)
             ->select(
-                DB::raw("COALESCE(claims.project_id, 0) as project_key"),
-                DB::raw("SUM(claims.total_amount) as total")
+                DB::raw('COALESCE(claims.project_id, 0) as project_key'),
+                DB::raw('SUM(claims.total_amount) as total')
             )
             ->groupBy('project_key')
             ->get();
@@ -110,6 +126,11 @@ class ClaimsController extends Controller
             ];
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | DONUT — BY CATEGORY
+        |--------------------------------------------------------------------------
+        */
         $donutByCategory = DB::table('claim_items')
             ->join('claims', 'claims.id', '=', 'claim_items.claim_id')
             ->when($from, fn ($q) =>
@@ -127,21 +148,26 @@ class ClaimsController extends Controller
             ->orderByDesc('amount')
             ->get()
             ->map(fn ($row) => [
-                'label' => ucfirst(str_replace('_', ' ', $row->label)),
+                'label'  => ucfirst(str_replace('_', ' ', $row->label)),
                 'amount' => (float) $row->amount,
             ]);
 
+        /*
+        |--------------------------------------------------------------------------
+        | PROJECT LIST
+        |--------------------------------------------------------------------------
+        */
         $projects = Project::select('id', 'name')
             ->orderBy('name')
             ->get();
 
         return Inertia::render('Transactions/Claims/Index', [
             'claims' => [
-                'draft'        => $draft,
-                'submitted'    => $submitted,
-                'approved'     => $approved,
-                'rejected'     => $rejected,
-                'paid' => $paymentMade,
+                'draft'     => $draft,
+                'submitted' => $submitted,
+                'approved'  => $approved,
+                'rejected'  => $rejected,
+                'paid'      => $paymentMade,
             ],
 
             'filters' => [
@@ -158,7 +184,7 @@ class ClaimsController extends Controller
             ],
 
             'activeTab' => $tab,
-            'projects' => $projects,
+            'projects'  => $projects,
         ]);
     }
 

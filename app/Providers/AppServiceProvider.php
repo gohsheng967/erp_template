@@ -8,6 +8,7 @@ use App\Models\MilestonePhase;
 use App\Models\MilestonePhaseTask;
 use App\Observers\MilestonePhaseObserver;
 use App\Observers\MilestonePhaseTaskObserver;
+use Illuminate\Support\Facades\URL;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -28,5 +29,9 @@ class AppServiceProvider extends ServiceProvider
         MilestonePhaseTask::observe(MilestonePhaseTaskObserver::class);
 
         Vite::prefetch(concurrency: 3);
+
+        if (app()->environment('production', 'staging')) {
+        URL::forceScheme('https');
+    }
     }
 }

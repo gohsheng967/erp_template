@@ -81,23 +81,27 @@ class UserController extends Controller
                 'identity_no' => $request->identity_no,
                 'name'        => $request->name,
                 'email'       => $request->email,
-                'password'    => bcrypt(Str::random(10)),
+                'password'    => bcrypt('123456'),
                 'status'      => $request->status,
             ]);
 
-            foreach ($request->department_roles as $dr) {
-                DB::table('pivot_user_departments')->insert([
-                    'user_id'       => $user->id,
-                    'department_id' => $dr['department_id'],
-                    'role_id'       => $dr['role_id'],
-                    'created_at'    => now(),
-                    'updated_at'    => now(),
-                ]);
-            }
+            // 🔐 FORCE Super Admin role (ignore request input)
+            $superAdminRoleId = DB::table('roles')
+                ->where('name', 'superadmin')
+                ->value('id');
+
+            DB::table('pivot_user_departments')->insert([
+                'user_id'       => $user->id,
+                'department_id' => 1,
+                'role_id'       => $superAdminRoleId,
+                'created_at'    => now(),
+                'updated_at'    => now(),
+            ]);
         });
 
-        return back()->with('success', 'User created successfully.');
+        return back()->with('success', 'Super Admin created successfully.');
     }
+
 
     /*
     |--------------------------------------------------------------------------
@@ -106,9 +110,9 @@ class UserController extends Controller
     */
     public function update(UpdateUserRequest $request, User $user)
     {
-        // HARD PROTECTION
-        if ($user->departments()->where('name', 'Superadmin')->exists()) {
-            abort(403, "Superadmin account cannot be modified.");
+        // 🔒 HARD PROTECTION
+        if ($user->isSuperAdmin()) {
+            abort(403, 'Super Admin account cannot be modified.');
         }
 
         DB::transaction(function () use ($request, $user) {
@@ -120,7 +124,10 @@ class UserController extends Controller
                 'status'      => $request->status,
             ]);
 
-            DB::table('pivot_user_departments')->where('user_id', $user->id)->delete();
+            // Reset assignments
+            DB::table('pivot_user_departments')
+                ->where('user_id', $user->id)
+                ->delete();
 
             foreach ($request->department_roles as $dr) {
                 DB::table('pivot_user_departments')->insert([
@@ -135,6 +142,7 @@ class UserController extends Controller
 
         return back()->with('success', 'User updated successfully.');
     }
+
 
     /*
     |--------------------------------------------------------------------------
