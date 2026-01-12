@@ -152,6 +152,9 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     Route::get('/projects/{project}/purchase-requests/summary', [ProjectController::class, 'purchaseRequestSummary'])
         ->name('projects.pr.summary');
 
+    Route::get('/projects/{project}/ar/summary', [ProjectController::class, 'aRSummary'])
+        ->name('projects.ar.summary');
+
     Route::get('projects/{project}/overview/kpi',  [ProjectController::class, 'kpi'])
         ->name('projects.overview.kpi');
 
@@ -258,7 +261,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::post('/{invoice}', [ArInvoiceController::class, 'update'])
             ->name('update');
 
-        Route::post('/{invoice}', [ArInvoiceController::class, 'cancel'])
+        Route::post('/{invoice}/cancel', [ArInvoiceController::class, 'cancel'])
             ->name('destroy');
 
         Route::post('/{invoice}/approval', [ArInvoiceController::class, 'approval'])

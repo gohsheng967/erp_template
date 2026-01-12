@@ -63,4 +63,8 @@ class Project extends Model
         return $this->morphMany(InventoryAllocation::class, 'allocatable');
     }
 
+    public function arInvoices()
+    {
+        return $this->hasMany(ArInvoice::class, 'project_id');
+    }
 }

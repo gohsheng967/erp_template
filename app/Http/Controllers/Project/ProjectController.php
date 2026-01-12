@@ -13,9 +13,11 @@ use App\Models\ProjectActivityLog;
 use App\Models\ProjectDocument;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequest;
+use App\Models\ArInvoice;
 
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use DB;
 
 class ProjectController extends Controller
 {
@@ -394,4 +396,50 @@ class ProjectController extends Controller
             'pending_requests' => $pendingPRs,
         ]);
     }
+
+    public function aRSummary(Project $project)
+    {
+        // Base invoices (exclude cancelled)
+        $invoices = $project->arInvoices()
+            ->whereNotIn('status', ['cancelled']);
+
+        /* =========================
+        TOTAL INVOICED
+        ========================== */
+        $totalAmount = (clone $invoices)->sum('total_amount');
+
+        /* =========================
+        RECEIVED (FROM RECEIPTS)
+        ========================== */
+        $receivedAmount = DB::table('ar_invoice_receipts')
+            ->join('ar_invoices', 'ar_invoices.id', '=', 'ar_invoice_receipts.ar_invoice_id')
+            ->where('ar_invoices.project_id', $project->id)
+            ->sum('ar_invoice_receipts.amount');
+
+        /* =========================
+        OUTSTANDING
+        ========================== */
+        $outstanding = max($totalAmount - $receivedAmount, 0);
+
+        /* =========================
+        STATUS COUNTS
+        ========================== */
+        $counts = [
+            'draft'     => (clone $invoices)->where('status', 'draft')->count(),
+            'issued'    => (clone $invoices)->where('status', 'issued')->count(),
+            'approved'  => (clone $invoices)->where('status', 'approved')->count(),
+            'received'  => (clone $invoices)->where('status', 'received')->count(),
+            'cancelled' => $project->arInvoices()->where('status', 'cancelled')->count(),
+        ];
+
+        return response()->json([
+            'summary' => [
+                ...$counts,
+                'total_amount'        => (float) $totalAmount,
+                'received_amount'     => (float) $receivedAmount,
+                'outstanding_amount'  => (float) $outstanding,
+            ],
+        ]);
+    }
+
 }

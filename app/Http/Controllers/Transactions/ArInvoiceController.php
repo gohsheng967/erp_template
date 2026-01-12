@@ -32,7 +32,8 @@ class ArInvoiceController extends Controller
      */
     public function index(Request $request)
     {
-        $tab = $request->tab ?? 'issued';
+        $tab       = $request->tab ?? 'issued';
+        $projectId = $request->project_id;
 
         $from = $request->from
             ?? Carbon::now()->subMonth()->toDateString();
@@ -42,6 +43,11 @@ class ArInvoiceController extends Controller
 
         $search = $request->search;
 
+        /*
+        |--------------------------------------------------------------------------
+        | Base Query (shared)
+        |--------------------------------------------------------------------------
+        */
         $baseQuery = ArInvoice::query()
             ->with([
                 'project:id,name',
@@ -53,12 +59,15 @@ class ArInvoiceController extends Controller
             ->when($search, function ($q) use ($search) {
                 $q->where(function ($q) use ($search) {
                     $q->where('invoice_no', 'like', "%{$search}%")
-                        ->orWhere('title', 'like', "%{$search}%")
-                        ->orWhereHas('customer', function ($c) use ($search) {
-                            $c->where('name', 'like', "%{$search}%");
-                        });
+                    ->orWhere('title', 'like', "%{$search}%")
+                    ->orWhereHas('customer', function ($c) use ($search) {
+                        $c->where('name', 'like', "%{$search}%");
+                    });
                 });
             })
+            ->when($projectId, fn ($q) =>
+                $q->where('project_id', $projectId)
+            )
             ->when($from, fn ($q) =>
                 $q->whereDate('ar_invoices.created_at', '>=', $from)
             )
@@ -67,12 +76,22 @@ class ArInvoiceController extends Controller
             )
             ->orderByDesc('ar_invoices.created_at');
 
+        /*
+        |--------------------------------------------------------------------------
+        | Tabs
+        |--------------------------------------------------------------------------
+        */
         $draft     = (clone $baseQuery)->where('status', 'draft')->paginate(15)->withQueryString();
         $issued    = (clone $baseQuery)->where('status', 'issued')->paginate(15)->withQueryString();
         $approved  = (clone $baseQuery)->where('status', 'approved')->paginate(15)->withQueryString();
         $received  = (clone $baseQuery)->where('status', 'received')->paginate(15)->withQueryString();
         $cancelled = (clone $baseQuery)->where('status', 'cancelled')->paginate(15)->withQueryString();
 
+        /*
+        |--------------------------------------------------------------------------
+        | Badge Counts
+        |--------------------------------------------------------------------------
+        */
         $countsRaw = (clone $baseQuery)
             ->whereIn('status', ['issued', 'approved'])
             ->select('status', DB::raw('COUNT(*) as total'))
@@ -84,9 +103,58 @@ class ArInvoiceController extends Controller
             'approved' => (int) ($countsRaw['approved'] ?? 0),
         ];
 
-        $projects = Project::select('id', 'name')->orderBy('name')->get();
+        /*
+        |--------------------------------------------------------------------------
+        | Approved Summary (for Approved tab only)
+        |--------------------------------------------------------------------------
+        */
+        $approvedInvoiceQuery = ArInvoice::query()
+            ->where('status', 'approved')
+            ->when($projectId, fn ($q) =>
+                $q->where('project_id', $projectId)
+            )
+            ->when($from, fn ($q) =>
+                $q->whereDate('created_at', '>=', $from)
+            )
+            ->when($to, fn ($q) =>
+                $q->whereDate('created_at', '<=', $to)
+            );
+
+        $approvedTotal = (float) $approvedInvoiceQuery->sum('total_amount');
+
+        $receivedTotal = (float) DB::table('ar_invoice_receipts')
+            ->join('ar_invoices', 'ar_invoice_receipts.ar_invoice_id', '=', 'ar_invoices.id')
+            ->where('ar_invoices.status', 'approved')
+            ->when($projectId, fn ($q) =>
+                $q->where('ar_invoices.project_id', $projectId)
+            )
+            ->when($from, fn ($q) =>
+                $q->whereDate('ar_invoice_receipts.created_at', '>=', $from)
+            )
+            ->when($to, fn ($q) =>
+                $q->whereDate('ar_invoice_receipts.created_at', '<=', $to)
+            )
+            ->sum('ar_invoice_receipts.amount');
+
+        $approvedTotals = [
+            'total_amount'    => $approvedTotal,
+            'received_amount' => $receivedTotal,
+            'outstanding'     => max($approvedTotal - $receivedTotal, 0),
+        ];
+
+        /*
+        |--------------------------------------------------------------------------
+        | Dropdown Data
+        |--------------------------------------------------------------------------
+        */
+        $projects  = Project::select('id', 'name')->orderBy('name')->get();
         $customers = Client::select('id', 'name')->orderBy('name')->get();
 
+        /*
+        |--------------------------------------------------------------------------
+        | Render
+        |--------------------------------------------------------------------------
+        */
         return Inertia::render('Transactions/ArInvoices/Index', [
             'invoices' => [
                 'draft'     => $draft,
@@ -95,15 +163,20 @@ class ArInvoiceController extends Controller
                 'received'  => $received,
                 'cancelled' => $cancelled,
             ],
+
             'filters' => [
-                'search' => $search,
-                'from'   => $from,
-                'to'     => $to,
+                'search'     => $search,
+                'from'       => $from,
+                'to'         => $to,
+                'project_id' => $projectId,
             ],
-            'counts'     => $counts,
-            'activeTab'  => $tab,
-            'projects'   => $projects,
-            'customers'  => $customers,
+
+            'counts'          => $counts,
+            'approvedTotals'  => $approvedTotals,
+            'activeTab'       => $tab,
+
+            'projects'  => $projects,
+            'customers' => $customers,
         ]);
     }
 

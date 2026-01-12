@@ -1,19 +1,32 @@
 <script setup>
-import { ref, inject, watch } from "vue";
-import { useForm, router } from '@inertiajs/vue3'
+import { ref, inject, watch, onMounted } from "vue"
+import { useForm } from '@inertiajs/vue3'
+import axios from 'axios'
 
 import Claim from './Child/Claim.vue'
 import PurchaseRequest from './Child/PurchaseRequest.vue'
 
-const toast = inject("toast", null)
-
+/* ===============================
+   PROPS / EMITS
+================================ */
 const props = defineProps({
-    project: Object
-});
-
-const currentBudget = ref(props.project.budget ?? 0)
+    project: {
+        type: Object,
+        required: true,
+    },
+})
 
 const emit = defineEmits(['budget-updated'])
+const toast = inject("toast", null)
+
+/* ===============================
+   BUDGET
+================================ */
+const currentBudget = ref(props.project.budget ?? 0)
+
+const budgetForm = useForm({
+    budget: currentBudget.value,
+})
 
 function saveBudget() {
     budgetForm.patch(
@@ -22,86 +35,63 @@ function saveBudget() {
             preserveScroll: true,
             onSuccess: () => {
                 const saved = Number(budgetForm.budget)
-
                 budgetForm.defaults({ budget: saved })
                 budgetForm.reset()
-
                 currentBudget.value = saved
-
                 toast?.value?.show('Budget updated', 'success')
             },
         }
     )
 }
 
-
-/* -----------------------------
-   Collapse States
------------------------------- */
-const showBudget = ref(true);
-const showClaim = ref(false);
-const showPurchase = ref(false);
-const showInvoice = ref(false);
-
-const budgetForm = useForm({
-    budget: currentBudget.value ?? 0,
-})
-
 watch(
     () => props.project.budget,
     val => {
         const normalized = Number(val ?? 0)
-
         currentBudget.value = normalized
-
-        budgetForm.defaults({
-            budget: normalized,
-        })
-
+        budgetForm.defaults({ budget: normalized })
         budgetForm.reset()
     }
 )
 
+/* ===============================
+   COLLAPSE STATES
+================================ */
+const showBudget = ref(true)
+const showClaim = ref(false)
+const showPurchase = ref(false)
+const showInvoice = ref(false)
 
-/* -----------------------------
-   INVOICE ISSUED
------------------------------- */
-const invoices = ref([
-    { id: 1, invoice_no: "INV-2025-001", amount: 15000, date: "2025-02-04", status: "Paid" },
-    { id: 2, invoice_no: "INV-2025-002", amount: 22000, date: "2025-02-10", status: "Pending" }
-]);
+/* ===============================
+   AR SUMMARY
+================================ */
+const arLoading = ref(false)
+const arSummary = ref(null)
 
-const newInvoice = ref({
-    invoice_no: "",
-    amount: null,
-    date: "",
-});
+async function loadArSummary() {
+    if (!props.project?.id) return
 
-function createInvoice() {
-    if (!newInvoice.value.invoice_no || !newInvoice.value.amount || !newInvoice.value.date) {
-        alert("Please fill in all fields.");
-        return;
+    arLoading.value = true
+
+    try {
+        const res = await axios.get(
+            route('projects.ar.summary', props.project.id)
+        )
+
+        arSummary.value = res.data.summary
+
+    } catch (e) {
+        console.error(e)
+        toast?.value?.show('Failed to load AR summary', 'error')
+    } finally {
+        arLoading.value = false
     }
-
-    invoices.value.push({
-        id: Date.now(),
-        invoice_no: newInvoice.value.invoice_no,
-        amount: parseFloat(newInvoice.value.amount),
-        date: newInvoice.value.date,
-        status: "Pending"
-    });
-
-    newInvoice.value.invoice_no = "";
-    newInvoice.value.amount = null;
-    newInvoice.value.date = "";
 }
 
-const expandedRow = ref(null);
-
-function toggleRow(id) {
-    expandedRow.value = expandedRow.value === id ? null : id;
-}
+onMounted(loadArSummary)
+watch(() => props.project.id, loadArSummary)
 </script>
+
 
 
 
@@ -216,88 +206,76 @@ function toggleRow(id) {
             </div>
         </div>
 
-
-
-
         <!-- =============================== -->
-        <!-- 4) INVOICE ISSUED + HISTORY -->
+        <!-- 4) ACCOUNTS RECEIVABLE -->
         <!-- =============================== -->
         <div class="bg-white rounded-xl shadow-md border">
-            <button @click="showInvoice = !showInvoice"
-                    class="w-full flex justify-between items-center p-4 text-left">
-                <span class="text-lg font-semibold">Invoice Issued</span>
-                <svg :class="showInvoice ? 'rotate-180' : ''" class="h-5 w-5 transition"
-                     fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <button
+                @click="showInvoice = !showInvoice"
+                class="w-full flex justify-between items-center p-4 text-left"
+            >
+                <span class="text-lg font-semibold">Accounts Receivable</span>
+                <svg
+                    :class="showInvoice ? 'rotate-180' : ''"
+                    class="h-5 w-5 transition"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M19 9l-7 7-7-7" />
+                        d="M19 9l-7 7-7-7" />
                 </svg>
             </button>
 
             <div v-show="showInvoice" class="p-6 border-t space-y-6">
 
-                <!-- CREATE INVOICE FORM -->
-                <div class="bg-gray-50 rounded-lg p-4 border space-y-4">
-                    <h3 class="font-semibold text-gray-700">Create New Invoice</h3>
+                <div v-if="arLoading" class="text-sm text-gray-400">
+                    Loading accounts receivable…
+                </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label class="block text-gray-700 text-sm mb-1">Invoice No</label>
-                            <input v-model="newInvoice.invoice_no" class="border px-3 py-2 rounded-md w-full"
-                                   placeholder="INV-2025-003">
-                        </div>
+                <div v-else-if="arSummary" class="grid grid-cols-1 md:grid-cols-4 gap-4">
 
-                        <div>
-                            <label class="block text-gray-700 text-sm mb-1">Amount (RM)</label>
-                            <input v-model="newInvoice.amount" type="number"
-                                   class="border px-3 py-2 rounded-md w-full" placeholder="0.00">
-                        </div>
-
-                        <div>
-                            <label class="block text-gray-700 text-sm mb-1">Date</label>
-                            <input v-model="newInvoice.date" type="date"
-                                   class="border px-3 py-2 rounded-md w-full">
+                    <div class="bg-indigo-50 border rounded-lg p-4">
+                        <div class="text-xs text-gray-500">Total Invoiced</div>
+                        <div class="text-xl font-semibold text-indigo-700">
+                            {{ $formatCurrency(arSummary.total_amount) }}
                         </div>
                     </div>
 
-                    <button @click="createInvoice"
-                            class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">
-                        Add Invoice
-                    </button>
+                    <div class="bg-green-50 border rounded-lg p-4">
+                        <div class="text-xs text-gray-500">Received</div>
+                        <div class="text-xl font-semibold text-green-700">
+                            {{ $formatCurrency(arSummary.received_amount) }}
+                        </div>
+                    </div>
+
+                    <div class="bg-red-50 border rounded-lg p-4">
+                        <div class="text-xs text-gray-500">Outstanding</div>
+                        <div class="text-xl font-semibold text-red-700">
+                            {{ $formatCurrency(arSummary.outstanding_amount) }}
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-50 border rounded-lg p-4 text-sm">
+                        <div>Draft: <b>{{ arSummary.draft }}</b></div>
+                        <div>Issued: <b>{{ arSummary.issued }}</b></div>
+                        <div>Approved: <b>{{ arSummary.approved }}</b></div>
+                        <div>Received: <b>{{ arSummary.received }}</b></div>
+                        <div>Cancelled: <b>{{ arSummary.cancelled }}</b></div>
+                    </div>
                 </div>
 
-
-                <!-- INVOICE HISTORY TABLE -->
-                <div>
-                    <h3 class="font-semibold text-gray-700 mb-2">Invoice History</h3>
-
-                    <table class="min-w-full text-sm divide-y divide-gray-200 bg-white rounded-lg shadow">
-                        <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-3 py-2 text-left">Invoice No</th>
-                            <th class="px-3 py-2 text-left">Amount</th>
-                            <th class="px-3 py-2 text-left">Date</th>
-                            <th class="px-3 py-2 text-left">Status</th>
-                        </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-200">
-                        <tr v-for="inv in invoices" :key="inv.id">
-                            <td class="px-3 py-2">{{ inv.invoice_no }}</td>
-                            <td class="px-3 py-2">RM {{ inv.amount.toLocaleString() }}</td>
-                            <td class="px-3 py-2">{{ inv.date }}</td>
-                            <td class="px-3 py-2">
-                                <span :class="inv.status === 'Paid' ? 'text-green-600' : 'text-yellow-600'"
-                                      class="font-semibold">
-                                    {{ inv.status }}
-                                </span>
-                            </td>
-                        </tr>
-                        </tbody>
-                    </table>
-
+                <div class="text-right pt-2">
+                    <a
+                        :href="route('ar-invoices.index', { project_id: project.id })"
+                        class="text-sm text-indigo-600 hover:underline font-medium"
+                    >
+                        View all invoices →
+                    </a>
                 </div>
-
             </div>
         </div>
+
 
 
 

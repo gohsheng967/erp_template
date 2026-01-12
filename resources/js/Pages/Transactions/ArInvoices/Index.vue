@@ -6,8 +6,10 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import ArInvoicesTable from '@/Pages/Transactions/ArInvoices/Partials/ArInvoicesTable.vue'
 import ArInvoicesPie from '@/Components/Charts/ClaimsPie.vue'
 import CreateArInvoiceModal from '@/Pages/Transactions/ArInvoices/Partials/CreateArInvoiceModal.vue'
+import { useFormat } from '@/Composables/useFormat'
 
 const page = usePage()
+const { formatCurrency } = useFormat()
 
 /* ========================
    Props from controller
@@ -25,6 +27,7 @@ const showCreate = ref(false)
 const search   = ref(filters.search ?? '')
 const dateFrom = ref(filters.from ?? null)
 const dateTo   = ref(filters.to ?? null)
+const approvedTotals = computed(() => page.props.approvedTotals ?? null)
 
 /* ========================
    Tabs
@@ -283,6 +286,42 @@ function switchTab(tab) {
                     </div>
                 </div>
             </div>
+            <!-- APPROVED SUMMARY -->
+            <div
+                v-if="activeTab === 'approved' && approvedTotals"
+                class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white border rounded-lg shadow p-4"
+            >
+                <!-- TOTAL -->
+                <div class="bg-indigo-50 rounded p-4">
+                    <div class="text-xs text-gray-500">
+                        Total Approved
+                    </div>
+                    <div class="text-2xl font-semibold text-indigo-700">
+                        {{ formatCurrency(approvedTotals.total_amount) }}
+                    </div>
+                </div>
+
+                <!-- RECEIVED -->
+                <div class="bg-green-50 rounded p-4">
+                    <div class="text-xs text-gray-500">
+                        Received
+                    </div>
+                    <div class="text-2xl font-semibold text-green-700">
+                        {{ formatCurrency(approvedTotals.received_amount) }}
+                    </div>
+                </div>
+
+                <!-- OUTSTANDING -->
+                <div class="bg-red-50 rounded p-4">
+                    <div class="text-xs text-gray-500">
+                        Outstanding
+                    </div>
+                    <div class="text-2xl font-semibold text-red-700">
+                        {{ formatCurrency(approvedTotals.outstanding) }}
+                    </div>
+                </div>
+            </div>
+
 
             <!-- TABLE -->
             <ArInvoicesTable

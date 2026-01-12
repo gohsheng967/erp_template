@@ -8,7 +8,10 @@ import ConfirmModal from '@/Components/ConfirmModal.vue'
    PROPS
 ========================= */
 const props = defineProps({
-  invoice: Object,
+  invoice: {
+    type: Object,
+    required: true,
+  },
 })
 
 /* =========================
@@ -53,6 +56,12 @@ function recalcAmount(item) {
     Number(item.quantity || 0) * Number(item.unit_price || 0)
 }
 
+function showFirstError(errors, fallback = 'Operation failed.') {
+  const first = Object.values(errors)?.[0]
+  const msg = Array.isArray(first) ? first[0] : first
+  toast?.value?.show(msg || fallback, 'error')
+}
+
 /* =========================
    ITEM ACTIONS
 ========================= */
@@ -79,20 +88,34 @@ function saveDraft() {
   form.post(route('ar-invoices.update', props.invoice.uuid), {
     preserveScroll: true,
     forceFormData: true,
-    onSuccess: () =>
-      toast?.value?.show('Draft saved successfully.', 'success'),
+
+    onSuccess: () => {
+      toast?.value?.show('Draft saved successfully.', 'success')
+    },
+
+    onError: errors => {
+      showFirstError(errors, 'Failed to save draft.')
+    },
   })
 }
 
 function confirmIssue() {
+
   showIssueConfirm.value = false
   form.status = 'issued'
 
   form.post(route('ar-invoices.update', props.invoice.uuid), {
     preserveScroll: true,
     forceFormData: true,
-    onSuccess: () =>
-      toast?.value?.show('Invoice issued successfully.', 'success'),
+    
+    onSuccess: () => {
+      toast?.value?.show('Invoice issued successfully.', 'success')
+    },
+
+    onError: errors => {
+
+      showFirstError(errors, 'Failed to issue invoice.')
+    },
   })
 }
 </script>
@@ -122,6 +145,7 @@ function confirmIssue() {
         <h3 class="font-semibold">
           Item {{ index + 1 }}
         </h3>
+
         <button
           class="text-red-500 text-sm"
           @click="removeItem(index)"
@@ -201,11 +225,19 @@ function confirmIssue() {
         Cancel
       </Link>
 
-      <button class="btn-outline" @click="saveDraft">
+      <button
+        class="btn-outline"
+        @click="saveDraft"
+        :disabled="form.processing"
+      >
         Save Draft
       </button>
 
-      <button class="btn-primary" @click="showIssueConfirm = true">
+      <button
+        class="btn-primary"
+        @click="showIssueConfirm = true"
+        :disabled="form.processing"
+      >
         Issue Invoice
       </button>
     </div>
