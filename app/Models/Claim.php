@@ -51,4 +51,9 @@ class Claim extends Model
     {
         return $this->morphMany(Attachment::class, 'attachable');
     }
+
+    public function paymentSlip()
+    {
+        return $this->morphOne(PaymentSlip::class, 'source');
+    }
 }

@@ -1,7 +1,9 @@
 <script setup>
 import { ref, watch, computed, nextTick } from 'vue'
 import axios from 'axios'
+import { usePage } from '@inertiajs/vue3'
 import ClaimShowA4 from './ClaimShowA4.vue'
+import ClaimPaymentSlipModal from './ClaimPaymentSlipModal.vue'
 
 /* =========================
    PROPS / EMITS
@@ -23,24 +25,45 @@ const emit = defineEmits(['close', 'refresh', 'print'])
 
 const loading = ref(false)
 const submitting = ref(false)
+const slipSubmitting = ref(false)
 
 const fullClaim = ref(null)
 const company = ref(null)
 
 const approvalRemark = ref('')
 const paymentRef = ref('')
-const voucherFile = ref(null)
+const paymentFiles = ref([])
+const slipForm = ref({
+    company_bank_account_id: '',
+    less_retention: '',
+    less_recoupment: '',
+    less_material_ob: '',
+    less_paid_previously: '',
+    payment_slip_remark: '',
+})
+
+const showSlip = ref(false)
+const selectedSlip = ref(null)
+
+const page = usePage()
+const companyBankAccounts = computed(() => page.props.companyBankAccounts ?? [])
+const activeCompanyBankAccounts = computed(() =>
+    companyBankAccounts.value.filter(account => account.status === 'active')
+)
 
 /* =========================
    COMPUTED
 ========================= */
 
 // Claim-level payment vouchers (attachments)
-const paymentVouchers = computed(() =>
-    fullClaim.value?.attachments?.filter(
+const paymentVouchers = computed(() => {
+    const slipFiles = fullClaim.value?.payment_slip?.attachments ?? []
+    const claimFiles = fullClaim.value?.attachments?.filter(
         a => a.category === 'payment_voucher'
     ) ?? []
-)
+
+    return [...slipFiles, ...claimFiles]
+})
 
 // Item-level receipts (flattened, optional helper)
 const itemReceipts = computed(() =>
@@ -64,7 +87,7 @@ async function loadClaim() {
     company.value = null
     approvalRemark.value = ''
     paymentRef.value = ''
-    voucherFile.value = null
+    paymentFiles.value = []
 
     try {
         const res = await axios.get(
@@ -73,6 +96,7 @@ async function loadClaim() {
 
         fullClaim.value = res.data.claim
         company.value = res.data.company
+        resetSlipForm(fullClaim.value?.payment_slip)
 
     } catch (e) {
         console.error('Failed to load claim', e)
@@ -131,9 +155,10 @@ async function markAsPaid() {
     try {
         const fd = new FormData()
         fd.append('payment_ref', paymentRef.value)
-        if (voucherFile.value) {
-            fd.append('voucher', voucherFile.value)
-        }
+        fd.append('payment_slip_id', fullClaim.value?.payment_slip?.id ?? '')
+        paymentFiles.value.forEach(file => {
+            fd.append('attachments[]', file)
+        })
 
         await axios.post(
             route('claims.paid', fullClaim.value.uuid),
@@ -147,6 +172,51 @@ async function markAsPaid() {
         console.error('Mark paid failed', e)
     } finally {
         submitting.value = false
+    }
+}
+
+function handlePaymentFiles(event) {
+    paymentFiles.value = Array.from(event.target.files ?? [])
+}
+
+async function generateSlip() {
+    if (!fullClaim.value) return
+
+    slipSubmitting.value = true
+
+    try {
+        const res = await axios.post(
+            route('claims.payment-slip', fullClaim.value.uuid),
+            slipForm.value
+        )
+
+        fullClaim.value.payment_slip = res.data.slip
+        fullClaim.value.payment_slip_no = res.data.slip?.slip_no ?? null
+        selectedSlip.value = res.data.slip
+        showSlip.value = true
+        emit('refresh')
+    } catch (e) {
+        console.error('Generate slip failed', e)
+    } finally {
+        slipSubmitting.value = false
+    }
+}
+
+function openSlip() {
+    selectedSlip.value = fullClaim.value?.payment_slip ?? null
+    if (selectedSlip.value) {
+        showSlip.value = true
+    }
+}
+
+function resetSlipForm(slip) {
+    slipForm.value = {
+        company_bank_account_id: slip?.company_bank_account_id ?? '',
+        less_retention: slip?.less_retention ?? '',
+        less_recoupment: slip?.less_recoupment ?? '',
+        less_material_ob: slip?.less_material_ob ?? '',
+        less_paid_previously: slip?.less_paid_previously ?? '',
+        payment_slip_remark: slip?.payment_slip_remark ?? '',
     }
 }
 
@@ -270,27 +340,97 @@ function printPage() {
 </div>
 
 <div v-if="fullClaim.status === 'approved'" class="space-y-3">
-    <label class="text-sm font-medium">Payment Reference</label>
+    <div class="space-y-2 border rounded-lg p-3">
+        <div class="text-sm font-semibold">Generate Payment Slip</div>
 
-    <input
-        v-model="paymentRef"
-        class="w-full border rounded px-3 py-2 text-sm"
-        placeholder="Payment reference"
-    />
+        <label class="text-xs font-medium text-gray-500">Company Bank Account</label>
+        <select
+            v-model="slipForm.company_bank_account_id"
+            class="w-full border rounded px-3 py-2 text-sm"
+        >
+            <option value="">Select account</option>
+            <option
+                v-for="account in activeCompanyBankAccounts"
+                :key="account.id"
+                :value="account.id"
+            >
+                {{ account.bank_name }} - {{ account.account_no }}
+            </option>
+        </select>
 
-    <input
-        type="file"
-        class="text-sm"
-        @change="e => voucherFile = e.target.files[0]"
-    />
+        <div class="grid grid-cols-2 gap-2">
+            <div>
+                <label class="text-xs font-medium text-gray-500">Less - Retention</label>
+                <input v-model="slipForm.less_retention" type="number" step="0.01" min="0" class="w-full border rounded px-3 py-2 text-sm" />
+            </div>
+            <div>
+                <label class="text-xs font-medium text-gray-500">Less - Recoupment</label>
+                <input v-model="slipForm.less_recoupment" type="number" step="0.01" min="0" class="w-full border rounded px-3 py-2 text-sm" />
+            </div>
+            <div>
+                <label class="text-xs font-medium text-gray-500">Less - Material OB</label>
+                <input v-model="slipForm.less_material_ob" type="number" step="0.01" min="0" class="w-full border rounded px-3 py-2 text-sm" />
+            </div>
+            <div>
+                <label class="text-xs font-medium text-gray-500">Less - Paid Previously</label>
+                <input v-model="slipForm.less_paid_previously" type="number" step="0.01" min="0" class="w-full border rounded px-3 py-2 text-sm" />
+            </div>
+        </div>
 
-    <button
-        class="w-full py-2 bg-indigo-600 text-white rounded disabled:opacity-40"
-        @click="markAsPaid"
-        :disabled="submitting"
-    >
-        Mark as Paid
-    </button>
+        <label class="text-xs font-medium text-gray-500">Remark (Optional)</label>
+        <textarea
+            v-model="slipForm.payment_slip_remark"
+            rows="2"
+            class="w-full border rounded px-3 py-2 text-sm"
+            placeholder="Remark"
+        ></textarea>
+
+        <div class="flex items-center gap-2">
+            <button
+                class="flex-1 py-2 bg-indigo-600 text-white rounded disabled:opacity-40"
+                @click="generateSlip"
+                :disabled="slipSubmitting || !slipForm.company_bank_account_id"
+            >
+                Generate Slip
+            </button>
+            <button
+                v-if="fullClaim.payment_slip"
+                class="px-3 py-2 border rounded text-sm"
+                @click="openSlip"
+            >
+                Preview
+            </button>
+        </div>
+        <div v-if="fullClaim.payment_slip?.slip_no" class="text-xs text-gray-500">
+            Slip No: {{ fullClaim.payment_slip.slip_no }}
+        </div>
+    </div>
+
+    <div class="space-y-2 border rounded-lg p-3">
+        <div class="text-sm font-semibold">Upload Slip & Mark Paid</div>
+
+        <label class="text-xs font-medium text-gray-500">Payment Reference</label>
+        <input
+            v-model="paymentRef"
+            class="w-full border rounded px-3 py-2 text-sm"
+            placeholder="Payment reference"
+        />
+
+        <input
+            type="file"
+            class="text-sm"
+            multiple
+            @change="handlePaymentFiles"
+        />
+
+        <button
+            class="w-full py-2 bg-green-600 text-white rounded disabled:opacity-40"
+            @click="markAsPaid"
+            :disabled="submitting || !fullClaim.payment_slip?.id || !paymentRef || !paymentFiles.length"
+        >
+            Mark as Paid
+        </button>
+    </div>
 </div>
 
 <!-- ATTACHMENTS (ALWAYS VISIBLE) -->
@@ -375,5 +515,11 @@ function printPage() {
 </div>
 </div>
 </div>
+
+<ClaimPaymentSlipModal
+    :show="showSlip"
+    :slip="selectedSlip"
+    @close="showSlip = false"
+/>
 </template>
 

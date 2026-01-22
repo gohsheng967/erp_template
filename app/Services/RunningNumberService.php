@@ -55,7 +55,7 @@ class RunningNumberService
             }
 
             return sprintf(
-                '%s-%d-%06d',
+                '%s\\%d\\%06d',
                 $prefix,
                 $year,
                 $next

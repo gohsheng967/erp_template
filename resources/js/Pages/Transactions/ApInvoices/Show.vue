@@ -15,9 +15,12 @@ const { formatCurrency, formatDate } = useFormat()
 
 const invoice = computed(() => page.props.invoice)
 const payments = computed(() => invoice.value.payments ?? [])
+function isPaymentCancelled(payment) {
+    return !!(payment?.cancelled_at || payment?.slip_cancelled_at)
+}
 const paidAmountDisplay = computed(() => {
     return payments.value.reduce((total, payment) => {
-        if (payment?.cancelled_at) return total
+        if (isPaymentCancelled(payment)) return total
         if (!payment?.reference) return total
         return total + Number(payment.amount ?? 0)
     }, 0)
@@ -239,7 +242,7 @@ function openCancel(payment) {
                                 v-for="payment in payments"
                                 :key="payment.uuid"
                                 class="border-t"
-                                :class="payment.cancelled_at ? 'bg-red-50 text-gray-400' : ''"
+                                :class="isPaymentCancelled(payment) ? 'bg-red-50 text-gray-400' : ''"
                             >
                                 <td class="px-4 py-2">
                                     {{ formatDate(payment.payment_date) }}
@@ -290,8 +293,8 @@ function openCancel(payment) {
                                         <button
                                             class="text-indigo-600 hover:text-indigo-800"
                                             title="Edit payment"
-                                            :disabled="payment.cancelled_at"
-                                            :class="payment.cancelled_at ? 'opacity-50 cursor-not-allowed' : ''"
+                                            :disabled="isPaymentCancelled(payment)"
+                                            :class="isPaymentCancelled(payment) ? 'opacity-50 cursor-not-allowed' : ''"
                                             @click="editPayment(payment)"
                                         >
                                             <i class="mdi mdi-pencil-outline text-lg"></i>
@@ -301,8 +304,8 @@ function openCancel(payment) {
                                         <button
                                             class="text-red-600 hover:text-red-800"
                                             title="Cancel payment"
-                                            :disabled="payment.cancelled_at"
-                                            :class="payment.cancelled_at ? 'opacity-50 cursor-not-allowed' : ''"
+                                            :disabled="isPaymentCancelled(payment)"
+                                            :class="isPaymentCancelled(payment) ? 'opacity-50 cursor-not-allowed' : ''"
                                             @click="openCancel(payment)"
                                         >
                                             <i class="mdi mdi-close-circle-outline text-lg"></i>
@@ -310,7 +313,7 @@ function openCancel(payment) {
 
                                         <!-- CANCELLED BADGE -->
                                         <span
-                                            v-if="payment.cancelled_at"
+                                            v-if="isPaymentCancelled(payment)"
                                             class="inline-flex items-center gap-1 text-xs text-gray-500 italic"
                                         >
                                             <i class="mdi mdi-cancel"></i>

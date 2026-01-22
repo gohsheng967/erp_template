@@ -302,6 +302,11 @@ class PettyCashTopupController extends Controller
         if (!$slip->exists) {
             $slip->slip_no = RunningNumberService::next('payment_slip');
             $slip->source()->associate($topup);
+        } elseif ($slip->cancelled_at) {
+            $slip->slip_no = RunningNumberService::next('payment_slip');
+            $slip->cancelled_at = null;
+            $slip->cancelled_by = null;
+            $slip->cancel_reason = null;
         }
 
         $slip->company_bank_account_id = $request->company_bank_account_id;

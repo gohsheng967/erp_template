@@ -265,6 +265,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::delete('/{claim}', [ClaimsController::class, 'destroy'])->name('destroy');
         Route::post('/{claim}/approval', [ClaimsController::class, 'approval'])->name('approval');
         Route::post('/{claim}/paid', [ClaimsController::class, 'markPaid'])->name('paid');
+        Route::post('/{claim}/payment-slip', [ClaimsController::class, 'paymentSlip'])->name('payment-slip');
     });
 
     Route::prefix('ar-invoices')->name('ar-invoices.')->group(function () {

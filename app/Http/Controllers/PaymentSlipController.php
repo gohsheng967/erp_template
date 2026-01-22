@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\PaymentSlip;
 use App\Models\PettyCashTopup;
 use App\Models\ApInvoice;
+use App\Models\Claim;
 use App\Models\Project;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -29,6 +30,10 @@ class PaymentSlipController extends Controller
                             'purchaseOrder.purchaseRequest.project',
                             'supplier',
                             'payments',
+                        ],
+                        Claim::class => [
+                            'project',
+                            'issuer:id,name',
                         ],
                     ]);
                 },
@@ -55,7 +60,7 @@ class PaymentSlipController extends Controller
                 $projectId = $request->project_id;
                 $slipsQuery->whereHasMorph(
                     'source',
-                    [PettyCashTopup::class, ApInvoice::class],
+                    [PettyCashTopup::class, ApInvoice::class, Claim::class],
                     function ($query, $type) use ($projectId) {
                         if ($type === PettyCashTopup::class) {
                             $query->whereHas('wallet', function ($wallet) use ($projectId) {
@@ -68,6 +73,10 @@ class PaymentSlipController extends Controller
                             $query->whereHas('purchaseOrder.purchaseRequest', function ($pr) use ($projectId) {
                                 $pr->where('project_id', $projectId);
                             });
+                        }
+
+                        if ($type === Claim::class) {
+                            $query->where('project_id', $projectId);
                         }
                     }
                 );
@@ -105,6 +114,12 @@ class PaymentSlipController extends Controller
                         $q->where('invoice_number', 'like', $search)
                             ->orWhereHas('supplier', fn ($supp) => $supp->where('company_name', 'like', $search))
                             ->orWhereHas('purchaseOrder.purchaseRequest.project', fn ($proj) => $proj->where('name', 'like', $search));
+                    })
+                    ->orWhereHasMorph('source', [Claim::class], function ($q) use ($search) {
+                        $q->where('claim_no', 'like', $search)
+                            ->orWhere('title', 'like', $search)
+                            ->orWhereHas('issuer', fn ($user) => $user->where('name', 'like', $search))
+                            ->orWhereHas('project', fn ($proj) => $proj->where('name', 'like', $search));
                     });
             });
         }
@@ -133,6 +148,14 @@ class PaymentSlipController extends Controller
                 $isPaid = $payment && !empty($payment->reference);
                 $paidDate = $isPaid ? $payment->payment_date : null;
                 if ($payment && $payment->cancelled_at) {
+                    $canCancel = false;
+                }
+            }
+
+            if ($slip->source instanceof Claim) {
+                $isPaid = !empty($slip->source->payment_ref_no);
+                $paidDate = $isPaid ? $slip->source->paid_at : null;
+                if ($slip->source->status === 'paid') {
                     $canCancel = false;
                 }
             }
@@ -233,6 +256,12 @@ class PaymentSlipController extends Controller
         if ($source instanceof PettyCashTopup && $source->status === 'paid') {
             throw ValidationException::withMessages([
                 'reason' => 'Cannot cancel slip for a paid top-up.',
+            ]);
+        }
+
+        if ($source instanceof Claim && $source->status === 'paid') {
+            throw ValidationException::withMessages([
+                'reason' => 'Cannot cancel slip for a paid claim.',
             ]);
         }
 

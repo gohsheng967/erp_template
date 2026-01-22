@@ -5,6 +5,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import { useFormat } from '@/Composables/useFormat'
 import PaymentSlipModal from '@/Pages/PettyCash/Topups/Partials/PaymentSlipModal.vue'
 import ApPaymentSlipModal from '@/Pages/Transactions/ApInvoices/Partials/ApPaymentSlipModal.vue'
+import ClaimPaymentSlipModal from '@/Pages/Transactions/Claims/Partials/ClaimPaymentSlipModal.vue'
 import Modal from '@/Components/Modal.vue'
 
 const page = usePage()
@@ -25,6 +26,7 @@ const filterForm = useForm({
 const selectedSlip = ref(null)
 const showSlip = ref(false)
 const showApSlip = ref(false)
+const showClaimSlip = ref(false)
 const showUpload = ref(false)
 const showCancel = ref(false)
 
@@ -43,6 +45,11 @@ function openSlip(slip) {
         return
     }
 
+    if (slip.source_type?.includes('Claim')) {
+        showClaimSlip.value = true
+        return
+    }
+
     showSlip.value = true
 }
 
@@ -53,6 +60,11 @@ function closeSlip() {
 
 function closeApSlip() {
     showApSlip.value = false
+    selectedSlip.value = null
+}
+
+function closeClaimSlip() {
+    showClaimSlip.value = false
     selectedSlip.value = null
 }
 
@@ -131,6 +143,10 @@ function slipProject(slip) {
         return slip.source?.wallet?.project?.name ?? 'Project'
     }
 
+    if (slip.source_type?.includes('Claim')) {
+        return slip.source?.project?.name ?? 'Others'
+    }
+
     return slip.source?.purchase_order?.purchase_request?.project?.name
         ?? slip.source?.purchase_order?.code
         ?? 'Project'
@@ -139,6 +155,10 @@ function slipProject(slip) {
 function slipRequester(slip) {
     if (slip.source_type?.includes('PettyCashTopup')) {
         return slip.source?.requester?.name ?? '-'
+    }
+
+    if (slip.source_type?.includes('Claim')) {
+        return slip.source?.issuer?.name ?? '-'
     }
 
     return slip.source?.supplier?.company_name ?? '-'
@@ -175,7 +195,7 @@ function slipPaidDate(slip) {
                                 <input
                                     v-model="filterForm.search"
                                     class="border rounded px-3 py-2"
-                                    placeholder="Slip No / Top-Up No / Requester"
+                                    placeholder="Slip No / Top-Up No / Claim No / Requester"
                                     @keyup.enter="applyFilters"
                                 />
                             </div>
@@ -375,6 +395,12 @@ function slipPaidDate(slip) {
         :invoice="selectedSlip?.source"
         :slip="selectedSlip"
         @close="closeApSlip"
+    />
+
+    <ClaimPaymentSlipModal
+        :show="showClaimSlip"
+        :slip="selectedSlip"
+        @close="closeClaimSlip"
     />
 
     <Modal :show="showUpload" max-width="lg" @close="closeUpload">

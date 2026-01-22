@@ -16,6 +16,7 @@ use App\Models\Project;
 use App\Models\Attachment;
 use App\Models\ClaimItem;
 use App\Models\CompanyProfile;
+use App\Models\PaymentSlip;
 
 use Inertia\Inertia;
 use Carbon\Carbon;
@@ -440,7 +441,9 @@ class ClaimsController extends Controller
                 'payer',
                 'project',
                 'items',
-                'attachments'
+                'attachments',
+                'paymentSlip.attachments',
+                'paymentSlip.companyBankAccount',
             ])
             ->firstOrFail();
 
@@ -502,7 +505,9 @@ class ClaimsController extends Controller
     {
         $request->validate([
             'payment_ref' => 'required|string|max:255',
-            'voucher'     => 'nullable|file|max:10240', // 10MB
+            'payment_slip_id' => 'required|exists:payment_slips,id',
+            'attachments' => ['required', 'array', 'min:1'],
+            'attachments.*' => ['file', 'max:10240'],
         ]);
 
         return DB::transaction(function () use ($request, $uuid) {
@@ -520,28 +525,24 @@ class ClaimsController extends Controller
                 abort(422, 'Only approved claims can be marked as paid.');
             }
 
-            /* =========================
-            STORE PAYMENT VOUCHER
-            ========================== */
+            $slip = PaymentSlip::where('id', $request->payment_slip_id)
+                ->where('source_type', Claim::class)
+                ->where('source_id', $claim->id)
+                ->firstOrFail();
 
-            if ($request->hasFile('voucher')) {
-                $file = $request->file('voucher');
+            if (!$slip->company_bank_account_id) {
+                abort(422, 'Company bank account is required before payment.');
+            }
 
-                $path = $file->store(
-                    'claims/payment-vouchers',
-                    'public'
-                );
-
-                $claim->attachments()->create([
-                    'file_path'     => $path,
-                    'original_name' => $file->getClientOriginalName(),
-                    'category'      => 'payment_voucher',
-                ]);
+            foreach ($request->file('attachments', []) as $file) {
+                AttachmentService::store($file, $slip);
             }
 
             $claim->update([
                 'status'       => 'paid',
                 'payment_ref_no'  => $request->payment_ref,
+                'payment_slip_no' => $claim->payment_slip_no ?? $slip->slip_no,
+                'company_bank_account_id' => $claim->company_bank_account_id ?? $slip->company_bank_account_id,
                 'paid_at'      => now(),
                 'paid_by'      => auth()->id(),
             ]);
@@ -550,6 +551,67 @@ class ClaimsController extends Controller
                 'success' => true,
             ]);
         });
+    }
+
+    public function paymentSlip(Request $request, string $uuid)
+    {
+        $request->validate([
+            'company_bank_account_id' => [
+                'required',
+                Rule::exists('company_bank_accounts', 'id')->where(function ($query) {
+                    $query->where('status', 'active');
+                }),
+            ],
+            'less_retention' => ['nullable', 'numeric', 'min:0'],
+            'less_recoupment' => ['nullable', 'numeric', 'min:0'],
+            'less_material_ob' => ['nullable', 'numeric', 'min:0'],
+            'less_paid_previously' => ['nullable', 'numeric', 'min:0'],
+            'payment_slip_remark' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $claim = Claim::where('uuid', $uuid)->firstOrFail();
+
+        if ($claim->status !== 'approved') {
+            abort(422, 'Only approved claims can generate a payment slip.');
+        }
+
+        $slip = $claim->paymentSlip ?? new PaymentSlip();
+        if (!$slip->exists) {
+            $slip->slip_no = RunningNumberService::next('payment_slip');
+            $slip->source()->associate($claim);
+        } elseif ($slip->cancelled_at) {
+            $slip->slip_no = RunningNumberService::next('payment_slip');
+            $slip->cancelled_at = null;
+            $slip->cancelled_by = null;
+            $slip->cancel_reason = null;
+        }
+
+        $slip->company_bank_account_id = $request->company_bank_account_id;
+        $slip->amount = $claim->total_amount;
+        $slip->payment_date = $claim->approved_at ?? now()->toDateString();
+        $slip->less_retention = $request->input('less_retention');
+        $slip->less_recoupment = $request->input('less_recoupment');
+        $slip->less_material_ob = $request->input('less_material_ob');
+        $slip->less_paid_previously = $request->input('less_paid_previously');
+        $slip->payment_slip_remark = $request->input('payment_slip_remark');
+        $slip->created_by = $request->user()->id;
+        $slip->save();
+
+        $claim->payment_slip_no = $slip->slip_no;
+        $claim->company_bank_account_id = $request->company_bank_account_id;
+        $claim->save();
+
+        $slip->load([
+            'companyBankAccount',
+            'source.project',
+            'source.issuer:id,name',
+            'source.approver:id,name',
+            'source.payer:id,name',
+        ]);
+
+        return response()->json([
+            'slip' => $slip,
+        ]);
     }
 
 }

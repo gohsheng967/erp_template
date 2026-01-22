@@ -135,6 +135,27 @@ class ApInvoiceController extends Controller
             'payments.createdBy:id,name',
         ])->where('uuid', $uuid)->firstOrFail();
 
+        $slipNumbers = $invoice->payments
+            ->pluck('payment_slip_no')
+            ->filter()
+            ->values();
+
+        $slipMap = $slipNumbers->isEmpty()
+            ? collect()
+            : PaymentSlip::whereIn('slip_no', $slipNumbers)
+                ->get(['slip_no', 'cancelled_at'])
+                ->keyBy('slip_no');
+
+        $invoice->payments->transform(function ($payment) use ($slipMap) {
+            $slip = $payment->payment_slip_no
+                ? $slipMap->get($payment->payment_slip_no)
+                : null;
+
+            $payment->setAttribute('slip_cancelled_at', $slip?->cancelled_at);
+
+            return $payment;
+        });
+
         return inertia('Transactions/ApInvoices/Show', [
             'invoice' => $invoice,
         ]);
@@ -513,6 +534,11 @@ class ApInvoiceController extends Controller
             ]);
             $slip->source_type = ApInvoice::class;
             $slip->source_id = $invoice->id;
+        } elseif ($slip->cancelled_at) {
+            $slip->slip_no = RunningNumberService::next('payment_slip');
+            $slip->cancelled_at = null;
+            $slip->cancelled_by = null;
+            $slip->cancel_reason = null;
         }
 
         $slip->company_bank_account_id = $request->company_bank_account_id;

@@ -21,6 +21,13 @@ class ApInvoicePayment extends Model
         'less_paid_previously',
         'payment_slip_remark',
         'created_by',
+        'cancelled_at',
+        'cancelled_by',
+        'cancel_reason',
+    ];
+
+    protected $casts = [
+        'cancelled_at' => 'datetime',
     ];
 
     public function invoice()
