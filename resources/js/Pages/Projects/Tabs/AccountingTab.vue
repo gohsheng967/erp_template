@@ -5,6 +5,7 @@ import axios from 'axios'
 
 import Claim from './Child/Claim.vue'
 import PurchaseRequest from './Child/PurchaseRequest.vue'
+import TopupRequest from './Child/TopupRequest.vue'
 
 /* ===============================
    PROPS / EMITS
@@ -60,6 +61,7 @@ watch(
 const showBudget = ref(true)
 const showClaim = ref(false)
 const showPurchase = ref(false)
+const showTopup = ref(false)
 const showInvoice = ref(false)
 
 /* ===============================
@@ -207,7 +209,36 @@ watch(() => props.project.id, loadArSummary)
         </div>
 
         <!-- =============================== -->
-        <!-- 4) ACCOUNTS RECEIVABLE -->
+        <!-- 4) TOP-UP REQUEST + HISTORY -->
+        <!-- =============================== -->
+        <div class="bg-white rounded-xl shadow-md border">
+            <button
+                @click="showTopup = !showTopup"
+                class="w-full flex justify-between items-center p-4 text-left"
+            >
+                <span class="text-lg font-semibold">Top-Up Request</span>
+                <svg
+                    :class="showTopup ? 'rotate-180' : ''"
+                    class="h-5 w-5 transition"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+
+            <div v-show="showTopup" class="p-6 border-t space-y-6">
+                <TopupRequest
+                    :project-id="project.id"
+                    :project-name="project.name"
+                />
+            </div>
+        </div>
+
+        <!-- =============================== -->
+        <!-- 5) ACCOUNTS RECEIVABLE -->
         <!-- =============================== -->
         <div class="bg-white rounded-xl shadow-md border">
             <button

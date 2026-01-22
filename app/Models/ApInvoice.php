@@ -94,4 +94,9 @@ class ApInvoice extends Model
     {
         return $this->morphMany(Attachment::class, 'attachable');
     }
+
+    public function paymentSlips()
+    {
+        return $this->morphMany(PaymentSlip::class, 'source');
+    }
 }

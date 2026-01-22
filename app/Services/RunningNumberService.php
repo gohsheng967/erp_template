@@ -27,6 +27,7 @@ class RunningNumberService
                     'claim'            => 'CLM',
                     'petty_cash_transaction' => 'PCT',
                     'petty_cash_topup' => 'PTP',
+                    'payment_slip'    => 'PS',
                     'ar_invoice'       => 'ARINV',
                     default            => strtoupper(substr($documentType, 0, 3)),
                 };

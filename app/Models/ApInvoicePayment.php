@@ -13,6 +13,13 @@ class ApInvoicePayment extends Model
         'payment_date',
         'reference',
         'remarks',
+        'payment_slip_no',
+        'company_bank_account_id',
+        'less_retention',
+        'less_recoupment',
+        'less_material_ob',
+        'less_paid_previously',
+        'payment_slip_remark',
         'created_by',
     ];
 
@@ -29,5 +36,10 @@ class ApInvoicePayment extends Model
     public function attachments()
     {
         return $this->morphMany(Attachment::class, 'attachable');
+    }
+
+    public function companyBankAccount()
+    {
+        return $this->belongsTo(CompanyBankAccount::class, 'company_bank_account_id');
     }
 }

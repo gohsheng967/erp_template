@@ -15,6 +15,17 @@ const { formatCurrency, formatDate } = useFormat()
 
 const invoice = computed(() => page.props.invoice)
 const payments = computed(() => invoice.value.payments ?? [])
+const paidAmountDisplay = computed(() => {
+    return payments.value.reduce((total, payment) => {
+        if (payment?.cancelled_at) return total
+        if (!payment?.reference) return total
+        return total + Number(payment.amount ?? 0)
+    }, 0)
+})
+const balanceAmountDisplay = computed(() => {
+    const invoiceAmount = Number(invoice.value.invoice_amount ?? 0)
+    return invoiceAmount - paidAmountDisplay.value
+})
 
 /* =========================
    UI STATE
@@ -141,14 +152,14 @@ function openCancel(payment) {
                 <div>
                     <div class="text-sm text-gray-500">Paid Amount</div>
                     <div class="text-lg font-semibold text-green-600">
-                        {{ formatCurrency(invoice.paid_amount) }}
+                        {{ formatCurrency(paidAmountDisplay) }}
                     </div>
                 </div>
 
                 <div>
                     <div class="text-sm text-gray-500">Outstanding Balance</div>
                     <div class="text-lg font-semibold text-red-600">
-                        {{ formatCurrency(invoice.balance_amount) }}
+                        {{ formatCurrency(balanceAmountDisplay) }}
                     </div>
                 </div>
             </div>
@@ -214,6 +225,7 @@ function openCancel(payment) {
                             <tr>
                                 <th class="px-4 py-2 text-left">Date</th>
                                 <th class="px-4 py-2 text-right">Amount</th>
+                                <th class="px-4 py-2 text-left">Slip No</th>
                                 <th class="px-4 py-2 text-left">Reference</th>
                                 <th class="px-4 py-2 text-left">Attachment</th>
                                 <th class="px-4 py-2 text-left">Remarks</th>
@@ -235,6 +247,10 @@ function openCancel(payment) {
 
                                 <td class="px-4 py-2 text-right font-medium">
                                     {{ formatCurrency(payment.amount) }}
+                                </td>
+
+                                <td class="px-4 py-2">
+                                    {{ payment.payment_slip_no ?? '-' }}
                                 </td>
 
                                 <td class="px-4 py-2">
@@ -274,6 +290,8 @@ function openCancel(payment) {
                                         <button
                                             class="text-indigo-600 hover:text-indigo-800"
                                             title="Edit payment"
+                                            :disabled="payment.cancelled_at"
+                                            :class="payment.cancelled_at ? 'opacity-50 cursor-not-allowed' : ''"
                                             @click="editPayment(payment)"
                                         >
                                             <i class="mdi mdi-pencil-outline text-lg"></i>
@@ -283,6 +301,8 @@ function openCancel(payment) {
                                         <button
                                             class="text-red-600 hover:text-red-800"
                                             title="Cancel payment"
+                                            :disabled="payment.cancelled_at"
+                                            :class="payment.cancelled_at ? 'opacity-50 cursor-not-allowed' : ''"
                                             @click="openCancel(payment)"
                                         >
                                             <i class="mdi mdi-close-circle-outline text-lg"></i>

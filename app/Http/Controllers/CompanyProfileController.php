@@ -14,6 +14,7 @@ class CompanyProfileController extends Controller
 
         return Inertia::render('CompanyProfile/Index', [
             'profile' => $profile,
+            'bankOptions' => config('banks.malaysia', []),
         ]);
     }
 

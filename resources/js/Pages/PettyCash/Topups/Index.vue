@@ -6,8 +6,8 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import TopupTable from './Partials/TopupsTable.vue'
 import CreateTopupModal from './Partials/CreateTopupModal.vue'
 import PayTopupModal from './Partials/PayTopupModal.vue'
+import TopupApprovalModal from './Partials/TopupApprovalModal.vue'
 import DeleteConfirmation from '@/Components/DeleteConfirmation.vue'
-import ConfirmApproval from '@/Components/ConfirmApproval.vue'
 
 /* =========================
    PAGE / TOAST
@@ -46,6 +46,7 @@ const deletingTopup = ref(null)
 const tabs = [
     { key: 'requested', label: 'Requested', badge: true },
     { key: 'approved',  label: 'Approved',  badge: true },
+    { key: 'rejected',  label: 'Rejected',  badge: true },
     { key: 'paid',      label: 'Paid',       badge: false },
 ]
 
@@ -101,29 +102,15 @@ function confirmApprove(topup) {
     showApproveConfirm.value = true
 }
 
-function doApprove() {
-    if (!approvingTopup.value) return
-
-    router.post(
-        route('petty-cash.topups.approve', approvingTopup.value.id),
-        {},
-        {
-            preserveScroll: true,
-            onSuccess: () => {
-                toast?.value?.show('Top-up approved')
-
-                showApproveConfirm.value = false
-                approvingTopup.value = null
-
-                router.reload({ only: ['topups', 'tabCounts'] })
-            },
-        }
-    )
-}
-
 function closeApprove() {
     showApproveConfirm.value = false
     approvingTopup.value = null
+}
+
+function onApproved() {
+    showApproveConfirm.value = false
+    approvingTopup.value = null
+    router.reload({ only: ['topups', 'tabCounts'] })
 }
 
 /* =========================
@@ -295,12 +282,10 @@ function closeDelete() {
         @close="showPay = false"
     />
 
-    <ConfirmApproval
-        v-if="showApproveConfirm"
-        title="Approve Top-Up"
-        message="Are you sure you want to approve this top-up request?"
-        confirm-text="Approve"
-        @confirm="doApprove"
+    <TopupApprovalModal
+        :show="showApproveConfirm"
+        :topup="approvingTopup"
+        @approved="onApproved"
         @close="closeApprove"
     />
 

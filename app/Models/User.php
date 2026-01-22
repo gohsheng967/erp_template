@@ -85,4 +85,9 @@ class User extends Authenticatable
     {
         return $this->morphMany(InventoryAllocation::class, 'allocatable');
     }
+
+    public function bankAccounts()
+    {
+        return $this->hasMany(UserBankAccount::class);
+    }
 }

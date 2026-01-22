@@ -14,6 +14,7 @@ use App\Models\ProjectDocument;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequest;
 use App\Models\ArInvoice;
+use App\Models\PettyCashTopup;
 
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -439,6 +440,56 @@ class ProjectController extends Controller
                 'received_amount'     => (float) $receivedAmount,
                 'outstanding_amount'  => (float) $outstanding,
             ],
+        ]);
+    }
+
+    public function topupRequests($project, Request $request)
+    {
+        $project = Project::query()
+            ->where('id', $project)
+            ->orWhere('uuid', $project)
+            ->firstOrFail();
+
+        $status = $request->get('status', 'requested');
+        $allowedStatuses = ['requested', 'approved', 'rejected', 'paid'];
+
+        if (!in_array($status, $allowedStatuses, true)) {
+            $status = 'requested';
+        }
+
+        $baseQuery = PettyCashTopup::query()
+            ->whereHas('wallet', function ($query) use ($project) {
+                $query->where('context_type', 'project')
+                    ->where('context_id', $project->id);
+            })
+            ->with([
+                'wallet.project',
+                'bankAccount',
+                'companyBankAccount',
+                'paymentSlip',
+                'requester:id,name',
+                'approver:id,name',
+                'rejector:id,name',
+                'payer:id,name',
+                'attachment',
+            ])
+            ->orderByDesc('created_at');
+
+        $counts = [
+            'requested' => (clone $baseQuery)->where('status', 'requested')->count(),
+            'approved'  => (clone $baseQuery)->where('status', 'approved')->count(),
+            'rejected'  => (clone $baseQuery)->where('status', 'rejected')->count(),
+            'paid'      => (clone $baseQuery)->where('status', 'paid')->count(),
+        ];
+
+        $topups = (clone $baseQuery)
+            ->where('status', $status)
+            ->paginate(10)
+            ->withQueryString();
+
+        return response()->json([
+            'topups' => $topups,
+            'counts' => $counts,
         ]);
     }
 

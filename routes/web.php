@@ -1,7 +1,10 @@
 <?php
 
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ProfileBankAccountController;
 use App\Http\Controllers\CompanyProfileController;
+use App\Http\Controllers\CompanyBankAccountController;
+use App\Http\Controllers\PaymentSlipController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\RoleController;
@@ -74,9 +77,28 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::post('/profile/update', [ProfileController::class, 'update'])->name('profile.update');
+    Route::post('/profile/bank-accounts', [ProfileBankAccountController::class, 'store'])
+        ->name('profile.bank-accounts.store');
+    Route::patch('/profile/bank-accounts/{bankAccount}', [ProfileBankAccountController::class, 'update'])
+        ->name('profile.bank-accounts.update');
+    Route::delete('/profile/bank-accounts/{bankAccount}', [ProfileBankAccountController::class, 'destroy'])
+        ->name('profile.bank-accounts.destroy');
 
     Route::get('/company-profile', [CompanyProfileController::class, 'index'])->name('company.profile');
     Route::post('/company-profile', [CompanyProfileController::class, 'update'])->name('company.profile.update');
+    Route::post('/company-profile/bank-accounts', [CompanyBankAccountController::class, 'store'])
+        ->name('company.bank-accounts.store');
+    Route::patch('/company-profile/bank-accounts/{bankAccount}', [CompanyBankAccountController::class, 'update'])
+        ->name('company.bank-accounts.update');
+    Route::delete('/company-profile/bank-accounts/{bankAccount}', [CompanyBankAccountController::class, 'destroy'])
+        ->name('company.bank-accounts.destroy');
+
+    Route::get('/payment-slips', [PaymentSlipController::class, 'index'])
+        ->name('payment-slips.index');
+    Route::post('/payment-slips/{paymentSlip}/upload', [PaymentSlipController::class, 'upload'])
+        ->name('payment-slips.upload');
+    Route::post('/payment-slips/{paymentSlip}/cancel', [PaymentSlipController::class, 'cancel'])
+        ->name('payment-slips.cancel');
 
 
     Route::get('/users', [UserController::class, 'index'])->name('users.index');
@@ -154,6 +176,9 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
     Route::get('/projects/{project}/ar/summary', [ProjectController::class, 'aRSummary'])
         ->name('projects.ar.summary');
+
+    Route::get('/projects/{project}/topups', [ProjectController::class, 'topupRequests'])
+        ->name('projects.topups.index');
 
     Route::get('projects/{project}/overview/kpi',  [ProjectController::class, 'kpi'])
         ->name('projects.overview.kpi');
@@ -293,6 +318,9 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::post('{uuid}/payments', [ApInvoiceController::class, 'storePayment'])
             ->name('payments.store');
 
+        Route::post('{uuid}/payments/slip', [ApInvoiceController::class, 'paymentSlip'])
+            ->name('payments.slip');
+
         Route::post('payments/{uuid}/update', [ApInvoiceController::class, 'updatePayment'])
             ->name('payments.update');
 
@@ -309,6 +337,11 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::get('/topups', [PettyCashTopupController::class, 'index'])->name('topups.index');
         Route::post('/topups', [PettyCashTopupController::class, 'store'])->name('topups.store');
         Route::post('/topups/{topup}/approve', [PettyCashTopupController::class, 'approve'])->name('topups.approve');
+        Route::post('/topups/{topup}/reject', [PettyCashTopupController::class, 'reject'])->name('topups.reject');
+        Route::post('/topups/{topup}/payment-slip', [PettyCashTopupController::class, 'paymentSlip'])
+            ->name('topups.payment-slip');
+        Route::post('/topups/{topup}/upload-slip', [PettyCashTopupController::class, 'uploadSlip'])
+            ->name('topups.upload-slip');
         Route::post('/topups/{topup}/pay', [PettyCashTopupController::class, 'pay'])->name('topups.pay');
         Route::delete('/topups/{topup}', [PettyCashTopupController::class, 'destroy'])->name('topups.destroy');
 

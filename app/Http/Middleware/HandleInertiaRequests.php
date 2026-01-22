@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Inertia\Middleware;
 use App\Http\Resources\UserResource;
 use App\Models\CompanyProfile;
+use App\Models\CompanyBankAccount;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -48,6 +49,11 @@ class HandleInertiaRequests extends Middleware
                     'office_number'  => $company->office_number,
                     'logo'           => $company->logo,
                 ] : null;
+            },
+            'companyBankAccounts' => function () {
+                return CompanyBankAccount::query()
+                    ->orderBy('id')
+                    ->get(['id', 'bank_name', 'account_name', 'account_no', 'status']);
             },
         ];
     }

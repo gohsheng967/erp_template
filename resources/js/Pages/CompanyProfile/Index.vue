@@ -1,6 +1,7 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import UpdateCompanyProfileForm from './Partials/UpdateCompanyProfileForm.vue';
+import UpdateCompanyBankAccountsForm from './Partials/UpdateCompanyBankAccountsForm.vue';
 import { Head } from '@inertiajs/vue3';
 </script>
 
@@ -20,6 +21,10 @@ import { Head } from '@inertiajs/vue3';
                 <!-- COMPANY PROFILE FORM CARD -->
                 <div class="bg-white p-4 shadow sm:rounded-lg sm:p-8">
                 <UpdateCompanyProfileForm />
+                </div>
+
+                <div class="bg-white p-4 shadow sm:rounded-lg sm:p-8">
+                    <UpdateCompanyBankAccountsForm />
                 </div>
 
             </div>

@@ -81,6 +81,11 @@ class PurchaseRequest extends Model
         return $this->belongsTo(Department::class, 'department_id');
     }
 
+    public function project()
+    {
+        return $this->belongsTo(Project::class, 'project_id');
+    }
+
     protected $appends = ['total_amount'];
 
     public function getTotalAmountAttribute()

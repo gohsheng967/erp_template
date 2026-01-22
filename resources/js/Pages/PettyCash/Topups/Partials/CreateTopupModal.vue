@@ -1,6 +1,6 @@
 <script setup>
-import { useForm } from '@inertiajs/vue3'
-import { inject } from 'vue'
+import { useForm, usePage, Link } from '@inertiajs/vue3'
+import { computed, inject } from 'vue'
 
 const props = defineProps({
     show: Boolean,
@@ -8,21 +8,43 @@ const props = defineProps({
         type: Array,
         required: true,
     },
+    defaultContextType: {
+        type: String,
+        default: null,
+    },
+    defaultProjectId: {
+        type: [Number, String],
+        default: null,
+    },
+    lockContextType: {
+        type: Boolean,
+        default: false,
+    },
+    lockProject: {
+        type: Boolean,
+        default: false,
+    },
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'created'])
 
 /* =========================
    TOAST
 ========================= */
 const toast = inject('toast', null)
+const page = usePage()
+const bankAccounts = computed(() => {
+    const accounts = page.props.auth?.user?.data?.bank_accounts ?? []
+    return accounts.filter((account) => account.status === 'active')
+})
 
 /* =========================
    FORM
 ========================= */
 const form = useForm({
-    context_type: 'office', // office | project
-    project_id: '',
+    context_type: props.defaultContextType ?? 'office', // office | project
+    project_id: props.defaultProjectId ?? '',
+    bank_account_id: '',
     amount: '',
     reason: '',
 })
@@ -50,6 +72,7 @@ function submit() {
             )
 
             form.reset()
+            emit('created')
             emit('close')
         },
 
@@ -84,7 +107,7 @@ function submit() {
             </h3>
 
             <!-- ================= PURPOSE ================= -->
-            <div class="mb-4">
+            <div v-if="!lockContextType" class="mb-4">
                 <label class="text-sm font-medium block mb-2">
                     Top-Up Purpose
                 </label>
@@ -123,6 +146,7 @@ function submit() {
 
                 <select
                     v-model="form.project_id"
+                    :disabled="lockProject"
                     class="input w-full"
                 >
                     <option value="">Select Project</option>
@@ -148,6 +172,39 @@ function submit() {
                     class="input w-full"
                     placeholder="0.00"
                 />
+            </div>
+
+            <!-- ================= BANK ACCOUNT ================= -->
+            <div class="mb-4">
+                <label class="text-sm font-medium">
+                    Bank Account
+                </label>
+                <select
+                    v-model="form.bank_account_id"
+                    class="input w-full"
+                >
+                    <option value="">Select Bank Account</option>
+                    <option
+                        v-for="account in bankAccounts"
+                        :key="account.id"
+                        :value="account.id"
+                    >
+                        {{ account.bank_name }} - {{ account.account_no }}
+                    </option>
+                </select>
+                <div
+                    v-if="!bankAccounts.length"
+                    class="mt-2 text-xs text-gray-500"
+                >
+                    No active bank accounts found. Add one in
+                    <Link class="text-indigo-600 hover:text-indigo-800" href="/profile">Profile</Link>.
+                </div>
+                <div
+                    v-if="form.errors.bank_account_id"
+                    class="mt-1 text-xs text-red-600"
+                >
+                    {{ form.errors.bank_account_id }}
+                </div>
             </div>
 
             <!-- ================= REASON ================= -->

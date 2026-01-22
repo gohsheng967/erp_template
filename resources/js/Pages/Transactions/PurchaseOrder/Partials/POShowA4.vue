@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { amountToWords } from '@/helpers/string'
 
 const props = defineProps({
     po: {
@@ -207,6 +208,16 @@ const totalAmount = computed(() =>
             class="text-gray-400"
         >
             -
+        </div>
+    </div>
+
+    <!-- =====================
+         AMOUNT IN WORDS
+    ====================== -->
+    <div class="mb-10 relative z-10">
+        <div class="font-medium mb-1">Amount In Words</div>
+        <div class="border px-3 py-2 min-h-[40px] whitespace-pre-wrap">
+            {{ amountToWords(totalAmount) || '-' }}
         </div>
     </div>
 

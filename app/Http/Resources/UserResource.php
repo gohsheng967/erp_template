@@ -40,6 +40,18 @@ class UserResource extends JsonResource
             'profile_photo' => $this->profile_photo 
             ? asset('storage/' . $this->profile_photo)
             : null,
+            'bank_accounts' => $this->bankAccounts()
+                ->orderBy('id')
+                ->get()
+                ->map(function ($account) {
+                    return [
+                        'id' => $account->id,
+                        'bank_name' => $account->bank_name,
+                        'account_name' => $account->account_name,
+                        'account_no' => $account->account_no,
+                        'status' => $account->status,
+                    ];
+                }),
 
         ];
     }

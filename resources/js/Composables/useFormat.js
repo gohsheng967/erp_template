@@ -7,7 +7,8 @@ export function useFormat() {
         $capitalize,
         $titleCase,
         $formatDate,
-        $formatDateTime
+        $formatDateTime,
+        $amountToWords
     } = appContext.config.globalProperties
 
     return {
@@ -15,6 +16,7 @@ export function useFormat() {
         capitalize: $capitalize,
         titleCase: $titleCase,
         formatDate: $formatDate,
-        formatDateTime: $formatDateTime
+        formatDateTime: $formatDateTime,
+        amountToWords: $amountToWords
     }
 }

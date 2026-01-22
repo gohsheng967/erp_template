@@ -55,6 +55,14 @@ const columnsByStatus = {
         'action',
     ],
 
+    rejected: [
+        'topup_no',
+        'wallet',
+        'amount',
+        'rejected_by',
+        'rejected_at',
+    ],
+
     paid: [
         'topup_no',
         'wallet',
@@ -75,6 +83,8 @@ const columnLabels = {
     requested_at: 'Requested At',
     approved_by: 'Approved By',
     approved_at: 'Approved At',
+    rejected_by: 'Rejected By',
+    rejected_at: 'Rejected At',
     paid_by: 'Paid By',
     paid_at: 'Paid At',
     voucher: 'Voucher',
@@ -120,6 +130,14 @@ function renderCell(row, col) {
         case 'approved_at':
             return row.approved_at
                 ? formatDateTime(row.approved_at)
+                : '-'
+
+        case 'rejected_by':
+            return row.rejector?.name ?? '-'
+
+        case 'rejected_at':
+            return row.rejected_at
+                ? formatDateTime(row.rejected_at)
                 : '-'
 
         case 'paid_at':

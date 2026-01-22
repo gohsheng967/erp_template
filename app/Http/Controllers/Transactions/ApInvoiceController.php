@@ -12,6 +12,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use App\Services\AttachmentService;
+use App\Services\RunningNumberService;
+use Illuminate\Validation\Rule;
+use App\Models\PaymentSlip;
 
 class ApInvoiceController extends Controller
 {
@@ -126,7 +129,7 @@ class ApInvoiceController extends Controller
     {
         $invoice = ApInvoice::with([
             'supplier:id,company_name',
-            'purchaseOrder:id,code',
+            'purchaseOrder.purchaseRequest.project',
             'attachments',
             'payments.attachments',       // 👈 REQUIRED
             'payments.createdBy:id,name',
@@ -197,6 +200,18 @@ class ApInvoiceController extends Controller
             'payment_date' => 'required|date',
             'reference'    => 'nullable|string|max:100',
             'remarks'      => 'nullable|string',
+            'payment_slip_id' => 'required|exists:payment_slips,id',
+            'company_bank_account_id' => [
+                'required',
+                Rule::exists('company_bank_accounts', 'id')->where(function ($query) {
+                    $query->where('status', 'active');
+                }),
+            ],
+            'less_retention' => ['nullable', 'numeric', 'min:0'],
+            'less_recoupment' => ['nullable', 'numeric', 'min:0'],
+            'less_material_ob' => ['nullable', 'numeric', 'min:0'],
+            'less_paid_previously' => ['nullable', 'numeric', 'min:0'],
+            'payment_slip_remark' => ['nullable', 'string', 'max:255'],
         ]);
 
         DB::transaction(function () use ($request, $uuid) {
@@ -217,6 +232,11 @@ class ApInvoiceController extends Controller
             /* =========================
             CREATE PAYMENT
             ========================= */
+            $slip = PaymentSlip::where('id', $request->payment_slip_id)
+                ->where('source_type', ApInvoice::class)
+                ->where('source_id', $invoice->id)
+                ->firstOrFail();
+
             $payment = ApInvoicePayment::create([
                 'uuid'          => Str::uuid(),
                 'ap_invoice_id' => $invoice->id,
@@ -224,6 +244,13 @@ class ApInvoiceController extends Controller
                 'payment_date'  => $request->payment_date,
                 'reference'     => $request->reference,
                 'remarks'       => $request->remarks,
+                'payment_slip_no' => $slip->slip_no,
+                'company_bank_account_id' => $request->company_bank_account_id,
+                'less_retention' => $request->less_retention,
+                'less_recoupment' => $request->less_recoupment,
+                'less_material_ob' => $request->less_material_ob,
+                'less_paid_previously' => $request->less_paid_previously,
+                'payment_slip_remark' => $request->payment_slip_remark,
                 'created_by'    => auth()->id(),
             ]);
 
@@ -234,7 +261,11 @@ class ApInvoiceController extends Controller
                 foreach ($request->file('proofs') as $file) {
                     AttachmentService::store(
                         $file,
-                        $payment                    
+                        $payment
+                    );
+                    AttachmentService::store(
+                        $file,
+                        $slip
                     );
                 }
             }
@@ -265,6 +296,18 @@ class ApInvoiceController extends Controller
             'payment_date' => 'required|date',
             'reference'    => 'nullable|string|max:100',
             'remarks'      => 'nullable|string',
+            'payment_slip_no' => 'nullable|string|max:50',
+            'company_bank_account_id' => [
+                'nullable',
+                Rule::exists('company_bank_accounts', 'id')->where(function ($query) {
+                    $query->where('status', 'active');
+                }),
+            ],
+            'less_retention' => ['nullable', 'numeric', 'min:0'],
+            'less_recoupment' => ['nullable', 'numeric', 'min:0'],
+            'less_material_ob' => ['nullable', 'numeric', 'min:0'],
+            'less_paid_previously' => ['nullable', 'numeric', 'min:0'],
+            'payment_slip_remark' => ['nullable', 'string', 'max:255'],
 
             // attachment handling
             'proof_mode'   => 'nullable|in:add,replace',
@@ -333,6 +376,13 @@ class ApInvoiceController extends Controller
                 'payment_date' => $request->payment_date,
                 'reference'    => $request->reference,
                 'remarks'      => $request->remarks,
+                'payment_slip_no' => $request->payment_slip_no ?? $payment->payment_slip_no,
+                'company_bank_account_id' => $request->company_bank_account_id ?? $payment->company_bank_account_id,
+                'less_retention' => $request->less_retention ?? $payment->less_retention,
+                'less_recoupment' => $request->less_recoupment ?? $payment->less_recoupment,
+                'less_material_ob' => $request->less_material_ob ?? $payment->less_material_ob,
+                'less_paid_previously' => $request->less_paid_previously ?? $payment->less_paid_previously,
+                'payment_slip_remark' => $request->payment_slip_remark ?? $payment->payment_slip_remark,
             ]);
 
             /* =========================
@@ -357,6 +407,18 @@ class ApInvoiceController extends Controller
                         $payment,
                         'payment_voucher'
                     );
+
+                    $slip = null;
+                    if ($payment->payment_slip_no) {
+                        $slip = \App\Models\PaymentSlip::where('slip_no', $payment->payment_slip_no)->first();
+                    }
+
+                    if ($slip) {
+                        AttachmentService::store(
+                            $file,
+                            $slip
+                        );
+                    }
                 }
             }
         });
@@ -408,5 +470,66 @@ class ApInvoiceController extends Controller
         });
 
         return back()->with('success', 'Payment cancelled successfully.');
+    }
+
+    public function paymentSlip(Request $request, string $uuid)
+    {
+        $request->validate([
+            'amount'       => 'required|numeric|min:0.01',
+            'payment_date' => 'required|date',
+            'payment_slip_id' => ['nullable', 'exists:payment_slips,id'],
+            'company_bank_account_id' => [
+                'required',
+                Rule::exists('company_bank_accounts', 'id')->where(function ($query) {
+                    $query->where('status', 'active');
+                }),
+            ],
+            'less_retention' => ['nullable', 'numeric', 'min:0'],
+            'less_recoupment' => ['nullable', 'numeric', 'min:0'],
+            'less_material_ob' => ['nullable', 'numeric', 'min:0'],
+            'less_paid_previously' => ['nullable', 'numeric', 'min:0'],
+            'payment_slip_remark' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $invoice = ApInvoice::where('uuid', $uuid)->firstOrFail();
+
+        if ($request->amount > $invoice->balance_amount) {
+            throw ValidationException::withMessages([
+                'amount' => 'Payment exceeds outstanding balance.',
+            ]);
+        }
+
+        $slip = null;
+        if ($request->payment_slip_id) {
+            $slip = PaymentSlip::where('id', $request->payment_slip_id)
+                ->where('source_type', ApInvoice::class)
+                ->where('source_id', $invoice->id)
+                ->firstOrFail();
+        }
+
+        if (!$slip) {
+            $slip = new PaymentSlip([
+                'slip_no' => RunningNumberService::next('payment_slip'),
+            ]);
+            $slip->source_type = ApInvoice::class;
+            $slip->source_id = $invoice->id;
+        }
+
+        $slip->company_bank_account_id = $request->company_bank_account_id;
+        $slip->amount = $request->amount;
+        $slip->payment_date = $request->payment_date;
+        $slip->less_retention = $request->less_retention;
+        $slip->less_recoupment = $request->less_recoupment;
+        $slip->less_material_ob = $request->less_material_ob;
+        $slip->less_paid_previously = $request->less_paid_previously;
+        $slip->payment_slip_remark = $request->payment_slip_remark;
+        $slip->created_by = $request->user()->id;
+        $slip->save();
+
+        $slip->load('companyBankAccount');
+
+        return response()->json([
+            'slip' => $slip,
+        ]);
     }
 }

@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { amountToWords } from '@/helpers/string'
 
 const props = defineProps({
     invoice: {
@@ -217,6 +218,16 @@ function formatCurrency(value) {
         <div class="font-medium mb-1">Remarks</div>
         <div class="border px-3 py-2 min-h-[60px] whitespace-pre-wrap">
             {{ invoice.remark ?? '-' }}
+        </div>
+    </div>
+
+    <!-- =====================
+         AMOUNT IN WORDS
+    ====================== -->
+    <div class="mb-10 relative z-10">
+        <div class="font-medium mb-1">Amount In Words</div>
+        <div class="border px-3 py-2 min-h-[40px] whitespace-pre-wrap">
+            {{ amountToWords(invoice.total_amount) || '-' }}
         </div>
     </div>
 
