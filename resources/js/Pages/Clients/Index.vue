@@ -1,5 +1,5 @@
 <script setup>
-import { ref,inject } from "vue";
+import { ref, inject, computed } from "vue";
 import { Link, usePage, router } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import CreateClientModal from "./Partials/CreateClientModal.vue";
@@ -38,6 +38,7 @@ function deleteClient() {
 
             showDelete.value = false
             selectedClient.value = null
+            refreshList()
         },
 
         onError: (errors) => {
@@ -50,12 +51,12 @@ function deleteClient() {
 
 const page = usePage();
 
-const clients = page.props.clients;
-const filters = page.props.filters ?? {};
+const clients = computed(() => page.props.clients);
+const filters = computed(() => page.props.filters ?? {});
 
 // UI State
-const search = ref(filters.search ?? "");
-const statusFilter = ref(filters.status ?? "");
+const search = ref(filters.value.search ?? "");
+const statusFilter = ref(filters.value.status ?? "");
 
 // Apply Filters
 function applyFilters() {
@@ -68,6 +69,13 @@ function resetFilters() {
     search.value = "";
     statusFilter.value = "";
     applyFilters();
+}
+
+function refreshList() {
+    router.reload({
+        only: ["clients"],
+        preserveScroll: true,
+    });
 }
 </script>
 
@@ -264,12 +272,14 @@ function resetFilters() {
     <CreateClientModal
         v-if="showCreate"
         @close="showCreate = false"
+        @saved="refreshList"
     />
 
     <EditClientModal
         v-if="showEdit"
         :client="selectedClient"
         @close="showEdit = false"
+        @saved="refreshList"
     />
 
     <DeleteConfirmation

@@ -26,6 +26,7 @@ class DashboardAttentionService
                 'critical' => array_values(array_filter([
                     $this->claimsPendingApproval(),
                     $this->arInvoiceDueOrOverdue(),
+                    $this->arInvoicePendingCollectionFromTerms(),
                     $this->apInvoiceDueOrOverdue(),
                 ])),
                 'warning' => array_values(array_filter([
@@ -41,7 +42,7 @@ class DashboardAttentionService
 
     protected function cacheKey(): string
     {
-        return 'dashboard.attention.user.' . $this->user->id;
+        return 'dashboard.attention.user.v3.' . $this->user->id;
     }
 
     /* ==========================================================
@@ -64,6 +65,7 @@ class DashboardAttentionService
 
         return [
             'level'   => 'critical',
+            'icon'    => 'mdi-clipboard-alert-outline',
             'message' => "{$count} claims pending approval (over 5 days)",
             'route'   => 'claims.index',
             'params'  => ['status' => 'submitted'],
@@ -90,7 +92,39 @@ class DashboardAttentionService
 
         return [
             'level'   => 'critical',
+            'icon'    => 'mdi-file-document-alert-outline',
             'message' => "{$count} receivable invoice(s) due or overdue",
+            'route'   => 'ar-invoices.index',
+            'params'  => ['tab' => 'approved'],
+        ];
+    }
+
+    /**
+     * AR pending collection based on payment terms (when due_date is missing)
+     */
+    protected function arInvoicePendingCollectionFromTerms(): ?array
+    {
+        if (!class_exists(\App\Models\ArInvoice::class)) {
+            return null;
+        }
+
+        $count = \App\Models\ArInvoice::where('status', 'approved')
+            ->whereNull('due_date')
+            ->whereNotNull('payment_term_days')
+            ->whereRaw(
+                'DATE_ADD(COALESCE(issued_at, approved_at), INTERVAL payment_term_days DAY) <= ?',
+                [now()->toDateTimeString()]
+            )
+            ->count();
+
+        if ($count === 0) {
+            return null;
+        }
+
+        return [
+            'level'   => 'critical',
+            'icon'    => 'mdi-cash-check',
+            'message' => "{$count} receivable invoice(s) pending collection (terms reached)",
             'route'   => 'ar-invoices.index',
             'params'  => ['tab' => 'approved'],
         ];
@@ -118,6 +152,7 @@ class DashboardAttentionService
 
         return [
             'level'   => 'warning',
+            'icon'    => 'mdi-calendar-clock-outline',
             'message' => "{$count} receivable invoice(s) due within {$days} days",
             'route'   => 'ar-invoices.index',
             'params'  => ['tab' => 'approved'],
@@ -143,6 +178,7 @@ class DashboardAttentionService
 
         return [
             'level'   => 'critical',
+            'icon'    => 'mdi-cash-remove',
             'message' => "{$count} payable invoice(s) due or overdue",
             'route'   => 'ap-invoices.index',
             'params'  => ['status' => 'issued', 'filter' => 'due'],
@@ -174,6 +210,7 @@ class DashboardAttentionService
 
         return [
             'level'   => 'warning',
+            'icon'    => 'mdi-cash-clock',
             'message' => "{$count} payable invoice(s) due within {$days} days",
             'route'   => 'ap-invoices.index',
             'params'  => ['status' => 'issued', 'filter' => 'due_soon'],
@@ -197,6 +234,7 @@ class DashboardAttentionService
 
         return [
             'level'   => 'warning',
+            'icon'    => 'mdi-wallet-outline',
             'message' => "{$wallets} petty cash wallet(s) below RM {$minimum}",
             'route'   => 'petty-cash.wallets.index',
         ];
@@ -217,6 +255,7 @@ class DashboardAttentionService
 
         return [
             'level'   => 'warning',
+            'icon'    => 'mdi-clipboard-text-clock-outline',
             'message' => "{$count} purchase order(s) awaiting confirmation",
             'route'   => 'purchase-orders.index',
         ];
@@ -227,14 +266,18 @@ class DashboardAttentionService
      */
     protected function vehicleInsuranceExpiring(): ?array
     {
-        if (!class_exists(\App\Models\Vehicle::class)) {
+        if (!class_exists(\App\Models\InventoryItem::class)) {
             return null;
         }
 
         $days = 30;
 
-        $count = \App\Models\Vehicle::whereNotNull('insurance_expiry_date')
-            ->whereBetween('insurance_expiry_date', [now(), now()->addDays($days)])
+        $count = \App\Models\InventoryItem::where('type', 'vehicle')
+            ->whereHas('latestInsurance', function ($query) use ($days) {
+                $query->whereNotNull('expiry_date')
+                    ->where('status', 'active')
+                    ->whereBetween('expiry_date', [now(), now()->addDays($days)]);
+            })
             ->count();
 
         if ($count === 0) {
@@ -243,9 +286,10 @@ class DashboardAttentionService
 
         return [
             'level'   => 'warning',
+            'icon'    => 'mdi-car-outline',
             'message' => "{$count} vehicle insurance(s) expiring within {$days} days",
-            'route'   => 'vehicles.index',
-            'params'  => ['filter' => 'insurance_expiring'],
+            'route'   => 'inventory.vehicles.index',
+            'params'  => ['insurance_expiring' => true],
         ];
     }
 }

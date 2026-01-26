@@ -288,7 +288,7 @@ function toggleWidget(id) {
     <!-- =====================
          QUOTATION LIST
     ====================== -->
-    <div class="bg-white border rounded-md overflow-hidden">
+    <div class="bg-white border rounded-md overflow-visible">
       <table class="w-full text-sm">
         <thead class="bg-gray-100">
           <tr>

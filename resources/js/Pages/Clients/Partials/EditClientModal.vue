@@ -9,7 +9,7 @@ const props = defineProps({
     },
 });
 
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["close", "saved"]);
 
 const form = useForm({
     name: "",
@@ -39,6 +39,7 @@ function submit() {
         preserveScroll: true,
         onSuccess: () => {
             emit("close");
+            emit("saved");
         },
     });
 }

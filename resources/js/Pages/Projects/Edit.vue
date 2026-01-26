@@ -50,7 +50,9 @@ const form = useForm({
 
                     <!-- Project Name -->
                     <div>
-                        <label class="block text-sm font-medium mb-1">Project Name</label>
+                        <label class="block text-sm font-medium mb-1">
+                            Project Name <span class="text-red-500">*</span>
+                        </label>
                         <input
                             v-model="form.name"
                             type="text"
@@ -60,7 +62,9 @@ const form = useForm({
 
                     <!-- Project Code -->
                     <div>
-                        <label class="block text-sm font-medium mb-1">Project Code</label>
+                        <label class="block text-sm font-medium mb-1">
+                            Project Code
+                        </label>
                         <input
                             v-model="form.code"
                             type="text"
@@ -70,7 +74,9 @@ const form = useForm({
 
                     <!-- Client -->
                     <div>
-                        <label class="block text-sm font-medium mb-1">Client</label>
+                        <label class="block text-sm font-medium mb-1">
+                            Client
+                        </label>
                         <select
                             v-model="form.client_id"
                             class="w-full border rounded px-3 py-2"
@@ -84,7 +90,9 @@ const form = useForm({
 
                     <!-- Start Date -->
                     <div>
-                        <label class="block text-sm font-medium mb-1">Start Date</label>
+                        <label class="block text-sm font-medium mb-1">
+                            Start Date
+                        </label>
                         <input
                             type="date"
                             v-model="form.start_date"
@@ -94,7 +102,9 @@ const form = useForm({
 
                     <!-- End Date -->
                     <div>
-                        <label class="block text-sm font-medium mb-1">End Date</label>
+                        <label class="block text-sm font-medium mb-1">
+                            End Date
+                        </label>
                         <input
                             type="date"
                             v-model="form.end_date"
@@ -104,7 +114,9 @@ const form = useForm({
 
                     <!-- Budget -->
                     <div>
-                        <label class="block text-sm font-medium mb-1">Budget (RM)</label>
+                        <label class="block text-sm font-medium mb-1">
+                            Budget (RM)
+                        </label>
                         <input
                             type="number"
                             v-model="form.budget"
@@ -114,7 +126,9 @@ const form = useForm({
 
                     <!-- Department -->
                     <div>
-                        <label class="block text-sm font-medium mb-1">Department</label>
+                        <label class="block text-sm font-medium mb-1">
+                            Department
+                        </label>
                         <select
                             v-model="form.department_id"
                             class="w-full border rounded px-3 py-2"
@@ -128,7 +142,9 @@ const form = useForm({
 
                     <!-- Manager -->
                     <div>
-                        <label class="block text-sm font-medium mb-1">Project Manager</label>
+                        <label class="block text-sm font-medium mb-1">
+                            Project Manager
+                        </label>
                         <select
                             v-model="form.manager_id"
                             class="w-full border rounded px-3 py-2"
@@ -144,7 +160,9 @@ const form = useForm({
 
                 <!-- Description -->
                 <div>
-                    <label class="block text-sm font-medium mb-1">Description</label>
+                    <label class="block text-sm font-medium mb-1">
+                        Description
+                    </label>
                     <textarea
                         v-model="form.description"
                         rows="4"

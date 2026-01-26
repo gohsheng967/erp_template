@@ -1,7 +1,7 @@
 <script setup>
 import { useForm } from "@inertiajs/vue3";
 
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["close", "saved"]);
 
 const form = useForm({
     name: "",
@@ -17,6 +17,7 @@ function submit() {
         onSuccess: () => {
             form.reset();
             emit("close");
+            emit("saved");
         },
     });
 }

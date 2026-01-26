@@ -99,7 +99,9 @@ function submit() {
             <!-- BODY -->
             <div class="p-6 space-y-4">
                 <div>
-                    <label class="label">Company Name *</label>
+                    <label class="label">
+                        Company Name <span class="text-red-500">*</span>
+                    </label>
                     <input
                         v-model="form.company_name"
                         class="input"
@@ -111,7 +113,9 @@ function submit() {
                 </div>
 
                 <div>
-                    <label class="label">Registration No</label>
+                    <label class="label">
+                        Registration No <span class="text-red-500">*</span>
+                    </label>
                     <input
                         v-model="form.registration_no"
                         class="input"
@@ -157,7 +161,9 @@ function submit() {
                 </div>
 
                 <div v-if="isEdit">
-                    <label class="label">Status</label>
+                    <label class="label">
+                        Status <span class="text-red-500">*</span>
+                    </label>
                     <select v-model="form.status" class="input">
                         <option value="active">Active</option>
                         <option value="inactive">Inactive</option>
