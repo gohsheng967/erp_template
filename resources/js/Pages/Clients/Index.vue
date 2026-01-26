@@ -5,11 +5,13 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import CreateClientModal from "./Partials/CreateClientModal.vue";
 import EditClientModal from "./Partials/EditClientModal.vue";
 import DeleteConfirmation from "@/Components/DeleteConfirmation.vue";
+import { useFormat } from "@/Composables/useFormat";
 
 const toast = inject("toast")
 const showCreate = ref(false);
 const showEdit = ref(false);
 const showDelete = ref(false);
+const { formatCurrency } = useFormat();
 
 const selectedClient = ref(null);
 
@@ -28,7 +30,7 @@ function openDelete(client) {
 }
 
 function deleteClient() {
-    router.delete(route("clients.destroy", selectedClient.value.id), {
+    router.delete(route("clients.destroy", selectedClient.value.uuid), {
         preserveScroll: true,
 
         onSuccess: () => {
@@ -142,6 +144,9 @@ function resetFilters() {
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                                 Phone
                             </th>
+                            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                                Outstanding (AR)
+                            </th>
                             <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                                 Actions
                             </th>
@@ -149,7 +154,7 @@ function resetFilters() {
                     </thead>
 
                     <tbody class="divide-y divide-gray-200 bg-white">
-                        <tr v-for="client in clients.data" :key="client.id">
+                        <tr v-for="client in clients.data" :key="client.uuid">
 
                             <td class="px-4 py-3 text-sm font-medium text-gray-900">
                                 {{ client.name }}
@@ -167,13 +172,35 @@ function resetFilters() {
                                 {{ client.phone ?? '-' }}
                             </td>
 
+                            <td class="px-4 py-3 text-sm text-right tabular-nums">
+                                <span
+                                    class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+                                    :class="{
+                                        'bg-red-100 text-red-700':
+                                            Number(client.ar_total ?? 0) - Number(client.ar_received ?? 0) > 0,
+                                        'bg-emerald-100 text-emerald-700':
+                                            Number(client.ar_total ?? 0) - Number(client.ar_received ?? 0) <= 0,
+                                    }"
+                                >
+                                    {{
+                                        formatCurrency(
+                                            Math.max(
+                                                Number(client.ar_total ?? 0) -
+                                                Number(client.ar_received ?? 0),
+                                                0
+                                            )
+                                        )
+                                    }}
+                                </span>
+                            </td>
+
                             <!-- ACTIONS -->
                             <td class="px-4 py-3 text-center">
                                 <div class="flex justify-center gap-3">
 
                                     <!-- VIEW -->
                                     <Link
-                                        :href="route('clients.show', client.id)"
+                                        :href="route('clients.show', client.uuid)"
                                         class="text-indigo-600 hover:text-indigo-800"
                                         title="View"
                                     >

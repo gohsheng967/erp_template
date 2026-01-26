@@ -62,7 +62,7 @@ const submit = () => {
                 <!-- Password -->
                 <div>
                     <label class="block text-gray-700 mb-2 font-medium" for="password">
-                        Password or Backup Code
+                        Password
                     </label>
 
                     <input
@@ -73,10 +73,6 @@ const submit = () => {
                         autocomplete="current-password"
                         class="w-full px-4 py-3 border border-gray-300 rounded-lg text-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-
-                    <p class="text-sm text-gray-500 mt-1">
-                        Enter your account password or your one-time backup code.
-                    </p>
 
                     <InputError class="mt-2" :message="form.errors.password" />
                 </div>
@@ -110,4 +106,3 @@ const submit = () => {
         </div>
     </div>
 </template>
-

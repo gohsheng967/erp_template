@@ -344,13 +344,16 @@ onMounted(loadDocuments)
                     <td class="px-4 py-3">{{ doc.user_name }}</td>
                     <td class="px-4 py-3">{{ formatDate(doc.created_at) }}</td>
 
-                    <td class="px-4 py-3 text-right flex gap-3 justify-end">
+                    <td class="px-4 py-3 text-right">
+                        <div class="flex items-center gap-3 justify-end">
                         <a
                             v-if="!isExternalLink(doc.filepath)"
                             :href="route('projects.documents.download', doc.id)"
                             class="text-indigo-600 hover:text-indigo-800"
+                            title="Download"
+                            aria-label="Download"
                         >
-                            Download
+                            <i class="mdi mdi-download text-lg"></i>
                         </a>
 
                         <a
@@ -358,8 +361,10 @@ onMounted(loadDocuments)
                             :href="doc.filepath"
                             target="_blank"
                             class="text-indigo-600 hover:text-indigo-800"
+                            title="Open"
+                            aria-label="Open"
                         >
-                            Open
+                            <i class="mdi mdi-open-in-new text-lg"></i>
                         </a>
 
                         <Link
@@ -369,9 +374,12 @@ onMounted(loadDocuments)
                             preserve-scroll
                             @success="toast?.value?.show('Deleted', 'success')"
                             class="text-red-600 hover:text-red-800"
+                            title="Delete"
+                            aria-label="Delete"
                         >
-                            Delete
+                            <i class="mdi mdi-trash-can-outline text-lg"></i>
                         </Link>
+                        </div>
                     </td>
                 </tr>
 

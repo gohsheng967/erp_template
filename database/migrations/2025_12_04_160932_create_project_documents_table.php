@@ -14,7 +14,6 @@ return new class extends Migration {
 
             $table->unsignedBigInteger('project_id');
             $table->unsignedBigInteger('user_id')->nullable();
-            $table->unsignedBigInteger('category_id')->nullable();
 
             // 📄 File info
             $table->string('filename');
@@ -30,10 +29,6 @@ return new class extends Migration {
 
             $table->foreign('project_id')
                 ->references('id')->on('projects')
-                ->cascadeOnDelete();
-
-            $table->foreign('category_id')
-                ->references('id')->on('file_categories')
                 ->cascadeOnDelete();
 
             $table->foreign('user_id')

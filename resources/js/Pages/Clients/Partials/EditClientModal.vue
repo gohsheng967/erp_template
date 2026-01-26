@@ -35,7 +35,7 @@ watch(
 );
 
 function submit() {
-    form.put(route("clients.update", props.client.id), {
+    form.put(route("clients.update", props.client.uuid), {
         preserveScroll: true,
         onSuccess: () => {
             emit("close");

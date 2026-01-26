@@ -25,10 +25,11 @@ class DashboardAttentionService
             fn () => [
                 'critical' => array_values(array_filter([
                     $this->claimsPendingApproval(),
-                    $this->staleArInvoices(),
+                    $this->arInvoiceDueOrOverdue(),
                     $this->apInvoiceDueOrOverdue(),
                 ])),
                 'warning' => array_values(array_filter([
+                    $this->arInvoiceDueSoon(),
                     $this->apInvoiceDueSoon(),
                     $this->lowPettyCash(),
                     $this->pendingPurchaseOrders(),
@@ -70,18 +71,17 @@ class DashboardAttentionService
     }
 
     /**
-     * AR has no due date → age-based risk
+     * AR due today or overdue (approved only)
      */
-    protected function staleArInvoices(): ?array
+    protected function arInvoiceDueOrOverdue(): ?array
     {
         if (!class_exists(\App\Models\ArInvoice::class)) {
             return null;
         }
 
-        $days = 14;
-
-        $count = \App\Models\ArInvoice::where('status', 'issued')
-            ->where('issued_at', '<=', now()->subDays($days))
+        $count = \App\Models\ArInvoice::where('status', 'approved')
+            ->whereNotNull('due_date')
+            ->whereDate('due_date', '<=', now())
             ->count();
 
         if ($count === 0) {
@@ -90,9 +90,37 @@ class DashboardAttentionService
 
         return [
             'level'   => 'critical',
-            'message' => "{$count} AR invoice(s) unpaid for over {$days} days",
+            'message' => "{$count} receivable invoice(s) due or overdue",
             'route'   => 'ar-invoices.index',
-            'params'  => ['status' => 'issued'],
+            'params'  => ['tab' => 'approved'],
+        ];
+    }
+
+    /**
+     * AR due soon (next 5 days, approved only)
+     */
+    protected function arInvoiceDueSoon(): ?array
+    {
+        if (!class_exists(\App\Models\ArInvoice::class)) {
+            return null;
+        }
+
+        $days = 5;
+
+        $count = \App\Models\ArInvoice::where('status', 'approved')
+            ->whereNotNull('due_date')
+            ->whereBetween('due_date', [now()->addDay(), now()->addDays($days)])
+            ->count();
+
+        if ($count === 0) {
+            return null;
+        }
+
+        return [
+            'level'   => 'warning',
+            'message' => "{$count} receivable invoice(s) due within {$days} days",
+            'route'   => 'ar-invoices.index',
+            'params'  => ['tab' => 'approved'],
         ];
     }
 

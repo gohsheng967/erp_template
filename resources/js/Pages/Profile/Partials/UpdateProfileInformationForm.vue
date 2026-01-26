@@ -39,9 +39,15 @@ async function downloadCard() {
     const card = document.getElementById("namecard")
     if (!card) return
 
+    if (document.fonts?.ready) {
+        await document.fonts.ready
+    }
+    await new Promise(requestAnimationFrame)
+
     const canvas = await html2canvas(card, {
         scale: 3,
-        useCORS: true
+        useCORS: true,
+        letterRendering: true
     })
 
     const link = document.createElement("a")
@@ -179,24 +185,36 @@ async function saveProfile() {
             <!-- RIGHT SIDE (NAMECARD) -->
             <div class="flex flex-col items-center space-y-6">
                 <!-- NAMECARD -->
-                <div id="namecard"
-                    class="p-8 rounded-3xl shadow-xl border 
-                        bg-gradient-to-b from-gray-800 to-black 
-                        text-white w-full max-w-xs select-none text-center relative">
+                <div
+                    id="namecard"
+                    class="relative overflow-hidden p-7 rounded-2xl shadow-2xl
+                        border border-white/10
+                        text-white w-full max-w-sm select-none"
+                    style="
+                        line-height: 1.3;
+                        -webkit-font-smoothing: antialiased;
+                        background-image:
+                            radial-gradient(220px 220px at 110% -10%, rgba(99,102,241,0.25), transparent 60%),
+                            radial-gradient(220px 220px at -10% 110%, rgba(34,211,238,0.18), transparent 60%),
+                            linear-gradient(135deg, #0f172a 0%, #1f2937 50%, #0f172a 100%);
+                    "
+                >
+                    <div class="absolute -top-10 -right-10 h-32 w-32 rounded-full bg-indigo-500/20"></div>
+                    <div class="absolute -bottom-10 -left-10 h-32 w-32 rounded-full bg-cyan-400/10"></div>
 
-                    <!-- Company Logo -->
-                    <div class="mb-5 flex justify-center">
-                        <img 
-                            :src="company?.logo 
-                                ? (company.logo.startsWith('http') ? company.logo : '/storage/' + company.logo)
-                                : '/asset/img/sample-logo.png'"
-                            class="h-10 object-contain filter invert"
-                        />
+                    <!-- Header -->
+                    <div class="relative z-10 flex items-center justify-between mb-6">
+                        <div class="text-[11px] tracking-widest text-gray-300 uppercase">
+                            {{ company?.company_name ?? "Your Company Name" }}
+                        </div>
+                        <div class="text-[10px] uppercase tracking-widest text-gray-400 border border-white/10 rounded-full px-2 py-0.5">
+                            Namecard
+                        </div>
                     </div>
 
-                    <!-- Profile Photo OR Placeholder -->
-                    <div class="flex justify-center mb-4">
-                        <div class="w-24 h-24 rounded-full bg-gray-300 flex items-center justify-center overflow-hidden shadow">
+                    <!-- Profile -->
+                    <div class="relative z-10 flex items-center gap-5 mb-6">
+                        <div class="w-20 h-20 rounded-xl bg-gray-200/10 flex items-center justify-center overflow-hidden ring-1 ring-white/10 shadow-inner">
                             <img
                                 v-if="previewPhoto"
                                 :src="previewPhoto"
@@ -204,95 +222,89 @@ async function saveProfile() {
                             />
                             <svg
                                 v-else
-                                class="w-14 h-14 text-gray-600"
+                                class="w-10 h-10 text-gray-400"
                                 fill="currentColor"
                                 viewBox="0 0 24 24"
                             >
                                 <path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v2h20v-2c0-3.3-6.7-5-10-5z"/>
                             </svg>
                         </div>
-                    </div>
-
-                    <!-- Name -->
-                    <div class="text-xl font-bold text-white tracking-wide">
-                        {{ form.name }}
-                    </div>
-
-                    <!-- Job Title -->
-                    <div class="text-gray-300 text-sm mt-1 capitalize">
-                        {{ user.departments?.[0]?.role ?? "Staff" }}
-                    </div>
-
-                    <!-- Company Name -->
-                    <div class="text-gray-300 font-semibold mt-1">
-                        {{ company?.company_name ?? "Your Company Name" }}
+                        <div>
+                            <div class="text-xl font-semibold tracking-wide leading-tight">
+                                {{ form.name }}
+                            </div>
+                            <div class="text-gray-300 text-sm mt-1 capitalize leading-tight">
+                                {{ user.departments?.[0]?.role ?? "Staff" }}
+                            </div>
+                            <div class="text-gray-400 text-xs mt-1 leading-tight">
+                                {{ user.departments?.[0]?.name ?? "Department" }}
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Divider -->
-                    <div class="border-t border-gray-600 my-6"></div>
+                    <div class="relative z-10 border-t border-white/10 my-5"></div>
 
                     <!-- Contact Section -->
-                    <div class="mt-6 space-y-4 text-gray-200 text-[13px]">
-
-                        <!-- LINE 1 — Mobile -->
-                        <div
-                            v-if="form.contact_channels.mobile?.enabled && form.contact_channels.mobile.value"
-                            class="flex items-center gap-3 justify-center"
-                        >
-                            <img src="/asset/img/phone.png" class="w-5 h-5 opacity-80" />
-                            <span>{{ form.contact_channels.mobile.value }}</span>
+                    <div class="relative z-10">
+                        <div class="text-[11px] uppercase tracking-widest text-gray-400 mb-2 leading-tight">
+                            Personal Contact
                         </div>
-
-                        <!-- LINE 2 — Office + Email -->
-                        <div class="flex justify-center gap-6">
-
+                        <div class="space-y-2 text-gray-200 text-[13px] mb-4">
                             <div
-                                v-if="company?.office_number"
-                                class="flex items-center gap-2"
+                                v-if="form.contact_channels.mobile?.enabled && form.contact_channels.mobile.value"
+                                class="flex items-center gap-3 rounded-lg bg-white/5 px-3 py-2"
                             >
-                                <img src="/asset/img/phone.png" class="w-5 h-5 opacity-80" />
-                                <span>{{ company.office_number }}</span>
+                                <img src="/asset/img/phone.png" class="w-4 h-4 opacity-80" />
+                                <span>{{ form.contact_channels.mobile.value }}</span>
                             </div>
 
-                            <div class="flex items-center gap-2">
-                                <img src="/asset/img/email.png" class="w-5 h-5 opacity-80" />
+                            <div class="flex items-center gap-3 rounded-lg bg-white/5 px-3 py-2">
+                                <img src="/asset/img/email.png" class="w-4 h-4 opacity-80" />
                                 <span>{{ form.email }}</span>
                             </div>
-                        </div>
-
-                        <!-- LINE 3 — Telegram + WhatsApp -->
-                        <div class="flex justify-center gap-6">
 
                             <div
                                 v-if="form.contact_channels.telegram?.enabled && form.contact_channels.telegram.value"
-                                class="flex items-center gap-2"
+                                class="flex items-center gap-3 rounded-lg bg-white/5 px-3 py-2"
                             >
-                                <img src="/asset/img/telegram.png" class="w-5 h-5 opacity-80" />
+                                <img src="/asset/img/telegram.png" class="w-4 h-4 opacity-80" />
                                 <span>{{ form.contact_channels.telegram.value }}</span>
                             </div>
 
                             <div
                                 v-if="form.contact_channels.whatsapp?.enabled && form.contact_channels.whatsapp.value"
-                                class="flex items-center gap-2"
+                                class="flex items-center gap-3 rounded-lg bg-white/5 px-3 py-2"
                             >
-                                <img src="/asset/img/whatsapp.png" class="w-5 h-5 opacity-80" />
+                                <img src="/asset/img/whatsapp.png" class="w-4 h-4 opacity-80" />
                                 <span>{{ form.contact_channels.whatsapp.value }}</span>
                             </div>
-
                         </div>
 
-                        <!-- Address -->
-                        <div
-                            v-if="company?.address"
-                            class="flex items-center gap-3 justify-center text-center"
-                        >
-                            <img src="/asset/img/location.png" class="w-5 h-5 opacity-80" />
-                            <span class="block max-w-[200px] leading-tight text-gray-300">
-                                {{ company.address }}
-                            </span>
+                        <div class="text-[11px] uppercase tracking-widest text-gray-400 mb-2 leading-tight">
+                            Company Contact
                         </div>
+                        <div class="space-y-2 text-gray-200 text-[13px]">
+                            <div
+                                v-if="company?.office_number"
+                                class="flex items-center gap-3 rounded-lg bg-white/5 px-3 py-2"
+                            >
+                                <img src="/asset/img/phone.png" class="w-4 h-4 opacity-80" />
+                                <span>{{ company.office_number }}</span>
+                            </div>
 
+                            <div
+                                v-if="company?.address"
+                                class="flex items-start gap-3 rounded-lg bg-white/5 px-3 py-2"
+                            >
+                                <img src="/asset/img/location.png" class="w-4 h-4 opacity-80 mt-0.5" />
+                                <span class="block leading-tight text-gray-300">
+                                    {{ company.address }}
+                                </span>
+                            </div>
+                        </div>
                     </div>
+
                 </div>
 
                 <PrimaryButton class="mx-auto" @click="downloadCard">

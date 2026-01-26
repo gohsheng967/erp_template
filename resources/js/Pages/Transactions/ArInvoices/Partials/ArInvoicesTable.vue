@@ -7,7 +7,7 @@ import DeleteConfirmation from '@/Components/DeleteConfirmation.vue'
 import ArInvoiceShowModal from '@/Pages/Transactions/ArInvoices/Partials/ArInvoiceShowModal.vue'
 
 import { useFormat } from '@/Composables/useFormat'
-const { formatCurrency, formatDateTime } = useFormat()
+const { formatCurrency, formatDate, formatDateTime } = useFormat()
 
 /* =========================
    PROPS
@@ -42,6 +42,9 @@ const columnsByStatus = {
         'customer',
         'project',
         'total_amount',
+        'outstanding',
+        'payment_term',
+        'due_date',
         'issued_at',
         'action',
     ],
@@ -52,6 +55,9 @@ const columnsByStatus = {
         'customer',
         'project',
         'total_amount',
+        'outstanding',
+        'payment_term',
+        'due_date',
         'approved_by',
         'approved_at',
         'action',
@@ -63,6 +69,8 @@ const columnsByStatus = {
         'customer',
         'project',
         'total_amount',
+        'payment_term',
+        'due_date',
         'received_at',
         'action',
     ],
@@ -83,6 +91,9 @@ const columnLabels = {
     project: 'Project',
     customer: 'Customer',
     total_amount: 'Total Amount',
+    outstanding: 'Outstanding',
+    payment_term: 'Term',
+    due_date: 'Due Date',
     items_progress: 'Items / Total',
     issued_at: 'Issued At',
     approved_by: 'Approved By',
@@ -174,7 +185,44 @@ function rowClass(row) {
         return 'bg-green-50 hover:bg-green-100'
     }
 
+    if (isOverdue(row)) {
+        return 'bg-red-50 hover:bg-red-100'
+    }
+
+    if (isDueSoon(row)) {
+        return 'bg-amber-50 hover:bg-amber-100'
+    }
+
     return 'hover:bg-gray-50'
+}
+
+function outstandingAmount(row) {
+    const received = Number(row.receipts_sum_amount ?? 0)
+    return Math.max(Number(row.total_amount ?? 0) - received, 0)
+}
+
+function hasPaymentTerm(row) {
+    return row?.payment_term_days !== null && row?.payment_term_days !== undefined
+}
+
+function isOverdue(row) {
+    if (!row?.due_date) return false
+    if (!['issued', 'approved'].includes(props.status)) return false
+    const dueDate = new Date(row.due_date)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return dueDate < today
+}
+
+function isDueSoon(row) {
+    if (!row?.due_date) return false
+    if (!['issued', 'approved'].includes(props.status)) return false
+    const dueDate = new Date(row.due_date)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const inFiveDays = new Date(today)
+    inFiveDays.setDate(today.getDate() + 5)
+    return dueDate >= today && dueDate <= inFiveDays
 }
 
 function renderCell(row, col) {
@@ -193,6 +241,17 @@ function renderCell(row, col) {
 
         case 'total_amount':
             return formatCurrency(row.total_amount)
+
+        case 'outstanding':
+            return formatCurrency(outstandingAmount(row))
+
+        case 'payment_term':
+            return row.payment_term_days !== null && row.payment_term_days !== undefined
+                ? `${row.payment_term_days} days`
+                : '-'
+
+        case 'due_date':
+            return formatDate(row.due_date) ?? '-'
 
         case 'items_progress':
             return `${row.items_count ?? 0} / ${formatCurrency(row.items_sum_amount)}`
@@ -249,7 +308,8 @@ function renderCell(row, col) {
                 :key="col"
                 class="px-4 py-2"
                 :class="{
-                    'text-right tabular-nums': col === 'total_amount',
+                    'text-right tabular-nums': col === 'total_amount' || col === 'outstanding',
+                    'text-center': col === 'payment_term',
                     'text-center': col === 'action'
                 }"
             >
@@ -260,6 +320,34 @@ function renderCell(row, col) {
                     @view="openView"
                     @cancel="askCancel"
                 />
+
+                <span
+                    v-else-if="col === 'outstanding'"
+                    class="font-medium"
+                    :class="outstandingAmount(invoice) > 0 ? 'text-red-600' : 'text-gray-500'"
+                >
+                    {{ renderCell(invoice, col) }}
+                </span>
+
+                <span
+                    v-else-if="col === 'payment_term'"
+                    class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+                    :class="hasPaymentTerm(invoice) ? 'bg-slate-100 text-slate-700' : 'bg-gray-100 text-gray-500'"
+                >
+                    {{ renderCell(invoice, col) }}
+                </span>
+
+                <span
+                    v-else-if="col === 'due_date'"
+                    class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+                    :class="{
+                        'bg-red-100 text-red-700': isOverdue(invoice),
+                        'bg-amber-100 text-amber-700': !isOverdue(invoice) && isDueSoon(invoice),
+                        'bg-gray-100 text-gray-600': !isOverdue(invoice) && !isDueSoon(invoice)
+                    }"
+                >
+                    {{ renderCell(invoice, col) }}
+                </span>
 
                 <span v-else>
                     {{ renderCell(invoice, col) }}

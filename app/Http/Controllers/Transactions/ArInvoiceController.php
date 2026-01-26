@@ -34,6 +34,7 @@ class ArInvoiceController extends Controller
     {
         $tab       = $request->tab ?? 'issued';
         $projectId = $request->project_id;
+        $customerId = $request->customer_id;
 
         $from = $request->from
             ?? Carbon::now()->subMonth()->toDateString();
@@ -56,6 +57,7 @@ class ArInvoiceController extends Controller
             ])
             ->withCount('items')
             ->withSum('items', 'amount')
+            ->withSum('receipts', 'amount')
             ->when($search, function ($q) use ($search) {
                 $q->where(function ($q) use ($search) {
                     $q->where('invoice_no', 'like', "%{$search}%")
@@ -67,6 +69,9 @@ class ArInvoiceController extends Controller
             })
             ->when($projectId, fn ($q) =>
                 $q->where('project_id', $projectId)
+            )
+            ->when($customerId, fn ($q) =>
+                $q->where('customer_id', $customerId)
             )
             ->when($from, fn ($q) =>
                 $q->whereDate('ar_invoices.created_at', '>=', $from)
@@ -169,6 +174,7 @@ class ArInvoiceController extends Controller
                 'from'       => $from,
                 'to'         => $to,
                 'project_id' => $projectId,
+                'customer_id' => $customerId,
             ],
 
             'counts'          => $counts,
@@ -177,6 +183,10 @@ class ArInvoiceController extends Controller
 
             'projects'  => $projects,
             'customers' => $customers,
+            'prefill' => [
+                'customer_id' => $customerId,
+                'open_create' => $request->boolean('create'),
+            ],
         ]);
     }
 
@@ -191,6 +201,7 @@ class ArInvoiceController extends Controller
             'customer_id'  => ['required', 'exists:clients,id'],
             'title'        => ['required', 'max:255'],
             'total_amount' => ['required', 'numeric', 'min:0'],
+            'payment_term_days' => ['nullable', 'integer', 'min:0'],
         ]);
 
         $invoice = ArInvoice::create([
@@ -198,6 +209,7 @@ class ArInvoiceController extends Controller
             'project_id'   => $validated['project_id'] ?? null,
             'customer_id'  => $validated['customer_id'],
             'total_amount' => $validated['total_amount'],
+            'payment_term_days' => $validated['payment_term_days'] ?? null,
             'status'       => 'draft',
             'issued_by'    => $request->user()->id,
         ]);
@@ -240,6 +252,7 @@ class ArInvoiceController extends Controller
             'status' => ['required', Rule::in(['draft', 'issued'])],
             'total_amount' => ['nullable', 'numeric', 'min:0'],
             'items' => ['nullable', 'array'],
+            'payment_term_days' => ['nullable', 'integer', 'min:0'],
         ];
 
         $issueRules = [
@@ -277,9 +290,19 @@ class ArInvoiceController extends Controller
                 $invoice->issued_at = now();
             }
 
+            $issuedAt = $invoice->issued_at ?? now();
+            $dueDate = null;
+            if ($validated['status'] === 'issued' && array_key_exists('payment_term_days', $validated)) {
+                $dueDate = $validated['payment_term_days'] !== null
+                    ? Carbon::parse($issuedAt)->addDays((int) $validated['payment_term_days'])
+                    : null;
+            }
+
             $invoice->update([
                 'status'       => $validated['status'],
                 'total_amount' => $validated['total_amount'] ?? 0,
+                'payment_term_days' => $validated['payment_term_days'] ?? null,
+                'due_date' => $validated['status'] === 'issued' ? $dueDate : null,
             ]);
 
             $keptItemIds = [];

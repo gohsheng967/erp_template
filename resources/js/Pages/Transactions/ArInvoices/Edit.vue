@@ -38,6 +38,7 @@ const form = useForm({
   })),
 
   total_amount: props.invoice.total_amount ?? 0,
+  payment_term_days: props.invoice.payment_term_days ?? '',
   status: 'draft',
 })
 
@@ -198,11 +199,22 @@ function confirmIssue() {
 
     <!-- TOTAL -->
     <div class="flex justify-end">
-      <div class="w-80 bg-white p-4 rounded shadow">
+      <div class="w-80 bg-white p-4 rounded shadow space-y-3">
         <div class="flex justify-between items-center">
           <span class="font-medium">Total</span>
           <input
             v-model.number="form.total_amount"
+            class="input w-32 text-right"
+          />
+        </div>
+
+        <div class="flex justify-between items-center">
+          <span class="font-medium">Payment Term (Days)</span>
+          <input
+            v-model.number="form.payment_term_days"
+            type="number"
+            min="0"
+            step="1"
             class="input w-32 text-right"
           />
         </div>

@@ -1,10 +1,12 @@
 <script setup>
+import { watch } from 'vue'
 import { useForm } from '@inertiajs/vue3'
 
 const props = defineProps({
     show: Boolean,
     projects: Array,
     customers: Array,
+    defaultCustomerId: [String, Number, null],
 })
 
 const emit = defineEmits(['close'])
@@ -14,7 +16,18 @@ const form = useForm({
     customer_id: '',
     title: '',
     total_amount: '',
+    payment_term_days: '',
 })
+
+watch(
+    () => props.show,
+    (isOpen) => {
+        if (!isOpen) return
+        if (props.defaultCustomerId) {
+            form.customer_id = props.defaultCustomerId
+        }
+    }
+)
 
 function submit() {
     form.post(route('ar-invoices.store'), {
@@ -115,6 +128,25 @@ function submit() {
                         class="text-sm text-red-500"
                     >
                         {{ form.errors.total_amount }}
+                    </div>
+                </div>
+
+                <!-- PAYMENT TERM -->
+                <div>
+                    <label class="text-sm font-medium">Payment Term (Days)</label>
+                    <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        v-model="form.payment_term_days"
+                        class="w-full border rounded px-3 py-2"
+                        placeholder="30"
+                    />
+                    <div
+                        v-if="form.errors.payment_term_days"
+                        class="text-sm text-red-500"
+                    >
+                        {{ form.errors.payment_term_days }}
                     </div>
                 </div>
 

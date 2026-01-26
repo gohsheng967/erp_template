@@ -53,7 +53,8 @@ function formatCurrency(value) {
 <div
     class="invoice-print relative bg-white text-gray-800 mx-auto
            w-[210mm] min-h-[297mm]
-           p-[12mm] text-[13px] leading-relaxed"
+           p-[12mm] text-[13px] leading-relaxed
+           border border-gray-300"
 >
 
     <!-- =====================
@@ -76,7 +77,7 @@ function formatCurrency(value) {
     <!-- =====================
          HEADER
     ====================== -->
-    <div class="flex justify-between items-start border-b pb-4 mb-6 relative z-10">
+    <div class="flex justify-between items-start border-b-2 border-gray-300 pb-4 mb-6 relative z-10">
 
         <!-- COMPANY INFO -->
         <div class="flex gap-3 max-w-[65%]">
@@ -116,7 +117,7 @@ function formatCurrency(value) {
     <!-- =====================
          INVOICE INFO
     ====================== -->
-    <div class="grid grid-cols-2 gap-x-12 gap-y-2 mb-6 relative z-10">
+    <div class="grid grid-cols-2 gap-x-12 gap-y-2 mb-6 relative z-10 border border-gray-300 rounded px-4 py-3">
         <div>
             <span class="font-medium">Issued By</span>:
             {{ invoice.issuer?.name ?? '-' }}
@@ -140,22 +141,32 @@ function formatCurrency(value) {
         <div>
             <span class="font-medium">Currency</span>: MYR
         </div>
+
+        <div>
+            <span class="font-medium">Payment Term</span>:
+            {{ invoice.payment_term_days ?? '-' }}<span v-if="invoice.payment_term_days !== null && invoice.payment_term_days !== undefined"> days</span>
+        </div>
+
+        <div>
+            <span class="font-medium">Due Date</span>:
+            {{ formatDate(invoice.due_date) }}
+        </div>
     </div>
 
     <!-- =====================
          ITEMS TABLE
     ====================== -->
     <table class="w-full border border-gray-400 mb-6 relative z-10">
-        <thead class="bg-gray-100">
+        <thead class="bg-gray-100 border-b-2 border-gray-400">
             <tr>
-                <th class="border px-2 py-2 w-[28px] text-center">#</th>
-                <th class="border px-2 py-2 text-left">Item</th>
-                <th class="border px-2 py-2 text-left">Description</th>
-                <th class="border px-2 py-2 w-[80px] text-center">Qty</th>
-                <th class="border px-2 py-2 w-[110px] text-right">
+                <th class="border border-gray-400 px-2 py-2 w-[28px] text-center">#</th>
+                <th class="border border-gray-400 px-2 py-2 text-left">Item</th>
+                <th class="border border-gray-400 px-2 py-2 text-left">Description</th>
+                <th class="border border-gray-400 px-2 py-2 w-[80px] text-center">Qty</th>
+                <th class="border border-gray-400 px-2 py-2 w-[110px] text-right">
                     Unit Price (RM)
                 </th>
-                <th class="border px-2 py-2 w-[120px] text-right">
+                <th class="border border-gray-400 px-2 py-2 w-[120px] text-right">
                     Amount (RM)
                 </th>
             </tr>
@@ -166,31 +177,28 @@ function formatCurrency(value) {
                 v-for="(item, index) in invoice.items ?? []"
                 :key="item.id"
             >
-                <td class="border px-2 py-2 text-center">
+                <td class="border border-gray-300 px-2 py-2 text-center">
                     {{ index + 1 }}
                 </td>
-                <td class="border px-2 py-2">
+                <td class="border border-gray-300 px-2 py-2">
                     {{ item.title }}
                 </td>
-                <td class="border px-2 py-2">
+                <td class="border border-gray-300 px-2 py-2">
                     {{ item.description ?? '-' }}
                 </td>
-                <td class="border px-2 py-2 text-center">
+                <td class="border border-gray-300 px-2 py-2 text-center">
                     {{ item.quantity }}
                 </td>
-                <td class="border px-2 py-2 text-right tabular-nums">
+                <td class="border border-gray-300 px-2 py-2 text-right tabular-nums">
                     {{ formatCurrency(item.unit_price) }}
                 </td>
-                <td class="border px-2 py-2 text-right tabular-nums">
+                <td class="border border-gray-300 px-2 py-2 text-right tabular-nums">
                     {{ formatCurrency(item.amount) }}
                 </td>
             </tr>
 
             <tr v-if="!invoice.items?.length">
-                <td
-                    colspan="6"
-                    class="border px-2 py-6 text-center text-gray-400"
-                >
+                <td colspan="6" class="border border-gray-300 px-2 py-6 text-center text-gray-400">
                     No invoice items
                 </td>
             </tr>
@@ -201,7 +209,7 @@ function formatCurrency(value) {
          TOTAL
     ====================== -->
     <div class="flex justify-end mb-10 relative z-10">
-        <div class="w-[260px] border-t pt-3">
+        <div class="w-[260px] border-t-2 border-gray-400 pt-3">
             <div class="flex justify-between">
                 <span class="font-medium">Total Amount</span>
                 <span class="font-bold tabular-nums">
@@ -216,7 +224,7 @@ function formatCurrency(value) {
     ====================== -->
     <div class="mb-10 relative z-10">
         <div class="font-medium mb-1">Remarks</div>
-        <div class="border px-3 py-2 min-h-[60px] whitespace-pre-wrap">
+        <div class="border border-gray-300 px-3 py-2 min-h-[60px] whitespace-pre-wrap">
             {{ invoice.remark ?? '-' }}
         </div>
     </div>
@@ -226,7 +234,7 @@ function formatCurrency(value) {
     ====================== -->
     <div class="mb-10 relative z-10">
         <div class="font-medium mb-1">Amount In Words</div>
-        <div class="border px-3 py-2 min-h-[40px] whitespace-pre-wrap">
+        <div class="border border-gray-300 px-3 py-2 min-h-[40px] whitespace-pre-wrap">
             {{ amountToWords(invoice.total_amount) || '-' }}
         </div>
     </div>
@@ -236,7 +244,7 @@ function formatCurrency(value) {
     ====================== -->
     <div class="grid grid-cols-3 gap-10 mt-16 text-sm relative z-10">
         <div>
-            <div class="mb-8 border-b"></div>
+            <div class="mb-8 border-b-2 border-gray-300"></div>
             <div>Issued By</div>
             <div class="text-xs text-gray-500">
                 {{ invoice.issuer?.name ?? '-' }}
@@ -247,7 +255,7 @@ function formatCurrency(value) {
         </div>
 
         <div>
-            <div class="mb-8 border-b"></div>
+            <div class="mb-8 border-b-2 border-gray-300"></div>
             <div>Approved By</div>
             <div class="text-xs text-gray-500">
                 {{ invoice.approver?.name ?? '-' }}
@@ -258,7 +266,7 @@ function formatCurrency(value) {
         </div>
 
         <div>
-            <div class="mb-8 border-b"></div>
+            <div class="mb-8 border-b-2 border-gray-300"></div>
             <div>Received By</div>
             <div class="text-xs text-gray-500">
                 {{ invoice.receiver?.name ?? '-' }}

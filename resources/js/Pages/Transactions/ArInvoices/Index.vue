@@ -19,7 +19,8 @@ const counts   = computed(() => page.props.counts)
 const filters  = page.props.filters
 const donut    = page.props.donut ?? {}
 
-const showCreate = ref(false)
+const prefill = computed(() => page.props.prefill ?? {})
+const showCreate = ref(prefill.value.open_create ?? false)
 
 /* ========================
    Filter state
@@ -27,6 +28,7 @@ const showCreate = ref(false)
 const search   = ref(filters.search ?? '')
 const dateFrom = ref(filters.from ?? null)
 const dateTo   = ref(filters.to ?? null)
+const customerId = ref(filters.customer_id ?? null)
 const approvedTotals = computed(() => page.props.approvedTotals ?? null)
 
 /* ========================
@@ -85,6 +87,7 @@ function applyFilters() {
             from: dateFrom.value,
             to: dateTo.value,
             tab: activeTab.value,
+            customer_id: customerId.value ?? null,
         },
         {
             preserveScroll: true,
@@ -324,6 +327,21 @@ function switchTab(tab) {
 
 
             <!-- TABLE -->
+            <div class="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                <span class="inline-flex items-center gap-2">
+                    <span class="inline-block h-2.5 w-2.5 rounded-full bg-red-400"></span>
+                    Overdue
+                </span>
+                <span class="inline-flex items-center gap-2">
+                    <span class="inline-block h-2.5 w-2.5 rounded-full bg-amber-400"></span>
+                    Due soon (5 days)
+                </span>
+                <span class="inline-flex items-center gap-2">
+                    <span class="inline-block h-2.5 w-2.5 rounded-full bg-gray-300"></span>
+                    On track
+                </span>
+            </div>
+
             <ArInvoicesTable
                 :invoices="currentInvoices"
                 :status="activeTab"
@@ -350,6 +368,7 @@ function switchTab(tab) {
         :show="showCreate"
         :projects="page.props.projects"
         :customers="page.props.customers"
+        :default-customer-id="prefill.customer_id"
         @close="showCreate = false"
     />
 </template>

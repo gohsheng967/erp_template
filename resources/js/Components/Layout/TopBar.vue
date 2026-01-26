@@ -20,6 +20,8 @@ const loading = ref(false)
 const showPopup = ref(false)
 const activePriority = ref(null)
 const taskList = ref([])
+const showUserMenu = ref(false)
+const userMenuRef = ref(null)
 
 let pollTimer = null
 
@@ -81,6 +83,21 @@ function closePopup() {
     taskList.value = []
 }
 
+function toggleUserMenu() {
+    showUserMenu.value = !showUserMenu.value
+}
+
+function closeUserMenu() {
+    showUserMenu.value = false
+}
+
+function handleDocumentClick(event) {
+    if (!userMenuRef.value) return
+    if (!userMenuRef.value.contains(event.target)) {
+        closeUserMenu()
+    }
+}
+
 function goToTask(task) {
     closePopup()
 
@@ -106,6 +123,7 @@ onMounted(() => {
         'action-task-updated',
         loadPrioritySummary
     )
+    document.addEventListener('click', handleDocumentClick)
 })
 
 onBeforeUnmount(() => {
@@ -114,6 +132,7 @@ onBeforeUnmount(() => {
         'action-task-updated',
         loadPrioritySummary
     )
+    document.removeEventListener('click', handleDocumentClick)
 })
 </script>
 
@@ -123,7 +142,7 @@ onBeforeUnmount(() => {
         h-14 backdrop-blur-xl bg-white/70
         border-b border-white/40
         px-4 flex items-center justify-between
-        sticky top-0 z-30 shadow-sm
+        sticky top-0 z-50 shadow-sm
     "
     style="
         background: linear-gradient(
@@ -211,14 +230,18 @@ onBeforeUnmount(() => {
         </button>
 
         <!-- Avatar -->
-        <Link :href="route('profile.edit')">
-            <div
+        <div ref="userMenuRef" class="relative">
+            <button
+                type="button"
                 class="
                     w-9 h-9 rounded-full
                     bg-indigo-100
                     flex items-center justify-center
                     shadow cursor-pointer
                 "
+                @click="toggleUserMenu"
+                aria-haspopup="menu"
+                :aria-expanded="showUserMenu"
             >
                 <img
                     v-if="user.profile_photo_url"
@@ -231,8 +254,38 @@ onBeforeUnmount(() => {
                 >
                     {{ initials(user.name) }}
                 </span>
+            </button>
+
+            <div
+                v-if="showUserMenu"
+                class="
+                    absolute right-0 mt-2 w-40
+                    bg-white border border-gray-200
+                    rounded-lg shadow-lg
+                    py-1 z-[60]
+                "
+                role="menu"
+            >
+                <Link
+                    :href="route('profile.edit')"
+                    class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    role="menuitem"
+                    @click="closeUserMenu"
+                >
+                    Profile
+                </Link>
+                <Link
+                    :href="route('logout')"
+                    method="post"
+                    as="button"
+                    class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    role="menuitem"
+                    @click="closeUserMenu"
+                >
+                    Logout
+                </Link>
             </div>
-        </Link>
+        </div>
     </div>
 </header>
 

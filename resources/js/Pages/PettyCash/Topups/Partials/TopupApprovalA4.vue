@@ -40,7 +40,8 @@ const walletLabel = computed(() => {
     <div
         class="claim-print relative bg-white text-gray-800 mx-auto
                w-[210mm] min-h-[297mm]
-               p-[12mm] text-[13px] leading-relaxed"
+               p-[12mm] text-[13px] leading-relaxed
+               border border-gray-300"
     >
         <div
             v-if="watermark"
@@ -56,7 +57,7 @@ const walletLabel = computed(() => {
             </div>
         </div>
 
-        <div class="flex justify-between items-start border-b pb-4 mb-6 relative z-10">
+        <div class="flex justify-between items-start border-b-2 border-gray-300 pb-4 mb-6 relative z-10">
             <div class="flex gap-3 max-w-[65%]">
                 <div>
                     <div class="font-semibold text-base">
@@ -90,7 +91,7 @@ const walletLabel = computed(() => {
             </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-x-40 gap-y-2 mb-6 relative z-10">
+        <div class="grid grid-cols-2 gap-x-40 gap-y-2 mb-6 relative z-10 border border-gray-300 rounded px-4 py-3">
             <div>
                 <span class="font-medium">Requested By</span>:
                 {{ topup.requester?.name ?? '-' }}
@@ -123,7 +124,7 @@ const walletLabel = computed(() => {
 
         <div class="mb-4 relative z-10">
             <div class="font-medium text-xs mb-1">Reason</div>
-            <div class="border px-2 py-1 min-h-[40px] text-xs whitespace-pre-wrap">
+            <div class="border border-gray-300 px-2 py-1 min-h-[40px] text-xs whitespace-pre-wrap">
                 {{ topup.reason ?? '-' }}
             </div>
         </div>
@@ -133,14 +134,14 @@ const walletLabel = computed(() => {
             class="mb-4 relative z-10"
         >
             <div class="font-medium text-xs mb-1">Rejection Reason</div>
-            <div class="border px-2 py-1 min-h-[40px] text-xs whitespace-pre-wrap">
+            <div class="border border-gray-300 px-2 py-1 min-h-[40px] text-xs whitespace-pre-wrap">
                 {{ topup.rejected_reason ?? '-' }}
             </div>
         </div>
 
         <div class="grid grid-cols-2 gap-x-12 gap-y-2 mb-6 relative z-10">
             <div>
-                <div class="mb-8 border-b"></div>
+                <div class="mb-8 border-b-2 border-gray-300"></div>
                 <div>Requested By</div>
                 <div class="text-xs text-gray-500">
                     {{ topup.requester?.name ?? '-' }}
@@ -151,7 +152,7 @@ const walletLabel = computed(() => {
             </div>
 
             <div>
-                <div class="mb-8 border-b"></div>
+                <div class="mb-8 border-b-2 border-gray-300"></div>
                 <div>Approved By</div>
                 <div class="text-xs text-gray-500">
                     {{ topup.approver?.name ?? '-' }}

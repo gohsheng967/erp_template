@@ -2,11 +2,13 @@
 import { ref, watch, computed, nextTick, inject } from 'vue'
 import axios from 'axios'
 import ArInvoiceShowA4 from './ArInvoiceShowA4.vue'
+import { useFormat } from '@/Composables/useFormat'
 
 /* =========================
    TOAST
 ========================= */
 const toast = inject('toast', null)
+const { formatCurrency, formatDate } = useFormat()
 
 /* =========================
    PROPS / EMITS
@@ -68,6 +70,19 @@ const outstanding = computed(() =>
     0
   )
 )
+
+const dueStatus = computed(() => {
+  if (!fullInvoice.value?.due_date) return 'none'
+  const dueDate = new Date(fullInvoice.value.due_date)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const inFiveDays = new Date(today)
+  inFiveDays.setDate(today.getDate() + 5)
+
+  if (dueDate < today) return 'overdue'
+  if (dueDate <= inFiveDays) return 'due_soon'
+  return 'on_track'
+})
 
 
 /* =========================
@@ -268,8 +283,80 @@ function printPage() {
 <!-- STATUS -->
 <div>
   <div class="text-xs text-gray-500">Status</div>
-  <div class="font-semibold uppercase">
+  <div class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold uppercase"
+       :class="{
+         'bg-gray-100 text-gray-600': fullInvoice.status === 'draft',
+         'bg-blue-100 text-blue-700': fullInvoice.status === 'issued',
+         'bg-amber-100 text-amber-700': fullInvoice.status === 'approved',
+         'bg-emerald-100 text-emerald-700': fullInvoice.status === 'received',
+         'bg-red-100 text-red-700': fullInvoice.status === 'rejected',
+         'bg-slate-100 text-slate-700': fullInvoice.status === 'cancelled'
+       }"
+  >
     {{ fullInvoice.status }}
+  </div>
+</div>
+
+<!-- SUMMARY -->
+<div class="rounded-lg border bg-gray-50 p-3 space-y-2">
+  <div class="flex items-center justify-between text-xs text-gray-500">
+    <span>Invoice Summary</span>
+    <span
+      v-if="fullInvoice.due_date"
+      class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+      :class="{
+        'bg-red-100 text-red-700': dueStatus === 'overdue',
+        'bg-amber-100 text-amber-700': dueStatus === 'due_soon',
+        'bg-emerald-100 text-emerald-700': dueStatus === 'on_track',
+        'bg-gray-100 text-gray-600': dueStatus === 'none'
+      }"
+    >
+      {{
+        dueStatus === 'overdue'
+          ? 'Overdue'
+          : dueStatus === 'due_soon'
+            ? 'Due Soon'
+            : dueStatus === 'on_track'
+              ? 'On Track'
+              : 'No Due Date'
+      }}
+    </span>
+  </div>
+
+  <div class="grid grid-cols-2 gap-2 text-sm">
+    <div class="rounded bg-white p-2 border">
+      <div class="text-xs text-gray-500">Total</div>
+      <div class="font-semibold text-gray-800">
+        {{ formatCurrency(fullInvoice.total_amount) }}
+      </div>
+    </div>
+    <div class="rounded bg-white p-2 border">
+      <div class="text-xs text-gray-500">Received</div>
+      <div class="font-semibold text-emerald-700">
+        {{ formatCurrency(historyReceived) }}
+      </div>
+    </div>
+    <div class="rounded bg-white p-2 border col-span-2">
+      <div class="text-xs text-gray-500">Outstanding</div>
+      <div class="font-semibold text-red-700">
+        {{ formatCurrency(outstanding) }}
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 gap-2 text-xs text-gray-600">
+    <div class="rounded bg-white p-2 border">
+      <div class="text-gray-500">Payment Term</div>
+      <div class="font-medium text-gray-800">
+        {{ fullInvoice.payment_term_days ?? '-' }}<span v-if="fullInvoice.payment_term_days !== null && fullInvoice.payment_term_days !== undefined"> days</span>
+      </div>
+    </div>
+    <div class="rounded bg-white p-2 border">
+      <div class="text-gray-500">Due Date</div>
+      <div class="font-medium text-gray-800">
+        {{ formatDate(fullInvoice.due_date) ?? '-' }}
+      </div>
+    </div>
   </div>
 </div>
 

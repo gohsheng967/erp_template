@@ -60,9 +60,12 @@ class MFASetupController extends Controller
 
         $user = $request->user();
         $google2fa = new Google2FA();
+        $rawCode = trim($request->code);
+        $totpCode = preg_replace('/\D/', '', $rawCode);
+        $backupCode = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $rawCode));
 
         // 1. Google Authenticator TOTP
-        if ($google2fa->verifyKey($user->google2fa_secret, $request->code)) {
+        if ($totpCode !== '' && $google2fa->verifyKey($user->google2fa_secret, $totpCode)) {
 
             $user->mfa_enabled = true;
             $user->save();
@@ -74,7 +77,7 @@ class MFASetupController extends Controller
 
 
         // 2. Backup Code
-        if ($user->mfa_backup_code && Hash::check($request->code, $user->mfa_backup_code)) {
+        if ($backupCode !== '' && $user->mfa_backup_code && Hash::check($backupCode, $user->mfa_backup_code)) {
 
             // one time
             $user->mfa_backup_code = null;

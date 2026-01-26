@@ -356,7 +356,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     // ------------------------------
     // STAKEHOLDERS
     // ------------------------------
-    Route::prefix('clients')->resource('clients', ClientController::class)->except(['create', 'edit']);
+    Route::resource('clients', ClientController::class)->except(['create', 'edit']);
 
     Route::prefix('suppliers')->name('suppliers.')->group(function () {
 

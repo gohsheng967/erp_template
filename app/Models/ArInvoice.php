@@ -21,6 +21,8 @@ class ArInvoice extends Model
         'customer_id',
 
         'total_amount',
+        'payment_term_days',
+        'due_date',
         'status',
 
         'issued_by',
@@ -41,6 +43,8 @@ class ArInvoice extends Model
         'approved_at' => 'datetime',
         'received_at' => 'datetime',
         'total_amount'=> 'decimal:2',
+        'payment_term_days' => 'integer',
+        'due_date'   => 'date',
     ];
 
     /* ============================================================

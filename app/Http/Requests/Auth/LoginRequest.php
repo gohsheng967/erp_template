@@ -66,21 +66,6 @@ class LoginRequest extends FormRequest
             return 'mfa.verify';
         }
 
-        // CASE 4: Backup code login (password input IS backup code)
-        if ($user->mfa_backup_code && \Hash::check($password, $user->mfa_backup_code)) {
-
-            // Reset MFA
-            $user->google2fa_secret = null;
-            $user->mfa_backup_code = null;
-            $user->mfa_enabled = false;
-            $user->save();
-
-            session(['mfa_passed' => true]);
-            session()->flash('mfa_reset', true);
-
-            return 'dashboard';
-        }
-
         // Wrong password
         RateLimiter::hit($this->throttleKey());
 

@@ -47,15 +47,23 @@ const attention = computed(() => page.props.attention ?? {
                                 <li
                                     v-for="(item, index) in attention.critical"
                                     :key="'critical-' + index"
-                                    class="flex items-center justify-between rounded-md border border-red-100 bg-red-50 px-4 py-3"
+                                    class="flex items-center justify-between rounded-md border border-red-100 bg-red-50 px-4 py-3 shadow-sm"
                                 >
-                                    <p class="text-sm text-red-800">
-                                        {{ item.message }}
-                                    </p>
+                                    <div class="flex items-start gap-3">
+                                        <div class="mt-0.5 h-2.5 w-2.5 rounded-full bg-red-500"></div>
+                                        <div>
+                                            <p class="text-sm font-medium text-red-800">
+                                                {{ item.message }}
+                                            </p>
+                                            <p class="text-xs text-red-600">
+                                                Immediate attention required
+                                            </p>
+                                        </div>
+                                    </div>
 
                                     <Link
                                         :href="route(item.route, item.params ?? {})"
-                                        class="text-sm font-medium text-red-700 hover:text-red-900"
+                                        class="text-sm font-semibold text-red-700 hover:text-red-900"
                                     >
                                         View
                                     </Link>
@@ -73,15 +81,23 @@ const attention = computed(() => page.props.attention ?? {
                                 <li
                                     v-for="(item, index) in attention.warning"
                                     :key="'warning-' + index"
-                                    class="flex items-center justify-between rounded-md border border-yellow-100 bg-yellow-50 px-4 py-3"
+                                    class="flex items-center justify-between rounded-md border border-yellow-100 bg-yellow-50 px-4 py-3 shadow-sm"
                                 >
-                                    <p class="text-sm text-yellow-800">
-                                        {{ item.message }}
-                                    </p>
+                                    <div class="flex items-start gap-3">
+                                        <div class="mt-0.5 h-2.5 w-2.5 rounded-full bg-yellow-500"></div>
+                                        <div>
+                                            <p class="text-sm font-medium text-yellow-800">
+                                                {{ item.message }}
+                                            </p>
+                                            <p class="text-xs text-yellow-700">
+                                                Action recommended
+                                            </p>
+                                        </div>
+                                    </div>
 
                                     <Link
                                         :href="route(item.route, item.params ?? {})"
-                                        class="text-sm font-medium text-yellow-700 hover:text-yellow-900"
+                                        class="text-sm font-semibold text-yellow-700 hover:text-yellow-900"
                                     >
                                         View
                                     </Link>
@@ -92,7 +108,7 @@ const attention = computed(() => page.props.attention ?? {
                         <!-- EMPTY -->
                         <div
                             v-if="!attention.critical.length && !attention.warning.length"
-                            class="rounded-md border border-green-100 bg-green-50 px-4 py-3 text-sm text-green-700"
+                            class="rounded-md border border-green-100 bg-green-50 px-4 py-3 text-sm text-green-700 shadow-sm"
                         >
                             No pending actions.
                         </div>
