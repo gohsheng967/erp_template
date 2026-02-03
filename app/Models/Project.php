@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Str;
 
 class Project extends Model
 {
@@ -13,6 +14,15 @@ class Project extends Model
         'code', 'name', 'client_id', 'start_date', 'end_date',
         'budget', 'department_id', 'manager_id', 'status', 'description'
     ];
+
+    protected static function booted()
+    {
+        static::creating(function ($model) {
+            if (!$model->uuid) {
+                $model->uuid = (string) Str::uuid();
+            }
+        });
+    }
 
     // Documents
     public function documents()
