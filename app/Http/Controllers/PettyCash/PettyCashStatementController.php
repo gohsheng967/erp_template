@@ -9,6 +9,7 @@ use App\Models\PettyCashWallet;
 use App\Models\PettyCashTransaction;
 use App\Models\PettyCashStatement;
 use App\Models\Claim;
+use App\Models\ClaimType;
 use Inertia\Inertia;
 use App\Services\RunningNumberService;
 
@@ -18,6 +19,7 @@ use App\Services\PettyCashTransactionService;
 use App\Services\AttachmentService;
 
 use Carbon\Carbon;
+use Illuminate\Validation\Rule;
 
 class PettyCashStatementController extends Controller
 {
@@ -91,7 +93,10 @@ class PettyCashStatementController extends Controller
             ? (float) $statement->closing_balance
             : ($openingBalance + $totalIn - $totalOut);
 
-        $claimTypes = config('claim.types', []);
+        $claimTypes = ClaimType::query()
+            ->orderBy('name')
+            ->pluck('name', 'code')
+            ->toArray();
 
         $currentMonth = now()->format('Y-m');
         $isCurrentMonth = $monthString === $currentMonth;
@@ -129,7 +134,10 @@ class PettyCashStatementController extends Controller
     {
         $data = $request->validate([
             'wallet_uuid' => 'required|exists:petty_cash_wallets,uuid',
-            'claim_type'  => 'required|string|max:50',
+            'claim_type'  => [
+                'required',
+                Rule::exists('claim_types', 'code')->whereNull('deleted_at'),
+            ],
             'title'       => 'required|string|max:255',
             'description' => 'nullable|string',
             'receipt_no'  => 'required|string|max:100',
@@ -147,7 +155,10 @@ class PettyCashStatementController extends Controller
             $request,
             $pettyCashTransactionService
         ) {
-            $claimTypes = config('claim.types', []);
+            $claimTypes = ClaimType::query()
+                ->orderBy('name')
+                ->pluck('name', 'code')
+                ->toArray();
 
             $projectId = $wallet->context_type === 'project'
                 ? $wallet->context_id
@@ -187,7 +198,7 @@ class PettyCashStatementController extends Controller
                 }
             }
 
-            $display_type  = $claimTypes[$data['claim_type']];
+            $display_type  = $claimTypes[$data['claim_type']] ?? $data['claim_type'];
             
             $transaction = $pettyCashTransactionService->debitFromClaim(
                 wallet: $wallet,

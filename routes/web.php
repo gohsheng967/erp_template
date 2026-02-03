@@ -15,6 +15,7 @@ use App\Http\Controllers\WidgetController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ClaimTypeController;
 
 use App\Http\Controllers\Project\ProjectController;
 use App\Http\Controllers\Project\ProjectDocumentController;
@@ -141,6 +142,11 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     Route::post('/file-categories', [FileCategoryController::class, 'store'])->name('file-categories.store');
     Route::patch('/file-categories/{fileCategory}', [FileCategoryController::class, 'update'])->name('file-categories.update');
     Route::delete('/file-categories/{fileCategory}', [FileCategoryController::class, 'destroy'])->name('file-categories.destroy');
+
+    Route::get('/claim-types', [ClaimTypeController::class, 'index'])->name('claim-types.index');
+    Route::post('/claim-types', [ClaimTypeController::class, 'store'])->name('claim-types.store');
+    Route::patch('/claim-types/{claimType}', [ClaimTypeController::class, 'update'])->name('claim-types.update');
+    Route::delete('/claim-types/{claimType}', [ClaimTypeController::class, 'destroy'])->name('claim-types.destroy');
 
 
     Route::get('/projects', [ProjectController::class, 'index'])

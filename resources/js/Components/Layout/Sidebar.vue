@@ -53,6 +53,7 @@ const settingsMenu = [
     { name: "Company Profile", route: "company.profile", active: () => route().current("company.profile") },
     { name: "Warehouse", route: "warehouses.index", active: () => route().current("warehouses.index") },
     { name: "File Categories", route: "file-categories.index", active: () => route().current("file-categories.index") },
+    { name: "Claim Types", route: "claim-types.index", active: () => route().current("claim-types.*") },
     // { name: "Department", route: 'departments.index', active: () => route().current("departments.index") },
     // { name: "Permission", route:  'permissions.index', active: () => route().current("permissions.index") },
 ]

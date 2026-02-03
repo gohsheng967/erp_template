@@ -15,6 +15,7 @@ use App\Models\Claim;
 use App\Models\Project;
 use App\Models\Attachment;
 use App\Models\ClaimItem;
+use App\Models\ClaimType;
 use App\Models\CompanyProfile;
 use App\Models\PaymentSlip;
 
@@ -134,6 +135,7 @@ class ClaimsController extends Controller
         */
         $donutByCategory = DB::table('claim_items')
             ->join('claims', 'claims.id', '=', 'claim_items.claim_id')
+            ->leftJoin('claim_types', 'claim_types.code', '=', 'claim_items.claim_type')
             ->when($from, fn ($q) =>
                 $q->whereDate('claims.created_at', '>=', $from)
             )
@@ -142,14 +144,14 @@ class ClaimsController extends Controller
             )
             ->where('claims.status', $tab)
             ->select(
-                'claim_items.claim_type as label',
+                DB::raw('COALESCE(claim_types.name, claim_items.claim_type) as label'),
                 DB::raw('SUM(claim_items.amount) as amount')
             )
-            ->groupBy('claim_items.claim_type')
+            ->groupBy(DB::raw('COALESCE(claim_types.name, claim_items.claim_type)'))
             ->orderByDesc('amount')
             ->get()
             ->map(fn ($row) => [
-                'label'  => ucfirst(str_replace('_', ' ', $row->label)),
+                'label'  => $row->label,
                 'amount' => (float) $row->amount,
             ]);
 
@@ -233,9 +235,36 @@ class ClaimsController extends Controller
             abort(403, 'Claim is no longer editable');
         }
 
+        $claimTypes = ClaimType::query()
+            ->orderBy('name')
+            ->pluck('name', 'code')
+            ->toArray();
+
+        $existingCodes = $claim->items
+            ->pluck('claim_type')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($existingCodes->isNotEmpty()) {
+            $existingTypes = ClaimType::withTrashed()
+                ->whereIn('code', $existingCodes)
+                ->get(['code', 'name', 'deleted_at']);
+
+            foreach ($existingTypes as $type) {
+                if (!isset($claimTypes[$type->code])) {
+                    $label = $type->name;
+                    if ($type->deleted_at) {
+                        $label .= ' (Deleted)';
+                    }
+                    $claimTypes[$type->code] = $label;
+                }
+            }
+        }
+
         return inertia('Transactions/Claims/Edit', [
             'claim' => $claim,
-            'claimTypes' => config('claim.types'),
+            'claimTypes' => $claimTypes,
         ]);
     }
 
@@ -275,7 +304,7 @@ class ClaimsController extends Controller
             'items.*.receipt_date' => ['required', 'date', 'before_or_equal:today'],
             'items.*.claim_type' => [
                 'required',
-                Rule::in(array_keys(config('claim.types', []))),
+                Rule::exists('claim_types', 'code')->whereNull('deleted_at'),
             ],
             'items.*.amount' => ['required', 'numeric', 'min:0.01'],
 
