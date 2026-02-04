@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, inject, computed } from 'vue'
 import { router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import { useFormat } from '@/Composables/useFormat'
@@ -12,6 +12,12 @@ const props = defineProps({
 
 const { capitalize, formatDate } = useFormat()
 const tab = ref('details')
+const toast = inject('toast', null)
+
+const lastServiceDate = computed(() => {
+    const svc = props.vehicle?.services?.[0]
+    return svc?.service_date ? formatDate(svc.service_date) : '-'
+})
 
 /* =========================
    ALLOCATE MODAL
@@ -36,6 +42,112 @@ function isExpiring(date) {
     const threshold = new Date()
     threshold.setDate(threshold.getDate() + 30)
     return expiry <= threshold
+}
+
+const showServiceModal = ref(false)
+const showEditServiceModal = ref(false)
+const selectedService = ref(null)
+
+const serviceForm = ref({
+    service_date: '',
+    item_parts: '',
+    cost: '',
+    vendor: '',
+    notes: '',
+})
+
+const editServiceForm = ref({
+    service_date: '',
+    item_parts: '',
+    cost: '',
+    vendor: '',
+    notes: '',
+})
+
+function openAddService() {
+    serviceForm.value = {
+        service_date: '',
+        item_parts: '',
+        cost: '',
+        vendor: '',
+        notes: '',
+    }
+    showServiceModal.value = true
+}
+
+function submitService() {
+    router.post(
+        route('inventory.vehicles.services.store', props.vehicle.uuid),
+        serviceForm.value,
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                toast?.value?.show('Service record added.', 'success')
+                showServiceModal.value = false
+                router.reload({ preserveScroll: true })
+            },
+            onError: (errors) => {
+                const msg = Object.values(errors)[0] ?? 'Failed to add service record.'
+                toast?.value?.show(msg, 'error')
+            },
+        }
+    )
+}
+
+function openEditService(service) {
+    selectedService.value = service
+    editServiceForm.value = {
+        service_date: service.service_date ?? '',
+        item_parts: service.item_parts ?? '',
+        cost: service.cost ?? '',
+        vendor: service.vendor ?? '',
+        notes: service.notes ?? '',
+    }
+    showEditServiceModal.value = true
+}
+
+function submitEditService() {
+    router.patch(
+        route('inventory.vehicles.services.update', {
+            uuid: props.vehicle.uuid,
+            service: selectedService.value.id,
+        }),
+        editServiceForm.value,
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                toast?.value?.show('Service record updated.', 'success')
+                showEditServiceModal.value = false
+                selectedService.value = null
+                router.reload({ preserveScroll: true })
+            },
+            onError: (errors) => {
+                const msg = Object.values(errors)[0] ?? 'Failed to update service record.'
+                toast?.value?.show(msg, 'error')
+            },
+        }
+    )
+}
+
+function deleteService(service) {
+    if (!confirm('Delete this service record?')) return
+    router.delete(
+        route('inventory.vehicles.services.destroy', {
+            uuid: props.vehicle.uuid,
+            service: service.id,
+        }),
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                toast?.value?.show('Service record deleted.', 'success')
+                router.reload({ preserveScroll: true })
+            },
+            onError: (errors) => {
+                const msg = Object.values(errors)[0] ?? 'Failed to delete service record.'
+                toast?.value?.show(msg, 'error')
+            },
+        }
+    )
 }
 </script>
 
@@ -276,7 +388,7 @@ function isExpiring(date) {
                         />
                     </div>
 
-                    <div class="bg-white rounded-lg p-4 border space-y-3 text-sm">
+                <div class="bg-white rounded-lg p-4 border space-y-3 text-sm">
                         <div>
                             <div class="text-xs text-gray-500">Insurance</div>
                             <div v-if="vehicle.insurances?.length">
@@ -321,6 +433,13 @@ function isExpiring(date) {
                             </span>
                             <span v-else class="text-green-700">None</span>
                         </div>
+
+                        <div>
+                            <div class="text-xs text-gray-500">Last Service</div>
+                            <span class="font-medium text-gray-700">
+                                {{ lastServiceDate }}
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -330,7 +449,7 @@ function isExpiring(date) {
         <div class="bg-white rounded-xl border">
             <div class="flex gap-6 px-6 border-b">
                 <button
-                    v-for="t in ['details', 'compliance', 'saman']"
+                    v-for="t in ['details', 'service', 'compliance', 'saman']"
                     :key="t"
                     class="py-4 text-sm font-medium capitalize"
                     :class="tab === t
@@ -379,19 +498,163 @@ function isExpiring(date) {
                         :vehicle-uuid="vehicle.uuid"
                     />
                 </div>
-                <div v-else class="text-gray-400 text-sm">
-                    This section will be implemented next.
+                <div v-else-if="tab === 'service'">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">Service History</h3>
+                        <button
+                            class="px-3 py-2 bg-indigo-600 text-white rounded text-sm"
+                            @click="openAddService"
+                        >
+                            + Add Service
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm border">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="border px-3 py-2 text-left">Date</th>
+                                    <th class="border px-3 py-2 text-left">Item / Parts</th>
+                                    <th class="border px-3 py-2 text-right">Cost</th>
+                                    <th class="border px-3 py-2 text-left">Vendor</th>
+                                    <th class="border px-3 py-2 text-left">Notes</th>
+                                    <th class="border px-3 py-2 text-center w-24">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="svc in vehicle.services" :key="svc.id">
+                                    <td class="border px-3 py-2">
+                                        {{ formatDate(svc.service_date) }}
+                                    </td>
+                                    <td class="border px-3 py-2">
+                                        {{ svc.item_parts }}
+                                    </td>
+                                    <td class="border px-3 py-2 text-right">
+                                        {{ Number(svc.cost ?? 0).toFixed(2) }}
+                                    </td>
+                                    <td class="border px-3 py-2">
+                                        {{ svc.vendor ?? '-' }}
+                                    </td>
+                                    <td class="border px-3 py-2">
+                                        {{ svc.notes ?? '-' }}
+                                    </td>
+                                    <td class="border px-3 py-2 text-center">
+                                        <button
+                                            class="text-blue-600 hover:text-blue-800 mr-2"
+                                            @click="openEditService(svc)"
+                                        >
+                                            <i class="mdi mdi-pencil-outline"></i>
+                                        </button>
+                                        <button
+                                            class="text-red-600 hover:text-red-800"
+                                            @click="deleteService(svc)"
+                                        >
+                                            <i class="mdi mdi-delete-outline"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr v-if="!vehicle.services?.length">
+                                    <td colspan="6" class="border px-3 py-6 text-center text-gray-400">
+                                        No service records.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
+                <div v-else class="text-gray-400 text-sm">This section will be implemented next.</div>
             </div>
         </div>
 
         <!-- ================= ALLOCATE MODAL ================= -->
-        <AllocateForm
-            v-if="showAllocate"
-            :vehicle="vehicle"
-            @close="showAllocate = false"
-            @allocated="onAllocated"
-        />
+    <AllocateForm
+        v-if="showAllocate"
+        :vehicle="vehicle"
+        @close="showAllocate = false"
+        @allocated="onAllocated"
+    />
+
+    <!-- Add Service Modal -->
+    <div v-if="showServiceModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg">
+            <div class="flex justify-between items-center px-6 py-4 border-b">
+                <h3 class="text-lg font-semibold text-gray-800">Add Service Record</h3>
+                <button
+                    class="text-gray-400 hover:text-gray-600"
+                    @click="showServiceModal = false"
+                >
+                    <i class="mdi mdi-close text-xl"></i>
+                </button>
+            </div>
+            <div class="px-6 py-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-600">Service Date</label>
+                    <input v-model="serviceForm.service_date" type="date" class="mt-1 w-full border rounded-md px-3 py-2" />
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Item / Parts</label>
+                    <textarea v-model="serviceForm.item_parts" rows="3" class="mt-1 w-full border rounded-md px-3 py-2"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Cost</label>
+                    <input v-model="serviceForm.cost" type="number" min="0" step="0.01" class="mt-1 w-full border rounded-md px-3 py-2" />
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Vendor</label>
+                    <input v-model="serviceForm.vendor" type="text" class="mt-1 w-full border rounded-md px-3 py-2" />
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Notes</label>
+                    <textarea v-model="serviceForm.notes" rows="2" class="mt-1 w-full border rounded-md px-3 py-2"></textarea>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
+                <button class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300" @click="showServiceModal = false">Cancel</button>
+                <button class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700" @click="submitService">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Service Modal -->
+    <div v-if="showEditServiceModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg">
+            <div class="flex justify-between items-center px-6 py-4 border-b">
+                <h3 class="text-lg font-semibold text-gray-800">Edit Service Record</h3>
+                <button
+                    class="text-gray-400 hover:text-gray-600"
+                    @click="showEditServiceModal = false"
+                >
+                    <i class="mdi mdi-close text-xl"></i>
+                </button>
+            </div>
+            <div class="px-6 py-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-600">Service Date</label>
+                    <input v-model="editServiceForm.service_date" type="date" class="mt-1 w-full border rounded-md px-3 py-2" />
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Item / Parts</label>
+                    <textarea v-model="editServiceForm.item_parts" rows="3" class="mt-1 w-full border rounded-md px-3 py-2"></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Cost</label>
+                    <input v-model="editServiceForm.cost" type="number" min="0" step="0.01" class="mt-1 w-full border rounded-md px-3 py-2" />
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Vendor</label>
+                    <input v-model="editServiceForm.vendor" type="text" class="mt-1 w-full border rounded-md px-3 py-2" />
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600">Notes</label>
+                    <textarea v-model="editServiceForm.notes" rows="2" class="mt-1 w-full border rounded-md px-3 py-2"></textarea>
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
+                <button class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300" @click="showEditServiceModal = false">Cancel</button>
+                <button class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700" @click="submitEditService">Update</button>
+            </div>
+        </div>
+    </div>
 
     </AuthenticatedLayout>
 </template>

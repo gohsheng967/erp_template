@@ -7,6 +7,7 @@ use App\Models\InventoryItem;
 use App\Models\InventoryVehicle;
 use App\Models\InventoryAllocation;
 use App\Models\InventoryInsurance;
+use App\Models\InventoryService;
 use App\Models\User;
 use App\Models\Project;
 use Illuminate\Support\Facades\Storage;
@@ -285,6 +286,9 @@ class VehicleController extends Controller
 
                 // ✅ SINGLE image attachment
                 'attachment',
+
+                // services
+                'services' => fn ($q) => $q->latest('service_date'),
             ])
 
             ->withSum([
@@ -297,6 +301,58 @@ class VehicleController extends Controller
         return Inertia::render('Inventory/Vehicles/Show', [
             'vehicle' => $vehicle,
         ]);
+    }
+
+    public function storeService(Request $request, string $uuid)
+    {
+        $item = InventoryItem::where('uuid', $uuid)
+            ->where('type', 'vehicle')
+            ->firstOrFail();
+
+        $data = $request->validate([
+            'service_date' => ['required', 'date'],
+            'item_parts' => ['required', 'string'],
+            'cost' => ['nullable', 'numeric', 'min:0'],
+            'vendor' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string'],
+        ]);
+
+        $item->services()->create($data);
+
+        return back()->with('success', 'Service record added.');
+    }
+
+    public function updateService(Request $request, string $uuid, int $serviceId)
+    {
+        $item = InventoryItem::where('uuid', $uuid)
+            ->where('type', 'vehicle')
+            ->firstOrFail();
+
+        $service = $item->services()->where('id', $serviceId)->firstOrFail();
+
+        $data = $request->validate([
+            'service_date' => ['required', 'date'],
+            'item_parts' => ['required', 'string'],
+            'cost' => ['nullable', 'numeric', 'min:0'],
+            'vendor' => ['nullable', 'string', 'max:255'],
+            'notes' => ['nullable', 'string'],
+        ]);
+
+        $service->update($data);
+
+        return back()->with('success', 'Service record updated.');
+    }
+
+    public function destroyService(string $uuid, int $serviceId)
+    {
+        $item = InventoryItem::where('uuid', $uuid)
+            ->where('type', 'vehicle')
+            ->firstOrFail();
+
+        $service = $item->services()->where('id', $serviceId)->firstOrFail();
+        $service->delete();
+
+        return back()->with('success', 'Service record deleted.');
     }
 
     public function qrCode(string $uuid, QrCodeService $qr)

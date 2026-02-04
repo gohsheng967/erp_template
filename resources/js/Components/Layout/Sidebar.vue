@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, watch, reactive } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
 
@@ -45,6 +45,7 @@ const menuTransactions = [
 const menuStakeholders = [
     { name: "Clients", route: "clients.index", active: () => route().current("clients.*") },
     { name: "Suppliers", route: "suppliers.index", active: () => route().current("suppliers.*") },
+    { name: "Sub Con", route: "sub-cons.index", active: () => route().current("sub-cons.*") },
     { name: "Staff", route: "users.index", active: () => route().current("users.index") },
 ]
 
@@ -275,3 +276,4 @@ const menu = reactive([
     opacity: 0;
 }
 </style>
+

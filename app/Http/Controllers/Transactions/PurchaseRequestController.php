@@ -521,11 +521,11 @@ class PurchaseRequestController extends Controller
             'required_date' => 'required|date',
         ]);
 
-        $purchaseRequest->update($header);
-
         $validated = $request->validate([
             'items' => 'required|array|min:1',
+            'items.*.id' => 'nullable|exists:purchase_request_items,id',
             'items.*.title' => 'required|string|max:255',
+            'items.*.description' => 'nullable|string',
             'items.*.quantity' => 'required|numeric|min:0.01',
             'items.*.unit_price' => 'required|numeric|min:0',
         ]);
@@ -545,12 +545,44 @@ class PurchaseRequestController extends Controller
             }
         }
 
-        $purchaseRequest->update([
-            'code'   => RunningNumberService::next(documentType: 'purchase_request'),
-            'status' => 'submitted',
-            'submitted_at' => now(),
-            'requested_by' => auth()->id(),
-        ]);
+        DB::transaction(function () use ($purchaseRequest, $header, $validated) {
+            $purchaseRequest->update($header);
+
+            $submittedIds = collect($validated['items'])
+                ->pluck('id')
+                ->filter()
+                ->values()
+                ->all();
+
+            $existingIds = $purchaseRequest->items()->pluck('id')->all();
+            $idsToDelete = array_diff($existingIds, $submittedIds);
+
+            if (!empty($idsToDelete)) {
+                $purchaseRequest->items()
+                    ->whereIn('id', $idsToDelete)
+                    ->delete();
+            }
+
+            foreach ($validated['items'] as $item) {
+                $purchaseRequest->items()->updateOrCreate(
+                    ['id' => $item['id'] ?? null],
+                    [
+                        'title' => $item['title'],
+                        'description' => $item['description'] ?? null,
+                        'quantity' => $item['quantity'],
+                        'unit_price' => $item['unit_price'],
+                        'total_price' => $item['quantity'] * $item['unit_price'],
+                    ]
+                );
+            }
+
+            $purchaseRequest->update([
+                'code'   => RunningNumberService::next(documentType: 'purchase_request'),
+                'status' => 'submitted',
+                'submitted_at' => now(),
+                'requested_by' => auth()->id(),
+            ]);
+        });
 
         return redirect()
             ->route('purchase-request.index', $purchaseRequest->uuid)

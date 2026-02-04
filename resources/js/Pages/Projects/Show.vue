@@ -9,6 +9,7 @@ import DocumentationTab from "./Tabs/DocumentationTab.vue";
 import FunctionalityTab from "./Tabs/AccountingTab.vue";
 import MilestonesTab from "./Tabs/MilestonesTab.vue";
 import AccountingTab from "./Tabs/AccountingTab.vue";
+import SubConTasksTab from "./Tabs/SubConTasksTab.vue";
 import { useFormat } from '@/Composables/useFormat'
 
 const { capitalize, formatCurrency } = useFormat()
@@ -24,6 +25,7 @@ const tabs = [
     { key: "documentation", label: "Documentation" },
     { key: "accounting", label: "Accounting" },
     { key: "milestones", label: "Milestones" },
+    { key: "subcon_tasks", label: "Sub Con's Task" },
 ];
 
 function onBudgetUpdated(newBudget) {
@@ -100,6 +102,13 @@ function onBudgetUpdated(newBudget) {
                 <MilestonesTab
                     v-if="activeTab === 'milestones'"
                     :project="project"
+                />
+
+                <SubConTasksTab
+                    v-if="activeTab === 'subcon_tasks'"
+                    :project="project"
+                    :sub-cons="page.props.subCons"
+                    :sub-con-tasks="page.props.subConTasks"
                 />
             </div>
 

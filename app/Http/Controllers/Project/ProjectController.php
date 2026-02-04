@@ -15,6 +15,8 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequest;
 use App\Models\ArInvoice;
 use App\Models\PettyCashTopup;
+use App\Models\SubCon;
+use App\Models\SubConTask;
 
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -138,6 +140,23 @@ class ProjectController extends Controller
                 ->get(),
 
             'users' => User::orderBy('name')->get(['id', 'name']),
+
+            'subCons' => SubCon::orderBy('name')
+                ->get(['id', 'uuid', 'name', 'company_name']),
+
+            'subConTasks' => SubConTask::with([
+                'subCon:id,uuid,name,company_name',
+                'parent:id,uuid,title',
+                'updates',
+                'paymentSlip.companyBankAccount',
+                'paymentSlip.attachments',
+                'paymentSlip.source',
+                'paymentSlip.source.subCon',
+                'paymentSlip.source.project',
+            ])
+                ->where('project_id', $project->id)
+                ->orderByDesc('id')
+                ->get(),
         ]);
     }
 

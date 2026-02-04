@@ -1,9 +1,9 @@
 <script setup>
-import { computed } from 'vue'
-import { useFormat } from '@/Composables/useFormat'
-import { amountToWords } from '@/helpers/string'
+import { computed } from "vue";
+import { useFormat } from "@/Composables/useFormat";
+import { amountToWords } from "@/helpers/string";
 
-const { formatCurrency } = useFormat()
+const { formatCurrency } = useFormat();
 
 const props = defineProps({
     slip: {
@@ -14,42 +14,38 @@ const props = defineProps({
         type: Object,
         default: null,
     },
-})
+});
 
-const slip = computed(() => props.slip ?? {})
-const topup = computed(() => slip.value?.source ?? {})
-
-const projectName = computed(() => {
-    if (topup.value?.wallet?.context_type === 'office') {
-        return 'Office Expenses'
-    }
-    return topup.value?.wallet?.project?.name ?? '-'
-})
+const slip = computed(() => props.slip ?? {});
+const task = computed(() => slip.value?.source ?? {});
+const project = computed(() => task.value?.project ?? {});
+const subCon = computed(() => task.value?.sub_con ?? task.value?.subCon ?? {});
 
 function formatDate(value) {
-    if (!value) return '-'
-    return new Date(value).toLocaleDateString('en-GB')
+    if (!value) return "-";
+    return new Date(value).toLocaleDateString("en-GB");
 }
 
-const slipDate = computed(() => slip.value.payment_date ?? topup.value?.approved_at ?? topup.value?.created_at)
-const slipNumber = computed(() => slip.value.slip_no ?? '-')
+const slipDate = computed(() => slip.value.payment_date ?? slip.value.created_at);
+const slipNumber = computed(() => slip.value.slip_no ?? "-");
 
-const amount = computed(() => Number(slip.value.amount ?? 0))
-const amountWords = computed(() => amountToWords(amountDue.value) || '-')
-const lessRetention = computed(() => Number(slip.value.less_retention ?? 0))
-const lessRecoupment = computed(() => Number(slip.value.less_recoupment ?? 0))
-const lessMaterialOb = computed(() => Number(slip.value.less_material_ob ?? 0))
-const lessPaidPreviously = computed(() => Number(slip.value.less_paid_previously ?? 0))
-const lessTotal = computed(() =>
-    lessRetention.value +
-    lessRecoupment.value +
-    lessMaterialOb.value +
-    lessPaidPreviously.value
-)
-const amountDue = computed(() => Math.max(amount.value - lessTotal.value, 0))
+const amount = computed(() => Number(slip.value.amount ?? 0));
+const amountWords = computed(() => amountToWords(amountDue.value) || "-");
+const lessRetention = computed(() => Number(slip.value.less_retention ?? 0));
+const lessRecoupment = computed(() => Number(slip.value.less_recoupment ?? 0));
+const lessMaterialOb = computed(() => Number(slip.value.less_material_ob ?? 0));
+const lessPaidPreviously = computed(() => Number(slip.value.less_paid_previously ?? 0));
+const lessTotal = computed(
+    () =>
+        lessRetention.value +
+        lessRecoupment.value +
+        lessMaterialOb.value +
+        lessPaidPreviously.value
+);
+const amountDue = computed(() => Math.max(amount.value - lessTotal.value, 0));
 
 function formatLess(value) {
-    return value > 0 ? formatCurrency(value) : '-'
+    return value > 0 ? formatCurrency(value) : "-";
 }
 </script>
 
@@ -72,48 +68,29 @@ function formatLess(value) {
             <div class="border-b border-gray-400 p-2 flex">
                 <div class="w-40 text-xs">PROJECT NAME :</div>
                 <div class="flex-1 text-xs font-semibold">
-                    {{ projectName }}
+                    {{ project.name ?? "-" }}
                 </div>
             </div>
 
             <div class="border-b border-gray-400 p-2">
                 <div class="grid grid-cols-2 gap-2 text-xs">
                     <div class="flex">
-                        <div class="w-40">Contractor's Name</div>
+                        <div class="w-40">Sub Con Name</div>
                         <div class="flex-1 font-semibold">
-                    {{ topup.requester?.name ?? '-' }}
-                </div>
-                    </div>
-                    <div class="flex">
-                        <div class="w-40">Contractor's Works</div>
-                        <div class="flex-1 font-semibold">
-                    {{ topup.reason ?? 'Petty Cash Top-Up' }}
-                </div>
-            </div>
-                </div>
-            </div>
-
-            <div class="border-b border-gray-400 p-2">
-                <div class="grid grid-cols-2 gap-2 text-xs">
-                    <div class="flex">
-                        <div class="w-40">Original Contract Value</div>
-                        <div class="flex-1 font-semibold">
-                            {{ formatCurrency(amount) }}
+                            {{ subCon.name ?? "-" }}
                         </div>
                     </div>
                     <div class="flex">
-                        <div class="w-40">Approved Variation To Date</div>
-                        <div class="flex-1 font-semibold">-</div>
-                    </div>
-                    <div class="flex">
-                        <div class="w-40">Adjusted Contract Amount</div>
+                        <div class="w-40">Company</div>
                         <div class="flex-1 font-semibold">
-                            {{ formatCurrency(amount) }}
+                            {{ subCon.company_name ?? "-" }}
                         </div>
                     </div>
                     <div class="flex">
-                        <div class="w-40">Date of Completion</div>
-                        <div class="flex-1 font-semibold">-</div>
+                        <div class="w-40">Task</div>
+                        <div class="flex-1 font-semibold">
+                            {{ task.title ?? "-" }}
+                        </div>
                     </div>
                     <div class="flex">
                         <div class="w-40">Cert No & Date</div>
@@ -121,17 +98,13 @@ function formatLess(value) {
                             {{ slipNumber }} / {{ formatDate(slipDate) }}
                         </div>
                     </div>
-                    <div class="flex">
-                        <div class="w-40">Payment Terms</div>
-                        <div class="flex-1 font-semibold">FULL</div>
-                    </div>
                 </div>
             </div>
 
             <div class="border-b border-gray-400 p-2 text-xs">
                 <div class="font-medium mb-1">Notes</div>
                 <div class="min-h-[30px]">
-                    {{ slip.payment_slip_remark ?? '-' }}
+                    {{ slip.payment_slip_remark ?? "-" }}
                 </div>
             </div>
 
@@ -197,7 +170,7 @@ function formatLess(value) {
                 <div class="flex gap-4">
                     <div class="w-40">Remarks</div>
                     <div class="flex-1">
-                        Charge to: <span class="font-semibold">{{ projectName }}</span>
+                        Charge to: <span class="font-semibold">{{ project.name ?? "-" }}</span>
                     </div>
                 </div>
             </div>
@@ -207,30 +180,24 @@ function formatLess(value) {
                     <div>
                         <div class="mb-8 border-b"></div>
                         <div>Prepared by:</div>
-                        <div class="text-gray-500">
-                            {{ topup.payer?.name ?? '-' }}
-                        </div>
+                        <div class="text-gray-500">-</div>
                     </div>
                     <div>
                         <div class="mb-8 border-b"></div>
                         <div>Certified by:</div>
-                        <div class="text-gray-500">
-                            {{ topup.approver?.name ?? '-' }}
-                        </div>
+                        <div class="text-gray-500">-</div>
                     </div>
                     <div>
                         <div class="mb-8 border-b"></div>
-                        <div>Certified by / Approved by:</div>
-                        <div class="text-gray-500">
-                            {{ topup.approver?.name ?? '-' }}
-                        </div>
+                        <div>Approved by:</div>
+                        <div class="text-gray-500">-</div>
                     </div>
                 </div>
                 <div class="mt-4 text-xs text-gray-500">
                     Company Bank Account:
                     <span class="font-semibold">
-                        {{ slip.company_bank_account?.bank_name ?? '-' }}
-                        {{ slip.company_bank_account?.account_no ?? '' }}
+                        {{ slip.company_bank_account?.bank_name ?? "-" }}
+                        {{ slip.company_bank_account?.account_no ?? "" }}
                     </span>
                 </div>
             </div>

@@ -77,4 +77,9 @@ class Project extends Model
     {
         return $this->hasMany(ArInvoice::class, 'project_id');
     }
+
+    public function subConTasks()
+    {
+        return $this->hasMany(SubConTask::class);
+    }
 }

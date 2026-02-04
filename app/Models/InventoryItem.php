@@ -82,6 +82,11 @@ class InventoryItem extends Model
         return $this->hasMany(InventorySaman::class);
     }
 
+    public function services(): HasMany
+    {
+        return $this->hasMany(InventoryService::class);
+    }
+
     public function unpaidSamans(): HasMany
     {
         return $this->hasMany(InventorySaman::class)

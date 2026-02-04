@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProfileBankAccountController;
@@ -13,6 +13,7 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\WidgetController;
 use App\Http\Controllers\SupplierController;
+use App\Http\Controllers\SubConController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ClaimTypeController;
@@ -21,6 +22,7 @@ use App\Http\Controllers\Project\ProjectController;
 use App\Http\Controllers\Project\ProjectDocumentController;
 use App\Http\Controllers\Project\ProjectMilestoneController;
 use App\Http\Controllers\Project\ProjectTaskController;
+use App\Http\Controllers\Project\SubConTaskController;
 
 use App\Http\Controllers\Project\MilestoneController;
 
@@ -125,7 +127,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     Route::patch('/roles/{role}', [RoleController::class, 'update'])->name('roles.update');
     Route::delete('/roles/{role}', [RoleController::class, 'destroy'])->name('roles.destroy');
 
-    // Permission Management (view roles → assign permissions)
+    // Permission Management (view roles â†’ assign permissions)
     Route::get('/permissions', [PermissionController::class, 'index'])
         ->name('permissions.index');
 
@@ -172,6 +174,18 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
     Route::patch('/projects/{project}/budget', [ProjectController::class, 'updateBudget'])
         ->name('projects.update-budget');
+
+    Route::prefix('projects/{project}/sub-con-tasks')->name('projects.sub-con-tasks.')->group(function () {
+        Route::post('/', [SubConTaskController::class, 'store'])->name('store');
+        Route::patch('/{task}', [SubConTaskController::class, 'update'])->name('update');
+        Route::delete('/{task}', [SubConTaskController::class, 'destroy'])->name('destroy');
+        Route::post('/{task}/updates', [SubConTaskController::class, 'storeUpdate'])->name('updates.store');
+        Route::get('/{task}/updates/{update}/download', [SubConTaskController::class, 'downloadUpdate'])->name('updates.download');
+        Route::post('/{task}/verify', [SubConTaskController::class, 'verify'])->name('verify');
+        Route::post('/{task}/justify-payment', [SubConTaskController::class, 'justify'])->name('justify');
+        Route::post('/{task}/payment-cert', [SubConTaskController::class, 'certify'])->name('certify');
+        Route::post('/{task}/mark-paid', [SubConTaskController::class, 'paid'])->name('paid');
+    });
 
 
     Route::get('/projects/{project}/claims/summary', [ProjectController::class, 'summary'])
@@ -363,6 +377,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     // STAKEHOLDERS
     // ------------------------------
     Route::resource('clients', ClientController::class)->except(['create', 'edit']);
+    Route::resource('sub-cons', SubConController::class)->except(['create', 'edit']);
 
     Route::prefix('suppliers')->name('suppliers.')->group(function () {
 
@@ -435,6 +450,10 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
             Route::post('{uuid}/insurance/{insurance}', [VehicleController::class, 'updateInsurance'])->name('insurance.update');
             Route::post('{uuid}/insurance/trigger/renew', [VehicleController::class, 'renewInsurance'])->name('insurance.renew');
 
+            Route::post('{uuid}/services', [VehicleController::class, 'storeService'])->name('services.store');
+            Route::patch('{uuid}/services/{service}', [VehicleController::class, 'updateService'])->name('services.update');
+            Route::delete('{uuid}/services/{service}', [VehicleController::class, 'destroyService'])->name('services.destroy');
+
             Route::post('{uuid}/roadtax', [VehicleController::class, 'storeRoadtax'])->name('roadtax.store');
             Route::post('{uuid}/roadtax/{roadtax}', [VehicleController::class, 'updateRoadtax'])->name('roadtax.update');
             Route::post('{uuid}/roadtax/trigger/renew', [VehicleController::class, 'renewRoadtax'])->name('roadtax.renew');
@@ -467,7 +486,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
 
     // ----------------------------------------
-    // MILESTONE → TASKS
+    // MILESTONE â†’ TASKS
     // ----------------------------------------
     Route::post('/milestones/{milestone}/tasks', [ProjectTaskController::class, 'store'])
         ->name('milestones.tasks.store');
@@ -612,3 +631,4 @@ Route::middleware('auth')->group(function () {
 });
 
 require __DIR__ . '/auth.php';
+

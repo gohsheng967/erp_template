@@ -35,7 +35,7 @@ const slipNumber = computed(() => props.slip.slip_no ?? '-')
 const slipDate = computed(() => props.slip.payment_date ?? null)
 
 const amount = computed(() => Number(props.slip.amount ?? 0))
-const amountWords = computed(() => amountToWords(amount.value) || '-')
+const amountWords = computed(() => amountToWords(amountDue.value) || '-')
 
 const lessRetention = computed(() => Number(props.slip.less_retention ?? 0))
 const lessRecoupment = computed(() => Number(props.slip.less_recoupment ?? 0))

@@ -30,7 +30,7 @@ const slipDate = computed(() => slip.value.payment_date ?? claim.value?.approved
 const slipNumber = computed(() => slip.value.slip_no ?? '-')
 
 const amount = computed(() => Number(slip.value.amount ?? claim.value?.total_amount ?? 0))
-const amountWords = computed(() => amountToWords(amount.value) || '-')
+const amountWords = computed(() => amountToWords(amountDue.value) || '-')
 const lessRetention = computed(() => Number(slip.value.less_retention ?? 0))
 const lessRecoupment = computed(() => Number(slip.value.less_recoupment ?? 0))
 const lessMaterialOb = computed(() => Number(slip.value.less_material_ob ?? 0))
