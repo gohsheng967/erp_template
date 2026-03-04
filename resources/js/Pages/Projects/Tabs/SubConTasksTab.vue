@@ -7,7 +7,7 @@ import SubConPaymentSlipModal from "./Partials/SubConPaymentSlipModal.vue";
 import axios from "axios";
 
 const toast = inject("toast", null);
-const { formatCurrency, formatDateTime } = useFormat();
+const { formatCurrency, formatDateTime, capitalize } = useFormat();
 
 const props = defineProps({
     project: {
@@ -48,6 +48,7 @@ const showJustifyModal = ref(false);
 const showPaidModal = ref(false);
 const showSlipModal = ref(false);
 const selectedTask = ref(null);
+const expandedParents = ref(new Set());
 
 const progressForm = ref({
     progress_percent: "",
@@ -405,6 +406,31 @@ function statusClass(status) {
             return "bg-gray-100 text-gray-700";
     }
 }
+
+const parentTasks = computed(() =>
+    tasks.value.filter((t) => !t.parent_id)
+);
+
+const childTasks = computed(() =>
+    tasks.value.filter((t) => t.parent_id)
+);
+
+function childrenOf(parentId) {
+    return childTasks.value.filter((t) => t.parent_id === parentId);
+}
+
+function isExpanded(task) {
+    return expandedParents.value.has(task.id);
+}
+
+function toggleChildren(task) {
+    if (isExpanded(task)) {
+        expandedParents.value.delete(task.id);
+    } else {
+        expandedParents.value.add(task.id);
+    }
+    expandedParents.value = new Set(expandedParents.value);
+}
 </script>
 
 <template>
@@ -496,36 +522,54 @@ function statusClass(status) {
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200 bg-white">
-                    <tr v-for="task in tasks" :key="task.uuid">
-                        <td class="px-4 py-3 text-sm">
-                            <div class="font-medium text-gray-900">{{ task.title }}</div>
-                            <div v-if="task.parent" class="text-xs text-gray-500">
-                                Child of: {{ task.parent.title }}
-                            </div>
-                        </td>
-                        <td class="px-4 py-3 text-sm">
-                            {{ task.sub_con?.name ?? "-" }}
-                        </td>
-                        <td class="px-4 py-3 text-sm">
-                            {{ formatCurrency(task.amount) }}
-                        </td>
-                        <td class="px-4 py-3 text-sm">
-                            {{ task.progress_percent ?? 0 }}%
-                            <div v-if="task.updates?.length" class="text-xs text-gray-500">
-                                Last: {{ task.updates[0]?.note || "Update submitted" }}
-                            </div>
-                        </td>
-                        <td class="px-4 py-3 text-sm">
-                            <span
-                                class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-                                :class="statusClass(task.status)"
-                            >
-                                {{ task.status || "draft" }}
-                            </span>
-                        </td>
+                    <template v-for="task in parentTasks" :key="task.uuid">
+                        <tr>
+                            <td class="px-4 py-3 text-sm">
+                                <div class="flex items-center gap-2">
+                                    <button
+                                        v-if="childrenOf(task.id).length"
+                                        class="text-xs px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200"
+                                        @click="toggleChildren(task)"
+                                    >
+                                        {{ isExpanded(task) ? '-' : '+' }}
+                                    </button>
+                                    <span
+                                        class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700"
+                                    >
+                                        Parent
+                                    </span>
+                                    <div class="font-medium text-gray-900">
+                                        {{ task.title }}
+                                    </div>
+                                </div>
+                                <div v-if="childrenOf(task.id).length" class="text-xs text-gray-500 mt-1">
+                                    Child Tasks: <span class="font-medium text-gray-700">{{ childrenOf(task.id).length }}</span>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                {{ task.sub_con?.name ?? "-" }}
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                {{ formatCurrency(task.amount) }}
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                {{ task.progress_percent ?? 0 }}%
+                                <div v-if="task.updates?.length" class="text-xs text-gray-500">
+                                    Last: {{ task.updates[0]?.note || "Update submitted" }}
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                <span
+                                    class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+                                    :class="statusClass(task.status)"
+                                >
+                                    {{ capitalize(task.status || "draft") }}
+                                </span>
+                            </td>
                             <td class="px-4 py-3 text-center">
                                 <div class="flex flex-wrap justify-center gap-2">
                                     <button
+                                        v-if="['draft', 'submitted'].includes(task.status)"
                                         class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
                                         @click="openProgress(task)"
                                     >
@@ -579,7 +623,108 @@ function statusClass(status) {
                                     </button>
                                 </div>
                             </td>
-                    </tr>
+                        </tr>
+
+                        <tr
+                            v-for="child in childrenOf(task.id)"
+                            v-show="isExpanded(task)"
+                            :key="child.uuid"
+                            class="bg-gray-50"
+                        >
+                            <td class="px-4 py-3 text-sm">
+                                <div class="flex items-center gap-2 pl-6">
+                                    <span
+                                        class="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700"
+                                    >
+                                        Child
+                                    </span>
+                                    <div class="font-medium text-gray-900">
+                                        {{ child.title }}
+                                    </div>
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1 pl-6">
+                                    Parent Task: <span class="font-medium text-gray-700">{{ task.title }}</span>
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                {{ child.sub_con?.name ?? "-" }}
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                {{ formatCurrency(child.amount) }}
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                {{ child.progress_percent ?? 0 }}%
+                                <div v-if="child.updates?.length" class="text-xs text-gray-500">
+                                    Last: {{ child.updates[0]?.note || "Update submitted" }}
+                                </div>
+                            </td>
+                            <td class="px-4 py-3 text-sm">
+                                <span
+                                    class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+                                    :class="statusClass(child.status)"
+                                >
+                                    {{ capitalize(child.status || "draft") }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-3 text-center">
+                                <div class="flex flex-wrap justify-center gap-2">
+                                    <button
+                                        v-if="['draft', 'submitted'].includes(child.status)"
+                                        class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
+                                        @click="openProgress(child)"
+                                    >
+                                        Update Progress
+                                    </button>
+                                    <button
+                                        class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
+                                        @click="openHistory(child)"
+                                    >
+                                        History
+                                    </button>
+                                    <button
+                                        class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
+                                        @click="openEdit(child)"
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        class="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
+                                        @click="openDelete(child)"
+                                    >
+                                        Delete
+                                    </button>
+                                    <button
+                                        class="px-2 py-1 text-xs rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+                                        v-if="child.status === 'submitted'"
+                                        @click="openVerify(child)"
+                                    >
+                                        Verify
+                                    </button>
+                                    <button
+                                        class="px-2 py-1 text-xs rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                                        v-if="child.status === 'verified'"
+                                        @click="openJustify(child)"
+                                    >
+                                        Justify
+                                    </button>
+                                    <button
+                                        class="px-2 py-1 text-xs rounded bg-sky-100 text-sky-700 hover:bg-sky-200"
+                                        v-if="child.status === 'justified'"
+                                        @click="openCert(child)"
+                                    >
+                                        Cert
+                                    </button>
+                                    <button
+                                        class="px-2 py-1 text-xs rounded bg-emerald-200 text-emerald-800 hover:bg-emerald-300"
+                                        v-if="child.status === 'certified'"
+                                        @click="openPaid(child)"
+                                    >
+                                        Paid
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
                     <tr v-if="tasks.length === 0">
                         <td colspan="6" class="px-4 py-6 text-center text-gray-500">
                             No Sub Con tasks yet.
@@ -626,11 +771,24 @@ function statusClass(status) {
                 </div>
                 <div>
                     <label class="block text-sm text-gray-600">Attachment (optional)</label>
-                    <input
-                        type="file"
-                        class="mt-1 w-full"
-                        @change="(e) => (progressForm.attachment = e.target.files[0])"
-                    />
+                    <div class="mt-2 border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:border-indigo-400 transition">
+                        <input
+                            type="file"
+                            class="hidden"
+                            id="subconProgressUpload"
+                            @change="(e) => (progressForm.attachment = e.target.files[0])"
+                        />
+                        <label for="subconProgressUpload" class="cursor-pointer">
+                            <i class="mdi mdi-upload text-2xl text-gray-400"></i>
+                            <p class="text-sm text-gray-600 mt-1">
+                                Click to upload attachment
+                            </p>
+                            <p class="text-xs text-gray-400">PDF / JPG / PNG • Max 10MB</p>
+                        </label>
+                    </div>
+                    <div v-if="progressForm.attachment" class="mt-3 text-xs text-gray-700">
+                        Selected: <span class="font-medium">{{ progressForm.attachment.name }}</span>
+                    </div>
                 </div>
             </div>
 

@@ -2,12 +2,21 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Branch;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 
 class UserResource extends JsonResource
 {
     public function toArray($request)
     {
+        $branches = $this->isSuperAdmin()
+            ? Branch::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'slug'])
+            : $this->branches;
+
         return [
             'id' => $this->id,
             'name' => $this->name,
@@ -37,9 +46,24 @@ class UserResource extends JsonResource
                 ];
             }),
             'created_at' => $this->created_at,
-            'profile_photo' => $this->profile_photo 
-            ? asset('storage/' . $this->profile_photo)
-            : null,
+            'profile_photo' => $this->profile_photo
+                ? Storage::disk('public')->url($this->profile_photo)
+                : null,
+            'signature' => $this->signature_path
+                ? Storage::disk('public')->url($this->signature_path)
+                : null,
+            'branches' => $branches->map(function ($branch) {
+                return [
+                    'id' => $branch->id,
+                    'name' => $branch->name,
+                    'slug' => $branch->slug,
+                ];
+            }),
+            'active_branch' => $this->activeBranch ? [
+                'id' => $this->activeBranch->id,
+                'name' => $this->activeBranch->name,
+                'slug' => $this->activeBranch->slug,
+            ] : null,
             'bank_accounts' => $this->bankAccounts()
                 ->orderBy('id')
                 ->get()

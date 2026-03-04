@@ -7,6 +7,7 @@ use Inertia\Middleware;
 use App\Http\Resources\UserResource;
 use App\Models\CompanyProfile;
 use App\Models\CompanyBankAccount;
+use App\Models\Branch;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -32,11 +33,30 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
+        $user = $request->user();
+
+        if ($user && !$user->active_branch_id) {
+            $fallbackBranchId = $user->isSuperAdmin()
+                ? Branch::query()->where('is_active', true)->orderBy('id')->value('id')
+                : $user->branches()->where('branches.is_active', true)->orderBy('branches.id')->value('branches.id');
+
+            if ($fallbackBranchId) {
+                $user->active_branch_id = $fallbackBranchId;
+                $user->save();
+            }
+        }
+
         return [
             ...parent::share($request),
             'auth' => [
-                'user' => $request->user()
-                    ? new UserResource($request->user())
+                'user' => $user
+                    ? new UserResource(
+                        $user->loadMissing([
+                            'departments',
+                            'branches',
+                            'activeBranch',
+                        ])
+                    )
                     : null,
             ],
             'company' => function () {
@@ -50,10 +70,34 @@ class HandleInertiaRequests extends Middleware
                     'logo'           => $company->logo,
                 ] : null;
             },
-            'companyBankAccounts' => function () {
+            'companyBankAccounts' => function () use ($request) {
+                $activeBranchId = $request->user()?->active_branch_id;
+
+                if (!$activeBranchId) {
+                    return [];
+                }
+
                 return CompanyBankAccount::query()
+                    ->where('branch_id', $activeBranchId)
+                    ->with('branch:id,name,slug')
                     ->orderBy('id')
-                    ->get(['id', 'bank_name', 'account_name', 'account_no', 'status']);
+                    ->get(['id', 'branch_id', 'bank_name', 'account_name', 'account_no', 'status'])
+                    ->map(function ($account) {
+                        return [
+                            'id' => $account->id,
+                            'branch_id' => $account->branch_id,
+                            'branch' => $account->branch ? [
+                                'id' => $account->branch->id,
+                                'name' => $account->branch->name,
+                                'slug' => $account->branch->slug,
+                            ] : null,
+                            'bank_name' => $account->bank_name,
+                            'account_name' => $account->account_name,
+                            'account_no' => $account->account_no,
+                            'status' => $account->status,
+                        ];
+                    })
+                    ->values();
             },
         ];
     }

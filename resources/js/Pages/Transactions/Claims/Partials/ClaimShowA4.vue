@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { amountToWords } from '@/helpers/string'
+import SignatureSection from '@/Components/Document/SignatureSection.vue'
 
 const props = defineProps({
     claim: {
@@ -264,6 +265,11 @@ function formatCurrency(value) {
             </div>
         </div>
     </div>
+
+    <SignatureSection
+        class="relative z-10"
+        title="Prepared Signature"
+    />
 
     <!-- =====================
          FOOTER

@@ -11,9 +11,15 @@ class CompanyBankAccount extends Model
     use HasFactory, SoftDeletes;
 
     protected $fillable = [
+        'branch_id',
         'bank_name',
         'account_name',
         'account_no',
         'status',
     ];
+
+    public function branch()
+    {
+        return $this->belongsTo(Branch::class);
+    }
 }

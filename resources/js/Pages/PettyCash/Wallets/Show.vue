@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed } from 'vue'
 import { Link, router, useForm } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
@@ -86,7 +86,7 @@ function closeCreateClaim() {
                         :href="route('petty-cash.wallets.index')"
                         class="text-sm text-gray-600 hover:text-gray-900"
                     >
-                        ← Back
+                        â† Back
                     </Link>
 
                     <div>
@@ -115,7 +115,7 @@ function closeCreateClaim() {
             <!-- ================= PERIOD ================= -->
             <div class="flex items-center justify-between bg-white p-4 rounded border">
                 <button @click="prevMonth" class="text-sm text-gray-600 hover:text-gray-900">
-                    ◀ Previous
+                    â—€ Previous
                 </button>
 
                 <div class="text-sm font-semibold">
@@ -123,7 +123,7 @@ function closeCreateClaim() {
                 </div>
 
                 <button @click="nextMonth" class="text-sm text-gray-600 hover:text-gray-900">
-                    Next ▶
+                    Next â–¶
                 </button>
             </div>
 
@@ -193,6 +193,8 @@ function closeCreateClaim() {
                             <th class="px-4 py-3 text-left">Date</th>
                             <th class="px-4 py-3 text-left">Transaction No</th>
                             <th class="px-4 py-3 text-left">Reference No</th>
+                            <th class="px-4 py-3 text-left">Title</th>
+                            <th class="px-4 py-3 text-left">Description</th>
                             <th class="px-4 py-3 text-left">Type</th>
                             <th class="px-4 py-3 text-right">In</th>
                             <th class="px-4 py-3 text-right">Out</th>
@@ -207,14 +209,14 @@ function closeCreateClaim() {
                             class="border-t even:bg-gray-50 hover:bg-indigo-50/40"
                         >
                             <td class="px-4 py-2">{{ formatDate(tx.date) }}</td>
-                            <td class="px-4 py-2 font-mono text-xs">{{ tx.code ?? '—' }}</td>
-                            <td class="px-4 py-2 font-mono text-xs">{{ tx.reference ?? '—' }}</td>
-                            <td class="px-4 py-2 capitalize">{{ tx.type }}</td>
+                            <td class="px-4 py-2 font-mono text-xs">{{ tx.code ?? 'â€”' }}</td>
+                            <td class="px-4 py-2 font-mono text-xs">{{ tx.reference ?? 'â€”' }}</td>
+                            <td class="px-4 py-2">{{ tx.title ?? '—' }}</td>\r\n                            <td class="px-4 py-2">{{ tx.description ?? '—' }}</td>\r\n                            <td class="px-4 py-2">{{ tx.title ?? '—' }}</td>\r\n                            <td class="px-4 py-2">{{ tx.description ?? '—' }}</td>\r\n                            <td class="px-4 py-2 capitalize">{{ tx.type }}</td>
                             <td class="px-4 py-2 text-right text-green-600">
-                                {{ tx.amount_in ? tx.amount_in.toFixed(2) : '—' }}
+                                {{ tx.amount_in ? tx.amount_in.toFixed(2) : 'â€”' }}
                             </td>
                             <td class="px-4 py-2 text-right text-red-600">
-                                {{ tx.amount_out ? tx.amount_out.toFixed(2) : '—' }}
+                                {{ tx.amount_out ? tx.amount_out.toFixed(2) : 'â€”' }}
                             </td>
                             <td class="px-4 py-2 text-right font-semibold">
                                 {{ tx.balance_after.toFixed(2) }}
@@ -222,7 +224,7 @@ function closeCreateClaim() {
                         </tr>
 
                         <tr v-if="!transactions.length">
-                            <td colspan="7" class="px-4 py-10 text-center text-gray-400">
+                            <td colspan="9" class="px-4 py-10 text-center text-gray-400">
                                 No transactions recorded for this month
                             </td>
                         </tr>
@@ -252,3 +254,5 @@ function closeCreateClaim() {
 
     </AuthenticatedLayout>
 </template>
+
+

@@ -1,6 +1,6 @@
 <script setup>
 import { usePage, Link, router } from '@inertiajs/vue3'
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import axios from 'axios'
 
 const page = usePage()
@@ -18,10 +18,17 @@ const loading = ref(false)
    POPUP STATE
 ========================= */
 const showPopup = ref(false)
+const showSignatureReminder = ref(false)
+const showBranchSelector = ref(false)
 const activePriority = ref(null)
 const taskList = ref([])
 const showUserMenu = ref(false)
 const userMenuRef = ref(null)
+const signatureReminderKey = `signature-reminder-shown:${user.id}`
+const hasSignature = computed(() => Boolean(user.signature))
+const branches = computed(() => user.branches ?? [])
+const activeBranch = computed(() => user.active_branch ?? null)
+const selectedBranchId = ref(user.active_branch?.id ?? null)
 
 let pollTimer = null
 
@@ -91,6 +98,12 @@ function closeUserMenu() {
     showUserMenu.value = false
 }
 
+function openBranchSelector() {
+    selectedBranchId.value = activeBranch.value?.id ?? null
+    showBranchSelector.value = true
+    closeUserMenu()
+}
+
 function handleDocumentClick(event) {
     if (!userMenuRef.value) return
     if (!userMenuRef.value.contains(event.target)) {
@@ -105,6 +118,26 @@ function goToTask(task) {
         route('projects.show', task.project_uuid),
         {
             data: { task: task.id }
+        }
+    )
+}
+
+function submitBranchSelection() {
+    if (!selectedBranchId.value) return
+
+    router.post(
+        route('branches.switch'),
+        { branch_id: selectedBranchId.value },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                showBranchSelector.value = false
+                const reminded = window.sessionStorage.getItem(signatureReminderKey)
+                if (!hasSignature.value && !reminded) {
+                    showSignatureReminder.value = true
+                    window.sessionStorage.setItem(signatureReminderKey, '1')
+                }
+            },
         }
     )
 }
@@ -124,6 +157,16 @@ onMounted(() => {
         loadPrioritySummary
     )
     document.addEventListener('click', handleDocumentClick)
+
+    if (branches.value.length > 0 && !activeBranch.value?.id) {
+        showBranchSelector.value = true
+    } else {
+        const reminded = window.sessionStorage.getItem(signatureReminderKey)
+        if (!hasSignature.value && !reminded) {
+            showSignatureReminder.value = true
+            window.sessionStorage.setItem(signatureReminderKey, '1')
+        }
+    }
 })
 
 onBeforeUnmount(() => {
@@ -134,6 +177,10 @@ onBeforeUnmount(() => {
     )
     document.removeEventListener('click', handleDocumentClick)
 })
+
+function closeSignatureReminder() {
+    showSignatureReminder.value = false
+}
 </script>
 
 <template>
@@ -208,6 +255,21 @@ onBeforeUnmount(() => {
 
     <!-- RIGHT -->
     <div class="flex items-center gap-4 text-gray-600">
+        <div
+            v-if="activeBranch?.slug"
+            class="hidden md:flex items-center gap-2"
+        >
+            <span class="px-2.5 py-1 rounded-md bg-gray-100 text-xs font-semibold text-gray-700 uppercase">
+                {{ activeBranch.slug }}
+            </span>
+            <button
+                type="button"
+                class="text-xs px-2 py-1 rounded border bg-white hover:bg-gray-50"
+                @click="openBranchSelector"
+            >
+                Switch
+            </button>
+        </div>
 
         <!-- Notification Bell -->
         <button class="relative hover:text-black">
@@ -244,8 +306,8 @@ onBeforeUnmount(() => {
                 :aria-expanded="showUserMenu"
             >
                 <img
-                    v-if="user.profile_photo_url"
-                    :src="user.profile_photo_url"
+                    v-if="user.profile_photo"
+                    :src="user.profile_photo"
                     class="w-full h-full object-cover rounded-full"
                 />
                 <span
@@ -274,6 +336,14 @@ onBeforeUnmount(() => {
                 >
                     Profile
                 </Link>
+                <button
+                    type="button"
+                    class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    role="menuitem"
+                    @click="openBranchSelector"
+                >
+                    Switch Branch
+                </button>
                 <Link
                     :href="route('logout')"
                     method="post"
@@ -370,6 +440,91 @@ onBeforeUnmount(() => {
         <!-- FOOTER (optional hint) -->
         <div class="px-5 py-3 border-t text-xs text-gray-400">
             Click a task to view details
+        </div>
+    </div>
+</div>
+
+<!-- BRANCH SELECTOR -->
+<div
+    v-if="showBranchSelector"
+    class="fixed inset-0 z-[80] bg-black/50 backdrop-blur-[1px] flex items-center justify-center p-4"
+>
+    <div class="w-full max-w-md bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden">
+        <div class="px-5 py-4 border-b">
+            <h3 class="text-base font-semibold text-gray-900">
+                Select Branch
+            </h3>
+            <p class="text-xs text-gray-500 mt-1">
+                Please choose your working branch before continuing.
+            </p>
+        </div>
+
+        <div class="px-5 py-4">
+            <select
+                v-model="selectedBranchId"
+                class="w-full border rounded-lg px-3 py-2 text-sm"
+            >
+                <option :value="null" disabled>
+                    Select a branch
+                </option>
+                <option
+                    v-for="branch in branches"
+                    :key="branch.id"
+                    :value="branch.id"
+                >
+                    {{ branch.name }} ({{ branch.slug }})
+                </option>
+            </select>
+        </div>
+
+        <div class="px-5 py-4 border-t flex items-center justify-end">
+            <button
+                type="button"
+                class="px-3 py-2 text-sm rounded bg-gray-900 text-white hover:bg-black disabled:opacity-40"
+                :disabled="!selectedBranchId"
+                @click="submitBranchSelection"
+            >
+                Confirm Branch
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- SIGNATURE REMINDER -->
+<div
+    v-if="showSignatureReminder"
+    class="fixed inset-0 z-[70] bg-black/40 backdrop-blur-[1px] flex items-center justify-center p-4"
+    @click.self="closeSignatureReminder"
+>
+    <div class="w-full max-w-md bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden">
+        <div class="px-5 py-4 border-b">
+            <h3 class="text-base font-semibold text-gray-900">
+                Update Your Signature
+            </h3>
+            <p class="text-xs text-gray-500 mt-1">
+                Your signature is required for A4 document prints.
+            </p>
+        </div>
+
+        <div class="px-5 py-4 text-sm text-gray-700">
+            Please upload or draw your signature in Profile before generating documents.
+        </div>
+
+        <div class="px-5 py-4 border-t flex items-center justify-end gap-2">
+            <button
+                type="button"
+                class="px-3 py-2 text-sm rounded border bg-white hover:bg-gray-50"
+                @click="closeSignatureReminder"
+            >
+                Later
+            </button>
+            <Link
+                :href="route('profile.edit')"
+                class="px-3 py-2 text-sm rounded bg-gray-900 text-white hover:bg-black"
+                @click="closeSignatureReminder"
+            >
+                Go to Profile
+            </Link>
         </div>
     </div>
 </div>

@@ -63,12 +63,17 @@ class PettyCashStatementController extends Controller
             ])
             ->orderBy('transaction_date')
             ->orderBy('id')
+            ->with('sourceable')
             ->get()
             ->map(fn (PettyCashTransaction $tx) => [
                 'id'            => $tx->id,
                 'date'          => $tx->transaction_date,
                 'code'          => $tx->code,
                 'reference'     => $tx->source_ref_no,
+                'title'         => $tx->sourceable?->title
+                    ?? ($tx->source_type === \App\Models\PettyCashTopup::class ? 'Topup' : null),
+                'description'   => $tx->sourceable?->description
+                    ?? ($tx->source_type === \App\Models\PettyCashTopup::class ? ($tx->sourceable?->reason ?? null) : null),
                 'amount_in'     => $tx->credit_amount > 0 ? (float) $tx->credit_amount : null,
                 'amount_out'    => $tx->debit_amount  > 0 ? (float) $tx->debit_amount  : null,
                 'balance_after' => (float) $tx->balance_after,

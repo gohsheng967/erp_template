@@ -3,18 +3,24 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+use RuntimeException;
 
 class RunningNumberService
 {
     public static function next(
         string $documentType,
-        ?int $year = null
+        ?int $year = null,
+        ?int $branchId = null,
+        ?string $branchSlug = null
     ): string {
         $year = $year ?? now()->year;
+        [$branchId, $branchSlug] = self::resolveBranchContext($branchId, $branchSlug);
 
-        return DB::transaction(function () use ($documentType, $year) {
+        return DB::transaction(function () use ($documentType, $year, $branchId, $branchSlug) {
 
             $row = DB::table('running_numbers')
+                ->where('branch_id', $branchId)
                 ->where('document_type', $documentType)
                 ->where('year', $year)
                 ->lockForUpdate()
@@ -33,6 +39,7 @@ class RunningNumberService
                 };
 
                 DB::table('running_numbers')->insert([
+                    'branch_id'     => $branchId,
                     'document_type' => $documentType,
                     'prefix'        => $prefix,
                     'year'          => $year,
@@ -55,12 +62,62 @@ class RunningNumberService
             }
 
             return sprintf(
-                '%s\\%d\\%06d',
+                '%s/%s/%d/%06d',
+                strtoupper($branchSlug),
                 $prefix,
                 $year,
                 $next
             );
         });
+    }
+
+    protected static function resolveBranchContext(?int $branchId, ?string $branchSlug): array
+    {
+        if ($branchId && $branchSlug) {
+            return [$branchId, $branchSlug];
+        }
+
+        $user = Auth::user();
+
+        if (!$branchId) {
+            $branchId = $user?->active_branch_id;
+        }
+
+        if (!$branchId && $user) {
+            if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
+                $branchId = DB::table('branches')
+                    ->where('is_active', true)
+                    ->orderBy('id')
+                    ->value('id');
+            } else {
+                $branchId = DB::table('pivot_user_branches')
+                    ->where('user_id', $user->id)
+                    ->orderBy('id')
+                    ->value('branch_id');
+            }
+
+            if ($branchId && !$user->active_branch_id) {
+                DB::table('users')
+                    ->where('id', $user->id)
+                    ->update(['active_branch_id' => $branchId]);
+            }
+        }
+
+        if (!$branchId) {
+            throw new RuntimeException('Active branch is required to generate running number.');
+        }
+
+        if (!$branchSlug) {
+            $branchSlug = DB::table('branches')
+                ->where('id', $branchId)
+                ->value('slug');
+        }
+
+        if (!$branchSlug) {
+            throw new RuntimeException('Branch slug is missing for running number generation.');
+        }
+
+        return [$branchId, $branchSlug];
     }
 }
 

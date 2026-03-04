@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\CompanyProfile;
+use App\Models\Branch;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -15,6 +16,9 @@ class CompanyProfileController extends Controller
         return Inertia::render('CompanyProfile/Index', [
             'profile' => $profile,
             'bankOptions' => config('banks.malaysia', []),
+            'branches' => Branch::query()
+                ->orderBy('name')
+                ->get(['id', 'name', 'slug', 'is_active']),
         ]);
     }
 

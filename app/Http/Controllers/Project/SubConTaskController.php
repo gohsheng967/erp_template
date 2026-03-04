@@ -205,8 +205,10 @@ class SubConTaskController extends Controller
         $validated = $request->validate([
             'company_bank_account_id' => [
                 'required',
-                Rule::exists('company_bank_accounts', 'id')->where(function ($query) {
-                    $query->where('status', 'active');
+                Rule::exists('company_bank_accounts', 'id')->where(function ($query) use ($request) {
+                    $query
+                        ->where('status', 'active')
+                        ->where('branch_id', (int) ($request->user()?->active_branch_id ?? 0));
                 }),
             ],
             'less_retention' => ['nullable', 'numeric', 'min:0'],

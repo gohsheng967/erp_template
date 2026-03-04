@@ -17,6 +17,8 @@ use App\Http\Controllers\SubConController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ClaimTypeController;
+use App\Http\Controllers\BranchContextController;
+use App\Http\Controllers\BranchController;
 
 use App\Http\Controllers\Project\ProjectController;
 use App\Http\Controllers\Project\ProjectDocumentController;
@@ -77,6 +79,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     Route::get('action-task-list',  [WidgetController::class, 'actionTaskList'])->name('priority-list');
 
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::post('/branches/switch', [BranchContextController::class, 'switch'])->name('branches.switch');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::post('/profile/update', [ProfileController::class, 'update'])->name('profile.update');
@@ -95,6 +98,12 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         ->name('company.bank-accounts.update');
     Route::delete('/company-profile/bank-accounts/{bankAccount}', [CompanyBankAccountController::class, 'destroy'])
         ->name('company.bank-accounts.destroy');
+    Route::post('/company-profile/branches', [BranchController::class, 'store'])
+        ->name('company.branches.store');
+    Route::patch('/company-profile/branches/{branch}', [BranchController::class, 'update'])
+        ->name('company.branches.update');
+    Route::delete('/company-profile/branches/{branch}', [BranchController::class, 'destroy'])
+        ->name('company.branches.destroy');
 
     Route::get('/payment-slips', [PaymentSlipController::class, 'index'])
         ->name('payment-slips.index');
@@ -115,6 +124,8 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
     Route::post('/users/{user}/toggle-status', [UserController::class, 'toggleStatus'])
         ->name('users.toggle-status');
+    Route::patch('/users/{user}/branches', [UserController::class, 'updateBranches'])
+        ->name('users.branches.update');
 
     // Department pages
     Route::get('/departments', [DepartmentController::class, 'index'])->name('departments.index');

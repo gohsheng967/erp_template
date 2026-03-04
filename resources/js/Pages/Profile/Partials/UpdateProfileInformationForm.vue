@@ -4,7 +4,7 @@ import InputLabel from '@/Components/InputLabel.vue'
 import PrimaryButton from '@/Components/PrimaryButton.vue'
 import TextInput from '@/Components/TextInput.vue'
 import html2canvas from 'html2canvas'
-import { ref, inject, reactive } from 'vue'
+import { ref, inject, reactive, onBeforeUnmount, nextTick, watch } from 'vue'
 import { usePage, router } from '@inertiajs/vue3'
 
 // Always safe — provides fallback {}
@@ -18,6 +18,8 @@ const form = reactive({
     name: user.name ?? "",
     email: user.email ?? "",
     profile_photo: null,
+    signature_file: null,
+    signature_drawn: "",
     contact_channels: user.contact_channels ?? {
         mobile: { enabled: false, value: "" },
         telegram: { enabled: false, value: "" },
@@ -26,13 +28,150 @@ const form = reactive({
 })
 
 const previewPhoto = ref(user.profile_photo ?? null)
+const photoFileName = ref("")
+const photoVisible = ref(true)
+const showPhotoEditor = ref(false)
+const previewSignature = ref(user.signature ?? null)
+const signatureFileName = ref("")
+const signatureMode = ref("upload")
+const signatureVisible = ref(true)
+const showSignatureEditor = ref(false)
+const canvasRef = ref(null)
+let canvas = null
+let ctx = null
+let drawing = false
 
 function onPhotoSelected(e) {
     const file = e.target.files[0]
     if (!file) return
 
     form.profile_photo = file
+    photoFileName.value = file.name
     previewPhoto.value = URL.createObjectURL(file)
+}
+
+function clearSelectedPhoto() {
+    form.profile_photo = null
+    photoFileName.value = ""
+    previewPhoto.value = user.profile_photo ?? null
+}
+
+function openPhotoEditor() {
+    showPhotoEditor.value = true
+}
+
+function closePhotoEditor() {
+    showPhotoEditor.value = false
+}
+
+function onSignatureSelected(e) {
+    const file = e.target.files[0]
+    if (!file) return
+
+    const isPng = file.type === "image/png"
+    if (!isPng) {
+        toast?.value?.show("Only PNG signature is allowed", "error")
+        e.target.value = ""
+        return
+    }
+
+    form.signature_file = file
+    form.signature_drawn = ""
+    signatureFileName.value = file.name
+    previewSignature.value = URL.createObjectURL(file)
+}
+
+function setupCanvas() {
+    canvas = canvasRef.value
+    if (!canvas) return
+
+    ctx = canvas.getContext("2d")
+    ctx.fillStyle = "#ffffff"
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.strokeStyle = "#111827"
+    ctx.lineWidth = 2
+    ctx.lineCap = "round"
+    ctx.lineJoin = "round"
+}
+
+function bindCanvasEvents() {
+    if (!canvas) return
+    canvas.addEventListener("mousedown", startDraw)
+    canvas.addEventListener("mousemove", moveDraw)
+    canvas.addEventListener("mouseup", endDraw)
+    canvas.addEventListener("mouseleave", endDraw)
+    canvas.addEventListener("touchstart", startDraw, { passive: true })
+    canvas.addEventListener("touchmove", moveDraw, { passive: false })
+    canvas.addEventListener("touchend", endDraw)
+}
+
+function unbindCanvasEvents() {
+    if (!canvas) return
+    canvas.removeEventListener("mousedown", startDraw)
+    canvas.removeEventListener("mousemove", moveDraw)
+    canvas.removeEventListener("mouseup", endDraw)
+    canvas.removeEventListener("mouseleave", endDraw)
+    canvas.removeEventListener("touchstart", startDraw)
+    canvas.removeEventListener("touchmove", moveDraw)
+    canvas.removeEventListener("touchend", endDraw)
+}
+
+function pointFromEvent(e) {
+    const rect = canvas.getBoundingClientRect()
+    const source = e.touches ? e.touches[0] : e
+    return {
+        x: (source.clientX - rect.left) * (canvas.width / rect.width),
+        y: (source.clientY - rect.top) * (canvas.height / rect.height),
+    }
+}
+
+function startDraw(e) {
+    if (!ctx || !canvas) return
+    drawing = true
+    const p = pointFromEvent(e)
+    ctx.beginPath()
+    ctx.moveTo(p.x, p.y)
+}
+
+function moveDraw(e) {
+    if (!drawing || !ctx || !canvas) return
+    e.preventDefault()
+    const p = pointFromEvent(e)
+    ctx.lineTo(p.x, p.y)
+    ctx.stroke()
+}
+
+function endDraw() {
+    drawing = false
+}
+
+function clearSignaturePad() {
+    if (!ctx || !canvas) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = "#ffffff"
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+}
+
+function saveDrawnSignature() {
+    if (!canvas) return
+
+    form.signature_drawn = canvas.toDataURL("image/png")
+    form.signature_file = null
+    signatureFileName.value = ""
+    previewSignature.value = form.signature_drawn
+    toast?.value?.show("Drawn signature saved", "success")
+}
+
+async function openSignatureEditor() {
+    showSignatureEditor.value = true
+    await nextTick()
+    setupCanvas()
+    bindCanvasEvents()
+}
+
+function closeSignatureEditor() {
+    unbindCanvasEvents()
+    showSignatureEditor.value = false
 }
 
 async function downloadCard() {
@@ -72,10 +211,41 @@ async function saveProfile() {
         fd.append("profile_photo", form.profile_photo)
     }
 
+    if (form.signature_file) {
+        fd.append("signature_file", form.signature_file)
+    }
+
+    if (form.signature_drawn) {
+        fd.append("signature_drawn", form.signature_drawn)
+    }
+
     router.post("/profile/update", fd, {
-        onSuccess: () => toast.value.show("Profile updated!", "success")
+        forceFormData: true,
+        onSuccess: () => toast?.value?.show("Profile updated!", "success"),
+        onError: (errors) => {
+            const first = Object.values(errors ?? {})[0]
+            toast?.value?.show(first || "Profile update failed.", "error")
+        },
     })
 }
+
+onBeforeUnmount(() => {
+    unbindCanvasEvents()
+})
+
+watch(signatureMode, async (mode) => {
+    if (!showSignatureEditor.value) return
+
+    if (mode === "draw") {
+        await nextTick()
+        setupCanvas()
+        unbindCanvasEvents()
+        bindCanvasEvents()
+        return
+    }
+
+    unbindCanvasEvents()
+})
 </script>
 
 <template>
@@ -98,18 +268,74 @@ async function saveProfile() {
             <div class="space-y-6">
 
                 <!-- PHOTO -->
-                <div>
-                    <InputLabel value="Profile Picture" />
+                <div class="rounded-xl border bg-gray-50 p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="text-sm font-semibold text-gray-800">Profile Picture</div>
+                            <p class="text-xs text-gray-500">Shown in top bar and profile card.</p>
+                        </div>
+                        <button
+                            type="button"
+                            class="px-3 py-1.5 text-xs rounded border bg-white hover:bg-gray-100"
+                            @click="openPhotoEditor"
+                        >
+                            Edit
+                        </button>
+                    </div>
 
-                    <input 
-                        type="file"
-                        accept="image/*"
-                        @change="onPhotoSelected"
-                        class="mt-1 block w-full"
-                    />
+                    <div class="flex items-center gap-2">
+                        <button
+                            type="button"
+                            class="px-3 py-1.5 text-xs rounded border bg-white hover:bg-gray-100"
+                            @click="photoVisible = !photoVisible"
+                        >
+                            {{ photoVisible ? 'Hide Photo' : 'Show Photo' }}
+                        </button>
+                    </div>
 
-                    <div v-if="previewPhoto" class="mt-4">
-                        <img :src="previewPhoto" class="w-24 h-24 rounded-full object-cover border shadow" />
+                    <div v-if="photoVisible" class="rounded-lg border bg-white p-3 min-h-[90px] flex items-center justify-center">
+                        <img
+                            v-if="previewPhoto"
+                            :src="previewPhoto"
+                            class="w-20 h-20 rounded-full object-cover border shadow"
+                        />
+                        <p v-else class="text-xs text-gray-400">No profile picture yet</p>
+                    </div>
+                </div>
+
+                <!-- SIGNATURE -->
+                <div class="rounded-xl border bg-gray-50 p-4 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="text-sm font-semibold text-gray-800">Signature</div>
+                            <p class="text-xs text-gray-500">Use for documents and approvals.</p>
+                        </div>
+                        <button
+                            type="button"
+                            class="px-3 py-1.5 text-xs rounded border bg-white hover:bg-gray-100"
+                            @click="openSignatureEditor"
+                        >
+                            Edit
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <button
+                            type="button"
+                            class="px-3 py-1.5 text-xs rounded border bg-white hover:bg-gray-100"
+                            @click="signatureVisible = !signatureVisible"
+                        >
+                            {{ signatureVisible ? 'Hide Signature' : 'Show Signature' }}
+                        </button>
+                    </div>
+
+                    <div v-if="signatureVisible" class="rounded-lg border bg-white p-3 min-h-[90px] flex items-center">
+                        <img
+                            v-if="previewSignature"
+                            :src="previewSignature"
+                            class="max-h-16 object-contain"
+                        />
+                        <p v-else class="text-xs text-gray-400">No signature yet</p>
                     </div>
                 </div>
 
@@ -319,5 +545,167 @@ async function saveProfile() {
         </div>
 
     </form>
+
+    <div
+        v-if="showPhotoEditor"
+        class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        @click.self="closePhotoEditor"
+    >
+        <div class="w-full max-w-xl rounded-2xl bg-white shadow-2xl border overflow-hidden">
+            <div class="px-5 py-4 border-b flex items-center justify-between">
+                <div>
+                    <h3 class="text-base font-semibold text-gray-900">Edit Profile Picture</h3>
+                    <p class="text-xs text-gray-500">Upload a clear image for your account avatar.</p>
+                </div>
+                <button
+                    type="button"
+                    class="text-gray-500 hover:text-gray-800"
+                    @click="closePhotoEditor"
+                >
+                    Close
+                </button>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <div class="space-y-3">
+                    <InputLabel value="Upload Profile Picture" />
+                    <input
+                        type="file"
+                        accept="image/*"
+                        @change="onPhotoSelected"
+                        class="block w-full"
+                    />
+                    <p v-if="photoFileName" class="text-xs text-gray-500">
+                        Selected: {{ photoFileName }}
+                    </p>
+                </div>
+
+                <div class="rounded-lg border bg-gray-50 p-4 min-h-[180px] flex items-center justify-center">
+                    <img
+                        v-if="previewPhoto"
+                        :src="previewPhoto"
+                        class="w-36 h-36 rounded-full object-cover border shadow"
+                    />
+                    <p v-else class="text-xs text-gray-400">No profile picture preview</p>
+                </div>
+            </div>
+
+            <div class="px-5 py-4 border-t flex items-center justify-between">
+                <button
+                    type="button"
+                    class="px-4 py-2 rounded border bg-white hover:bg-gray-50"
+                    @click="clearSelectedPhoto"
+                >
+                    Reset
+                </button>
+                <button
+                    type="button"
+                    class="px-4 py-2 rounded bg-gray-900 text-white hover:bg-black"
+                    @click="closePhotoEditor"
+                >
+                    Done
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div
+        v-if="showSignatureEditor"
+        class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        @click.self="closeSignatureEditor"
+    >
+        <div class="w-full max-w-2xl rounded-2xl bg-white shadow-2xl border overflow-hidden">
+            <div class="px-5 py-4 border-b flex items-center justify-between">
+                <div>
+                    <h3 class="text-base font-semibold text-gray-900">Edit Signature</h3>
+                    <p class="text-xs text-gray-500">Upload PNG or draw your signature.</p>
+                </div>
+                <button
+                    type="button"
+                    class="text-gray-500 hover:text-gray-800"
+                    @click="closeSignatureEditor"
+                >
+                    Close
+                </button>
+            </div>
+
+            <div class="px-5 pt-4">
+                <div class="inline-flex rounded-lg border bg-gray-50 p-1">
+                    <button
+                        type="button"
+                        class="px-3 py-1.5 text-sm rounded"
+                        :class="signatureMode === 'upload' ? 'bg-white shadow text-gray-900' : 'text-gray-500'"
+                        @click="signatureMode = 'upload'"
+                    >
+                        Upload PNG
+                    </button>
+                    <button
+                        type="button"
+                        class="px-3 py-1.5 text-sm rounded"
+                        :class="signatureMode === 'draw' ? 'bg-white shadow text-gray-900' : 'text-gray-500'"
+                        @click="signatureMode = 'draw'"
+                    >
+                        Draw
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-5 space-y-4">
+                <div v-if="signatureMode === 'upload'" class="space-y-3">
+                    <InputLabel value="Upload Signature (PNG only)" />
+                    <input
+                        type="file"
+                        accept="image/png"
+                        @change="onSignatureSelected"
+                        class="block w-full"
+                    />
+                    <p v-if="signatureFileName" class="text-xs text-gray-500">
+                        Selected: {{ signatureFileName }}
+                    </p>
+                </div>
+
+                <div v-else class="space-y-3">
+                    <InputLabel value="Draw Signature" />
+                    <canvas
+                        ref="canvasRef"
+                        width="720"
+                        height="220"
+                        class="w-full border rounded bg-white touch-none"
+                    />
+                    <div class="flex items-center gap-2">
+                        <button
+                            type="button"
+                            class="px-3 py-1.5 text-sm rounded bg-gray-200 hover:bg-gray-300"
+                            @click="clearSignaturePad"
+                        >
+                            Clear
+                        </button>
+                        <button
+                            type="button"
+                            class="px-3 py-1.5 text-sm rounded bg-gray-800 text-white hover:bg-black"
+                            @click="saveDrawnSignature"
+                        >
+                            Save Drawn Signature
+                        </button>
+                    </div>
+                </div>
+
+                <div class="rounded-lg border bg-gray-50 p-3 min-h-[90px] flex items-center">
+                    <img v-if="previewSignature" :src="previewSignature" class="max-h-16 object-contain" />
+                    <p v-else class="text-xs text-gray-400">No signature preview</p>
+                </div>
+            </div>
+
+            <div class="px-5 py-4 border-t flex justify-end">
+                <button
+                    type="button"
+                    class="px-4 py-2 rounded bg-gray-900 text-white hover:bg-black"
+                    @click="closeSignatureEditor"
+                >
+                    Done
+                </button>
+            </div>
+        </div>
+    </div>
 </section>
 </template>

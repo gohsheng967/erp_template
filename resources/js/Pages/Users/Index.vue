@@ -4,6 +4,7 @@ import { Link, usePage, router } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import CreateUserModal from "./Partials/CreateUserModal.vue";
 import EditUserModal from "./Partials/EditUserModal.vue";
+import ManageBranchesModal from "./Partials/ManageBranchesModal.vue";
 
 const page = usePage();
 
@@ -11,23 +12,24 @@ const users = page.props.users;
 const filters = page.props.filters;
 const departments = page.props.departments;
 const rolesByDept = page.props.rolesByDept;
+const branches = page.props.branches;
 
-/* =====================
-   UI STATE
-===================== */
 const showCreate = ref(false);
 const showEdit = ref(false);
+const showBranches = ref(false);
 const selectedUser = ref(null);
 
 const search = ref(filters.search ?? "");
 const statusFilter = ref(filters.status ?? "");
 
-/* =====================
-   ACTIONS
-===================== */
 function openEdit(user) {
     selectedUser.value = user;
     showEdit.value = true;
+}
+
+function openBranches(user) {
+    selectedUser.value = user;
+    showBranches.value = true;
 }
 
 function refreshUsers() {
@@ -49,8 +51,6 @@ function refreshUsers() {
 
 <template>
     <AuthenticatedLayout>
-
-        <!-- HEADER -->
         <template #header>
             <div class="flex justify-between items-center">
                 <h2 class="text-xl font-semibold">User Management</h2>
@@ -64,15 +64,13 @@ function refreshUsers() {
         </template>
 
         <div class="p-6 space-y-6">
-
-            <!-- FILTERS -->
             <div class="bg-white p-4 rounded shadow flex gap-4">
                 <input
                     v-model="search"
                     placeholder="Search"
                     class="input w-full"
                     @keyup.enter="refreshUsers"
-                />
+                >
 
                 <select
                     v-model="statusFilter"
@@ -87,7 +85,6 @@ function refreshUsers() {
                 <button class="btn" @click="refreshUsers">Apply</button>
             </div>
 
-            <!-- TABLE -->
             <div class="bg-white shadow rounded overflow-hidden">
                 <table class="w-full">
                     <thead class="bg-gray-50">
@@ -96,6 +93,7 @@ function refreshUsers() {
                             <th class="th">Name</th>
                             <th class="th">Email</th>
                             <th class="th">Departments / Roles</th>
+                            <th class="th">Branches</th>
                             <th class="th text-center">Status</th>
                             <th class="th text-center">Actions</th>
                         </tr>
@@ -106,35 +104,56 @@ function refreshUsers() {
                             <td class="td font-semibold">{{ user.name }}</td>
                             <td class="td">{{ user.email }}</td>
                             <td class="td">
-                                <div v-for="a in user.assignments">
-                                    <strong>{{ a.department }}</strong> — {{ a.role }}
+                                <div v-for="a in user.assignments" :key="`${user.id}-${a.department_id}-${a.role_id}`">
+                                    <strong>{{ a.department }}</strong> - {{ a.role }}
+                                </div>
+                            </td>
+                            <td class="td">
+                                <div class="flex flex-wrap gap-1">
+                                    <span
+                                        v-for="b in (user.branches ?? [])"
+                                        :key="b.id"
+                                        class="px-2 py-0.5 text-xs rounded bg-gray-100 text-gray-700 uppercase"
+                                    >
+                                        {{ b.slug }}
+                                    </span>
+                                    <span v-if="!(user.branches ?? []).length" class="text-xs text-gray-400">
+                                        -
+                                    </span>
                                 </div>
                             </td>
                             <td class="td text-center">
-                                <span
-                                    :class="user.status ? 'ok' : 'bad'"
-                                    class="badge"
-                                >
+                                <span :class="user.status ? 'ok' : 'bad'" class="badge">
                                     {{ user.status ? "Active" : "Suspended" }}
                                 </span>
                             </td>
                             <td class="td text-center">
-                                <button
-                                    @click="openEdit(user)"
-                                    class="action text-indigo-600"
-                                >
-                                    ✎
-                                </button>
+                                <div class="flex items-center justify-center gap-2">
+                                    <button
+                                        @click="openEdit(user)"
+                                        class="action text-indigo-600"
+                                        title="Edit User"
+                                    >
+                                        Edit
+                                    </button>
+                                    <button
+                                        @click="openBranches(user)"
+                                        class="action text-emerald-700"
+                                        title="Manage Branches"
+                                    >
+                                        Branches
+                                    </button>
+                                </div>
                             </td>
                         </tr>
                     </tbody>
                 </table>
             </div>
 
-            <!-- PAGINATION -->
             <div class="flex gap-1">
                 <Link
                     v-for="l in users.links"
+                    :key="l.label"
                     :href="l.url ?? ''"
                     v-html="l.label"
                     class="px-3 py-1 border rounded"
@@ -143,7 +162,6 @@ function refreshUsers() {
             </div>
         </div>
 
-        <!-- MODALS -->
         <CreateUserModal
             v-model="showCreate"
             :departments="departments"
@@ -156,8 +174,15 @@ function refreshUsers() {
             :user="selectedUser"
             :departments="departments"
             :roles-by-dept="rolesByDept"
+            @updated="refreshUsers"
         />
 
+        <ManageBranchesModal
+            v-model="showBranches"
+            :user="selectedUser"
+            :branches="branches"
+            @updated="refreshUsers"
+        />
     </AuthenticatedLayout>
 </template>
 
@@ -171,3 +196,4 @@ function refreshUsers() {
 .bad { @apply bg-red-100 text-red-700; }
 .action { @apply hover:bg-gray-100 px-2 py-1 rounded; }
 </style>
+

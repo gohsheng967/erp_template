@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useFormat } from '@/Composables/useFormat'
+import SignatureSection from '@/Components/Document/SignatureSection.vue'
 
 const { capitalize, formatCurrency, formatDate } = useFormat()
 const props = defineProps({
@@ -215,7 +216,7 @@ const watermark = computed(() => {
   <!-- =====================
        APPROVAL SIGNATURES
   ====================== -->
-    <div class="grid grid-cols-2 gap-x-12 gap-y-2 mb-6 relative z-10">
+  <div class="grid grid-cols-2 gap-x-12 gap-y-2 mb-6 relative z-10">
 
     <div>
       <div class="mb-8 border-b-2 border-gray-300"></div>
@@ -239,6 +240,11 @@ const watermark = computed(() => {
       </div>
     </div>
   </div>
+
+  <SignatureSection
+    class="relative z-10"
+    title="Prepared Signature"
+  />
 
   <!-- =====================
        FOOTER

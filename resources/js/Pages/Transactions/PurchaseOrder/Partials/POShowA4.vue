@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { amountToWords } from '@/helpers/string'
+import SignatureSection from '@/Components/Document/SignatureSection.vue'
 
 const props = defineProps({
     po: {
@@ -252,5 +253,10 @@ const totalAmount = computed(() =>
             
         </div>
     </div>
+
+    <SignatureSection
+        class="relative z-10"
+        title="Prepared Signature"
+    />
 </div>
 </template>

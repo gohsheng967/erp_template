@@ -67,7 +67,7 @@ function save() {
 <template>
     <section>
         <header>
-            <h2 class="text-lg font-medium text-gray-900">
+            <h2 class="text-lg font-semibold text-gray-900">
                 Company Profile
             </h2>
 
@@ -77,42 +77,43 @@ function save() {
         </header>
 
         <form @submit.prevent="save" class="mt-6 space-y-6">
+            <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <div>
+                    <InputLabel value="Company Name" />
+                    <TextInput
+                        class="mt-1 w-full"
+                        v-model="form.company_name"
+                        placeholder="Infinite Sdn Bhd"
+                    />
 
-            <!-- COMPANY NAME -->
-            <div>
-                <InputLabel value="Company Name" />
-                <TextInput
-                    class="mt-1 w-full"
-                    v-model="form.company_name"
-                />
+                    <InputError
+                        :message="$page.props.errors?.company_name"
+                        class="mt-2"
+                    />
+                </div>
 
-                <InputError
-                    :message="$page.props.errors?.company_name"
-                    class="mt-2"
-                />
+                <div>
+                    <InputLabel value="Registration Number" />
+                    <TextInput
+                        class="mt-1 w-full"
+                        v-model="form.company_reg_no"
+                        placeholder="202601234567"
+                    />
+
+                    <InputError
+                        :message="$page.props.errors?.company_reg_no"
+                        class="mt-2"
+                    />
+                </div>
             </div>
 
-            <!-- REGISTRATION NUMBER -->
-            <div>
-                <InputLabel value="Registration Number" />
-                <TextInput
-                    class="mt-1 w-full"
-                    v-model="form.company_reg_no"
-                />
-
-                <InputError
-                    :message="$page.props.errors?.company_reg_no"
-                    class="mt-2"
-                />
-            </div>
-
-            <!-- ADDRESS -->
             <div>
                 <InputLabel value="Company Address" />
                 <textarea
-                    class="mt-1 w-full border-gray-300 rounded-lg"
-                    rows="3"
+                    class="mt-1 w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                    rows="4"
                     v-model="form.address"
+                    placeholder="No. 1, Jalan Example, Kuala Lumpur"
                 ></textarea>
 
                 <InputError
@@ -121,43 +122,51 @@ function save() {
                 />
             </div>
 
-            <!-- OFFICE NUMBER -->
-            <div>
-                <InputLabel value="Office Number" />
-                <TextInput
-                    class="mt-1 w-full"
-                    v-model="form.office_number"
-                    placeholder="+60123456789"
-                />
+            <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <div>
+                    <InputLabel value="Office Number" />
+                    <TextInput
+                        class="mt-1 w-full"
+                        v-model="form.office_number"
+                        placeholder="+60123456789"
+                    />
 
-                <InputError
-                    :message="$page.props.errors?.office_number"
-                    class="mt-2"
-                />
-            </div>
-
-            <!-- COMPANY LOGO -->
-            <div>
-                <InputLabel value="Company Logo" />
-
-                <input
-                    type="file"
-                    accept="image/*"
-                    @change="onLogoSelect"
-                    class="mt-1"
-                />
-
-                <div v-if="previewLogo" class="mt-4">
-                    <img :src="previewLogo" class="h-24 rounded shadow border" />
+                    <InputError
+                        :message="$page.props.errors?.office_number"
+                        class="mt-2"
+                    />
                 </div>
-
-                <InputError
-                    :message="$page.props.errors?.logo"
-                    class="mt-2"
-                />
             </div>
 
-            <!-- SAVE BUTTON -->
+            <div class="rounded-lg border border-dashed border-gray-300 bg-gray-50/70 p-4">
+                <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div class="space-y-1">
+                        <InputLabel value="Company Logo" />
+                        <p class="text-xs text-gray-500">
+                            Upload a clear image for document headers. PNG/JPG recommended.
+                        </p>
+                        <input
+                            type="file"
+                            accept="image/*"
+                            @change="onLogoSelect"
+                            class="mt-2 block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-100"
+                        />
+                        <InputError
+                            :message="$page.props.errors?.logo"
+                            class="mt-2"
+                        />
+                    </div>
+
+                    <div class="min-w-[9rem]">
+                        <div class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Preview</div>
+                        <div class="flex h-28 w-40 items-center justify-center rounded-lg border border-gray-200 bg-white">
+                            <img v-if="previewLogo" :src="previewLogo" class="max-h-24 rounded object-contain" />
+                            <span v-else class="text-xs text-gray-400">No logo</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="flex items-center gap-4">
                 <PrimaryButton>Save</PrimaryButton>
             </div>

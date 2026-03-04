@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\Department;
 use App\Models\Role;
+use App\Models\Branch;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use App\Http\Requests\StoreUserRequest;
@@ -23,7 +24,7 @@ class UserController extends Controller
         $filters = request()->all();
 
         $users = User::query()
-            ->with(['departments', 'roles'])
+            ->with(['departments', 'roles', 'branches', 'activeBranch'])
             ->when(request('search'), function ($q) {
                 $search = request('search');
                 $q->where(function ($q) use ($search) {
@@ -54,7 +55,13 @@ class UserController extends Controller
                             'role_id'       => $d->pivot->role_id,
                             'role'          => $u->roles->firstWhere('id', $d->pivot->role_id)?->name
                         ];
-                    })
+                    }),
+                    'branches' => $u->branches->map(fn ($b) => [
+                        'id' => $b->id,
+                        'name' => $b->name,
+                        'slug' => $b->slug,
+                    ])->values(),
+                    'active_branch_id' => $u->active_branch_id,
                 ];
             });
 
@@ -62,6 +69,10 @@ class UserController extends Controller
             'users'       => $users,
             'filters'     => $filters,
             'departments' => Department::select('id','name')->get(),
+            'branches'    => Branch::query()
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name', 'slug']),
             'rolesByDept' => Department::with('roles:id,name')
                 ->get()
                 ->mapWithKeys(fn($d) => [$d->id => $d->roles]),
@@ -76,6 +87,14 @@ class UserController extends Controller
     public function store(StoreUserRequest $request)
     {
         DB::transaction(function () use ($request) {
+            $activeBranchId = Branch::query()
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->value('id');
+
+            if (!$activeBranchId) {
+                abort(422, 'Please create at least one active branch before creating users.');
+            }
 
             $user = User::create([
                 'identity_no' => $request->identity_no,
@@ -83,6 +102,7 @@ class UserController extends Controller
                 'email'       => $request->email,
                 'password'    => bcrypt('123456'),
                 'status'      => $request->status,
+                'active_branch_id' => $activeBranchId,
             ]);
 
             // 🔐 FORCE Super Admin role (ignore request input)
@@ -96,6 +116,13 @@ class UserController extends Controller
                 'role_id'       => $superAdminRoleId,
                 'created_at'    => now(),
                 'updated_at'    => now(),
+            ]);
+
+            DB::table('pivot_user_branches')->insert([
+                'user_id' => $user->id,
+                'branch_id' => $activeBranchId,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
         });
 
@@ -141,6 +168,33 @@ class UserController extends Controller
         });
 
         return back()->with('success', 'User updated successfully.');
+    }
+
+    public function updateBranches(\Illuminate\Http\Request $request, User $user)
+    {
+        if ($user->isSuperAdmin()) {
+            abort(403, 'Super Admin account cannot be modified.');
+        }
+
+        $data = $request->validate([
+            'branch_ids' => ['required', 'array', 'min:1'],
+            'branch_ids.*' => ['integer', 'exists:branches,id'],
+            'active_branch_id' => ['required', 'integer', 'exists:branches,id'],
+        ]);
+
+        if (!in_array((int) $data['active_branch_id'], array_map('intval', $data['branch_ids']), true)) {
+            return back()->withErrors([
+                'active_branch_id' => 'Active branch must be one of the selected branches.',
+            ]);
+        }
+
+        DB::transaction(function () use ($user, $data) {
+            $user->branches()->sync($data['branch_ids']);
+            $user->active_branch_id = $data['active_branch_id'];
+            $user->save();
+        });
+
+        return back()->with('success', 'User branches updated successfully.');
     }
 
 

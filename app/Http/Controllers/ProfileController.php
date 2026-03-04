@@ -8,8 +8,11 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
+use Illuminate\Validation\ValidationException;
 
 class ProfileController extends Controller
 {
@@ -32,7 +35,10 @@ class ProfileController extends Controller
     {
         $user = $request->user();
 
-        $user->fill($request->only('name', 'email'));
+        $user->fill([
+            'name' => $request->input('name'),
+            'email' => strtolower((string) $request->input('email')),
+        ]);
 
         // Save contact channels
         $channels = $request->contact_channels;
@@ -46,6 +52,39 @@ class ProfileController extends Controller
         if ($request->hasFile('profile_photo')) {
             $path = $request->file('profile_photo')->store('profile-photos', 'public');
             $user->profile_photo = $path;
+        }
+
+        $signaturePath = null;
+
+        if ($request->filled('signature_drawn')) {
+            $drawn = (string) $request->input('signature_drawn');
+
+            if (!preg_match('/^data:image\/png;base64,/', $drawn)) {
+                throw ValidationException::withMessages([
+                    'signature_drawn' => 'Drawn signature must be PNG data.',
+                ]);
+            }
+
+            $raw = base64_decode(substr($drawn, strpos($drawn, ',') + 1), true);
+
+            if ($raw === false) {
+                throw ValidationException::withMessages([
+                    'signature_drawn' => 'Invalid drawn signature format.',
+                ]);
+            }
+
+            $signaturePath = 'signatures/' . Str::uuid() . '.png';
+            Storage::disk('public')->put($signaturePath, $raw);
+        } elseif ($request->hasFile('signature_file')) {
+            $signaturePath = $request->file('signature_file')->store('signatures', 'public');
+        }
+
+        if ($signaturePath) {
+            if ($user->signature_path) {
+                Storage::disk('public')->delete($user->signature_path);
+            }
+
+            $user->signature_path = $signaturePath;
         }
 
         $user->save();

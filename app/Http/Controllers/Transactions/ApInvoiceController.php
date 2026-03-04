@@ -224,8 +224,10 @@ class ApInvoiceController extends Controller
             'payment_slip_id' => 'required|exists:payment_slips,id',
             'company_bank_account_id' => [
                 'required',
-                Rule::exists('company_bank_accounts', 'id')->where(function ($query) {
-                    $query->where('status', 'active');
+                Rule::exists('company_bank_accounts', 'id')->where(function ($query) use ($request) {
+                    $query
+                        ->where('status', 'active')
+                        ->where('branch_id', (int) ($request->user()?->active_branch_id ?? 0));
                 }),
             ],
             'less_retention' => ['nullable', 'numeric', 'min:0'],
@@ -320,8 +322,10 @@ class ApInvoiceController extends Controller
             'payment_slip_no' => 'nullable|string|max:50',
             'company_bank_account_id' => [
                 'nullable',
-                Rule::exists('company_bank_accounts', 'id')->where(function ($query) {
-                    $query->where('status', 'active');
+                Rule::exists('company_bank_accounts', 'id')->where(function ($query) use ($request) {
+                    $query
+                        ->where('status', 'active')
+                        ->where('branch_id', (int) ($request->user()?->active_branch_id ?? 0));
                 }),
             ],
             'less_retention' => ['nullable', 'numeric', 'min:0'],
@@ -501,8 +505,10 @@ class ApInvoiceController extends Controller
             'payment_slip_id' => ['nullable', 'exists:payment_slips,id'],
             'company_bank_account_id' => [
                 'required',
-                Rule::exists('company_bank_accounts', 'id')->where(function ($query) {
-                    $query->where('status', 'active');
+                Rule::exists('company_bank_accounts', 'id')->where(function ($query) use ($request) {
+                    $query
+                        ->where('status', 'active')
+                        ->where('branch_id', (int) ($request->user()?->active_branch_id ?? 0));
                 }),
             ],
             'less_retention' => ['nullable', 'numeric', 'min:0'],

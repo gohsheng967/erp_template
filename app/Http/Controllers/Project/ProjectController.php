@@ -147,6 +147,7 @@ class ProjectController extends Controller
             'subConTasks' => SubConTask::with([
                 'subCon:id,uuid,name,company_name',
                 'parent:id,uuid,title',
+                'children:id,parent_id',
                 'updates',
                 'paymentSlip.companyBankAccount',
                 'paymentSlip.attachments',

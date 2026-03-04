@@ -20,7 +20,6 @@ class ProfileUpdateRequest extends FormRequest
             'email' => [
                 'required',
                 'string',
-                'lowercase',
                 'email',
                 'max:255',
                 Rule::unique(User::class)->ignore($this->user()->id),
@@ -37,6 +36,16 @@ class ProfileUpdateRequest extends FormRequest
                 'nullable',
                 'image',       // jpeg, png, bmp, gif, svg, webp
                 'max:5120',    // 5 MB in kilobytes
+            ],
+            'signature_file' => [
+                'nullable',
+                'file',
+                'mimes:png',
+                'max:2048',
+            ],
+            'signature_drawn' => [
+                'nullable',
+                'string',
             ],
         ];
     }
