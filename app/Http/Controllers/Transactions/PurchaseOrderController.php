@@ -1,25 +1,22 @@
 <?php
 
 namespace App\Http\Controllers\Transactions;
-use App\Http\Controllers\Controller;
 
-use App\Models\PurchaseOrder;
+use App\Http\Controllers\Controller;
+use App\Models\Attachment;
 use App\Models\CompanyProfile;
 use App\Models\PurchaseDelivery;
 use App\Models\PurchaseDeliveryItem;
-use App\Models\Attachment;
+use App\Models\PurchaseOrder;
 use App\Models\Warehouse;
-
-use Illuminate\Support\Facades\Storage;
-
-use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Illuminate\Validation\Rule;
-use Illuminate\Support\Arr;
-use Illuminate\Validation\ValidationException;
-use DB;
-use Illuminate\Support\Str;
 use App\Services\InventoryService;
+use DB;
+use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use Inertia\Inertia;
 
 class PurchaseOrderController extends Controller
 {
@@ -27,18 +24,18 @@ class PurchaseOrderController extends Controller
     {
         $filters = [
             'search' => $request->get('search'),
-            'from'   => $request->get('from'),
-            'to'     => $request->get('to'),
+            'from' => $request->get('from'),
+            'to' => $request->get('to'),
         ];
 
         $query = PurchaseOrder::query()
-            ->with(['supplier', 'items']) // ✅ preload items
+            ->with(['supplier', 'items'])
             ->when($filters['search'], function ($q) use ($filters) {
                 $q->where(function ($qq) use ($filters) {
                     $qq->where('code', 'like', "%{$filters['search']}%")
-                    ->orWhereHas('supplier', fn ($s) =>
+                        ->orWhereHas('supplier', fn ($s) =>
                             $s->where('company_name', 'like', "%{$filters['search']}%")
-                    );
+                        );
                 });
             })
             ->when($filters['from'], fn ($q) =>
@@ -48,11 +45,16 @@ class PurchaseOrderController extends Controller
                 $q->whereDate('order_date', '<=', $filters['to'])
             );
 
+        if ($this->shouldScopeToActiveBranch($request)) {
+            $query->whereHas('purchaseRequest', function ($q) use ($request) {
+                $q->where('branch_id', $this->activeBranchId($request));
+            });
+        }
+
         $purchaseOrders = $query
             ->latest('order_date')
             ->paginate(10)
             ->through(function ($po) {
-
                 $totalOrdered = $po->items->sum('quantity');
                 $totalDelivered = $po->items->sum('delivered_quantity');
 
@@ -61,68 +63,63 @@ class PurchaseOrderController extends Controller
                     : 0;
 
                 return [
-                    'id'              => $po->id,
-                    'uuid'            => $po->uuid,
-                    'code'            => $po->code,
-                    'status'          => $po->status,
-                    'created_at'      => $po->created_at,
-                    'confirmed_at'    => $po->confirmed_at,
-                    'order_date'      => $po->order_date,
-                    'supplier'        => $po->supplier,
-
-                    // ✅ REAL DELIVERY DATA
-                    'delivered_qty'    => $totalDelivered,
+                    'id' => $po->id,
+                    'uuid' => $po->uuid,
+                    'code' => $po->code,
+                    'status' => $po->status,
+                    'created_at' => $po->created_at,
+                    'confirmed_at' => $po->confirmed_at,
+                    'order_date' => $po->order_date,
+                    'supplier' => $po->supplier,
+                    'delivered_qty' => $totalDelivered,
                     'delivery_percent' => $deliveryPercent,
-
-                    // (still placeholder, future phase)
-                    'payment_status'   => 'pending',
-                    'items'            => $po->items
+                    'payment_status' => 'pending',
+                    'items' => $po->items,
                 ];
             });
 
         return Inertia::render('Transactions/PurchaseOrder/Index', [
             'purchaseOrders' => $purchaseOrders,
-            'filters'        => $filters,
+            'filters' => $filters,
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | SHOW
-    | Used by POShowModal (AJAX)
-    |--------------------------------------------------------------------------
-    */
-    public function show(string $uuid)
+    public function show(Request $request, string $uuid)
     {
-        $po = PurchaseOrder::with([
+        $poQuery = PurchaseOrder::with([
             'supplier',
             'items',
             'purchaseRequest.approver',
             'confirmBy',
-            'signedPo'
-        ])
-        ->where('uuid', $uuid)
-        ->firstOrFail();
+            'signedPo',
+        ])->where('uuid', $uuid);
+
+        if ($this->shouldScopeToActiveBranch($request)) {
+            $poQuery->whereHas('purchaseRequest', function ($q) use ($request) {
+                $q->where('branch_id', $this->activeBranchId($request));
+            });
+        }
+
+        $po = $poQuery->firstOrFail();
 
         return response()->json([
-            'po'      => $po,
+            'po' => $po,
             'company' => CompanyProfile::first(),
         ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | SAVE DRAFT
-    | Update order_date & expected_delivery_date only
-    |--------------------------------------------------------------------------
-    */
     public function confirmOrder(Request $request, string $uuid)
     {
-        $po = PurchaseOrder::where('uuid', $uuid)->firstOrFail();
+        $poQuery = PurchaseOrder::where('uuid', $uuid);
 
-        /* =========================
-        STATUS GUARD
-        ========================= */
+        if ($this->shouldScopeToActiveBranch($request)) {
+            $poQuery->whereHas('purchaseRequest', function ($q) use ($request) {
+                $q->where('branch_id', $this->activeBranchId($request));
+            });
+        }
+
+        $po = $poQuery->firstOrFail();
+
         if ($po->status !== 'issued') {
             throw ValidationException::withMessages([
                 'status' => 'Only issued purchase orders can be confirmed.',
@@ -135,19 +132,12 @@ class PurchaseOrderController extends Controller
             ]);
         }
 
-        /* =========================
-        VALIDATION
-        ========================= */
         $data = $request->validate([
             'order_date' => ['required', 'date'],
-            'signed_po'  => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'signed_po' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
         ]);
 
         DB::transaction(function () use ($po, $data, $request) {
-
-            /* =========================
-            SIGNED PO HANDLING
-            ========================= */
             $hasSignedPO = $po->attachments()->exists();
 
             if (!$hasSignedPO && !$request->hasFile('signed_po')) {
@@ -157,7 +147,6 @@ class PurchaseOrderController extends Controller
             }
 
             if ($request->hasFile('signed_po')) {
-
                 if ($hasSignedPO) {
                     throw ValidationException::withMessages([
                         'signed_po' => 'Signed PO already uploaded.',
@@ -168,39 +157,43 @@ class PurchaseOrderController extends Controller
                 $path = $file->store('purchase-orders/signed', 'public');
 
                 $po->attachments()->create([
-                    'file_path'     => $path,
+                    'file_path' => $path,
                     'original_name' => $file->getClientOriginalName(),
-                    'created_by'    => auth()->id(),
+                    'created_by' => auth()->id(),
                 ]);
             }
 
-            /* =========================
-            CONFIRM PO
-            ========================= */
             $po->update([
-                'order_date'    => $data['order_date'],
-                'status'        => 'confirmed',   // ✅ CRITICAL
-                'confirmed_at'  => now(),
-                'confirmed_by'  => auth()->id(),
+                'order_date' => $data['order_date'],
+                'status' => 'confirmed',
+                'confirmed_at' => now(),
+                'confirmed_by' => auth()->id(),
             ]);
         });
 
         return response()->json([
             'success' => true,
-            'status'  => 'confirmed',
+            'status' => 'confirmed',
         ]);
     }
 
     public function updateTerms(Request $request, string $uuid)
     {
-        $po = PurchaseOrder::where('uuid', $uuid)->firstOrFail();
+        $poQuery = PurchaseOrder::where('uuid', $uuid);
+
+        if ($this->shouldScopeToActiveBranch($request)) {
+            $poQuery->whereHas('purchaseRequest', function ($q) use ($request) {
+                $q->where('branch_id', $this->activeBranchId($request));
+            });
+        }
+
+        $po = $poQuery->firstOrFail();
 
         $validated = $request->validate([
             'terms' => ['nullable', 'array'],
             'terms.*' => ['nullable', 'string'],
         ]);
 
-        // Clean & normalize
         $terms = collect($validated['terms'] ?? [])
             ->map(fn ($t) => trim($t))
             ->filter()
@@ -212,25 +205,31 @@ class PurchaseOrderController extends Controller
 
         return response()->json([
             'success' => true,
-            'terms'   => $po->terms,
+            'terms' => $po->terms,
         ]);
     }
 
-    public function deliveries(string $uuid)
+    public function deliveries(Request $request, string $uuid)
     {
-        $purchaseOrder = PurchaseOrder::with([
-                'supplier',
-                'items',
-            ])
-            ->where('uuid', $uuid)
-            ->firstOrFail();
+        $purchaseOrderQuery = PurchaseOrder::with([
+            'supplier',
+            'items',
+        ])->where('uuid', $uuid);
+
+        if ($this->shouldScopeToActiveBranch($request)) {
+            $purchaseOrderQuery->whereHas('purchaseRequest', function ($q) use ($request) {
+                $q->where('branch_id', $this->activeBranchId($request));
+            });
+        }
+
+        $purchaseOrder = $purchaseOrderQuery->firstOrFail();
 
         $deliveries = PurchaseDelivery::with([
-                'items.orderItem',
-                'creator',
-                'attachments', 
-                'items.warehouse',
-            ])
+            'items.orderItem',
+            'creator',
+            'attachments',
+            'items.warehouse',
+        ])
             ->where('purchase_order_id', $purchaseOrder->id)
             ->orderBy('delivery_date')
             ->get();
@@ -242,40 +241,38 @@ class PurchaseOrderController extends Controller
         return inertia('Transactions/PurchaseOrder/Deliveries/Index', [
             'purchaseOrder' => $purchaseOrder,
             'deliveries' => $deliveries,
-            'warehouses'    => $warehouses,
+            'warehouses' => $warehouses,
         ]);
     }
 
     public function storeDelivery(Request $request, string $uuid)
     {
+        $purchaseOrderQuery = PurchaseOrder::with('items')
+            ->where('uuid', $uuid);
 
-        $purchaseOrder = PurchaseOrder::with('items')
-            ->where('uuid', $uuid)
-            ->firstOrFail();
+        if ($this->shouldScopeToActiveBranch($request)) {
+            $purchaseOrderQuery->whereHas('purchaseRequest', function ($q) use ($request) {
+                $q->where('branch_id', $this->activeBranchId($request));
+            });
+        }
 
-        /* =========================
-        VALIDATION
-        ========================= */
+        $purchaseOrder = $purchaseOrderQuery->firstOrFail();
+
         $validated = $request->validate([
             'delivery_date' => ['required', 'date'],
-            'title'         => ['required', 'string', 'max:255'],
-            'description'   => ['nullable', 'string'],
-            'status'        => ['required', 'in:transit,warehouse,returned'],
+            'title' => ['required', 'string', 'max:255'],
+            'description' => ['nullable', 'string'],
+            'status' => ['required', 'in:transit,warehouse,returned'],
             'delivery_type' => ['required', 'in:partial,full'],
-            'warehouse_id'  => ['nullable', 'exists:warehouses,id'],
-
-            'items'         => ['array'],
+            'warehouse_id' => ['nullable', 'exists:warehouses,id'],
+            'items' => ['array'],
             'items.*.purchase_order_item_id' => ['required', 'exists:purchase_order_items,id'],
-            'items.*.quantity'               => ['required', 'numeric', 'min:0'],
-            'items.*.destination'            => ['nullable', 'string'],
-            'items.*.remark'                 => ['nullable', 'string'],
-
-            'attachments.*' => ['file', 'max:10240'], // 10MB
+            'items.*.quantity' => ['required', 'numeric', 'min:0'],
+            'items.*.destination' => ['nullable', 'string'],
+            'items.*.remark' => ['nullable', 'string'],
+            'attachments.*' => ['file', 'max:10240'],
         ]);
 
-        /* =========================
-        BUSINESS RULES
-        ========================= */
         if ($validated['status'] === 'warehouse' && empty($validated['warehouse_id'])) {
             throw ValidationException::withMessages([
                 'warehouse_id' => 'Warehouse is required when status is warehouse.',
@@ -283,28 +280,19 @@ class PurchaseOrderController extends Controller
         }
 
         DB::transaction(function () use ($request, $purchaseOrder, $validated) {
-
-            /* =========================
-            CREATE DELIVERY (PD)
-            ========================= */
             $delivery = PurchaseDelivery::create([
-                'uuid'              => Str::uuid(),
+                'uuid' => Str::uuid(),
                 'purchase_order_id' => $purchaseOrder->id,
-                'delivery_date'     => $validated['delivery_date'],
-                'title'             => $validated['title'],
-                'description'       => $validated['description'] ?? null,
-                'status'            => $validated['status'],
-                'delivery_type'     => $validated['delivery_type'],
-                'created_by'        => auth()->id(),
+                'delivery_date' => $validated['delivery_date'],
+                'title' => $validated['title'],
+                'description' => $validated['description'] ?? null,
+                'status' => $validated['status'],
+                'delivery_type' => $validated['delivery_type'],
+                'created_by' => auth()->id(),
             ]);
 
-            /* =========================
-            ITEMS (WAREHOUSE ONLY)
-            ========================= */
             if ($validated['status'] === 'warehouse') {
-
                 foreach ($validated['items'] as $itemData) {
-
                     if ((float) $itemData['quantity'] <= 0) {
                         continue;
                     }
@@ -326,17 +314,15 @@ class PurchaseOrderController extends Controller
                         ]);
                     }
 
-                    // create delivery item
                     $deliveryItem = PurchaseDeliveryItem::create([
                         'purchase_delivery_id' => $delivery->id,
                         'purchase_order_item_id' => $poItem->id,
-                        'quantity'     => $itemData['quantity'],
-                        'destination'  => $validated['warehouse_id'] ?? null,
-                        'remark'       => $itemData['remark'] ?? null,
+                        'quantity' => $itemData['quantity'],
+                        'destination' => $validated['warehouse_id'] ?? null,
+                        'remark' => $itemData['remark'] ?? null,
                     ]);
 
                     $inventory = app(InventoryService::class);
-
                     $inventory->stockIn([
                         'warehouse_id' => $validated['warehouse_id'],
                         'purchase_order_item_id' => $poItem->id,
@@ -346,36 +332,27 @@ class PurchaseOrderController extends Controller
                         'remark' => 'Purchase delivery',
                     ]);
 
-                    // update delivered qty
                     $poItem->increment('delivered_quantity', $itemData['quantity']);
                 }
             }
 
-            /* =========================
-            ATTACHMENTS (BIND TO PD)
-            ========================= */
             if ($request->hasFile('attachments')) {
-
                 foreach ($request->file('attachments') as $file) {
-
                     $path = $file->store('purchase-deliveries', 'public');
 
                     Attachment::create([
-                        'attachable_type' => PurchaseDelivery::class, // ✅ CORRECT
-                        'attachable_id'   => $delivery->id,           // ✅ CORRECT
-                        'file_path'       => $path,
-                        'original_name'   => $file->getClientOriginalName(),
-                        'mime_type'       => $file->getClientMimeType(),
-                        'file_size'       => $file->getSize(),
-                        'created_by'      => auth()->id(),
+                        'attachable_type' => PurchaseDelivery::class,
+                        'attachable_id' => $delivery->id,
+                        'file_path' => $path,
+                        'original_name' => $file->getClientOriginalName(),
+                        'mime_type' => $file->getClientMimeType(),
+                        'file_size' => $file->getSize(),
+                        'created_by' => auth()->id(),
                     ]);
                 }
             }
 
-            /* =========================
-            AUTO FULL DELIVERY CHECK
-            ========================= */
-            $totalOrdered   = $purchaseOrder->items->sum('quantity');
+            $totalOrdered = $purchaseOrder->items->sum('quantity');
             $totalDelivered = $purchaseOrder->items->sum('delivered_quantity');
 
             if ($totalDelivered >= $totalOrdered) {
@@ -386,66 +363,68 @@ class PurchaseOrderController extends Controller
         return back();
     }
 
-    public function destroyDelivery(string $uuid)
+    public function destroyDelivery(Request $request, string $uuid)
     {
-        $delivery = PurchaseDelivery::with([
+        $deliveryQuery = PurchaseDelivery::with([
             'items.orderItem',
             'attachments',
-        ])
-        ->where('uuid', $uuid)
-        ->firstOrFail();
+        ])->where('uuid', $uuid);
+
+        if ($this->shouldScopeToActiveBranch($request)) {
+            $deliveryQuery->whereHas('purchaseOrder.purchaseRequest', function ($q) use ($request) {
+                $q->where('branch_id', $this->activeBranchId($request));
+            });
+        }
+
+        $delivery = $deliveryQuery->firstOrFail();
 
         DB::transaction(function () use ($delivery) {
-
-            /* =========================
-            REVERSE DELIVERED QTY
-            ========================= */
             if ($delivery->status === 'warehouse') {
-
                 foreach ($delivery->items as $item) {
-
                     $poItem = $item->orderItem;
 
                     if ($poItem) {
-                        $poItem->decrement(
-                            'delivered_quantity',
-                            $item->quantity
-                        );
+                        $poItem->decrement('delivered_quantity', $item->quantity);
                     }
+
+                    $inventory = app(InventoryService::class);
+                    $inventory->stockOut([
+                        'warehouse_id' => $item->destination,
+                        'purchase_order_item_id' => $item->purchase_order_item_id,
+                        'quantity' => $item->quantity,
+                        'reference_type' => PurchaseDeliveryItem::class,
+                        'reference_id' => $item->id,
+                        'remark' => 'Delivery cancelled',
+                    ]);
                 }
             }
 
-            /* =========================
-            DELETE ATTACHMENTS
-            ========================= */
             foreach ($delivery->attachments as $file) {
                 Storage::disk('public')->delete($file->file_path);
                 $file->delete();
             }
 
-            $inventory = app(InventoryService::class);
-
-            $inventory->stockOut([
-                'warehouse_id' => $item->destination,
-                'purchase_order_item_id' => $item->purchase_order_item_id,
-                'quantity' => $item->quantity,
-                'reference_type' => PurchaseDeliveryItem::class,
-                'reference_id' => $item->id,
-                'remark' => 'Delivery cancelled',
-            ]);
-
-
-            /* =========================
-            DELETE ITEMS
-            ========================= */
             $delivery->items()->delete();
-
-            /* =========================
-            DELETE DELIVERY
-            ========================= */
             $delivery->delete();
         });
 
         return back();
     }
+
+    private function activeBranchId(Request $request): int
+    {
+        $branchId = (int) ($request->user()?->active_branch_id ?? 0);
+
+        if ($branchId <= 0) {
+            abort(403, 'Active branch is required.');
+        }
+
+        return $branchId;
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
 }
+

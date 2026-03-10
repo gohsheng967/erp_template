@@ -14,7 +14,6 @@ class DepartmentRoleSeeder extends Seeder
         $map = [
             'HR' => ['Manager', 'Recruiter', 'Trainer'],
             'Finance' => ['Manager', 'Accountant', 'Auditor'],
-            'Superadmin' => ['Superadmin'],
             'Operations' => ['Supervisor', 'Staff'],
         ];
 

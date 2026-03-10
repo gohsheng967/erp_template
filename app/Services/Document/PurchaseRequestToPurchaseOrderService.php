@@ -41,6 +41,7 @@ class PurchaseRequestToPurchaseOrderService
             $po = PurchaseOrder::create([
                 'code' => $this->generateCode(),
                 'purchase_request_id' => $pr->id,
+                'branch_id' => $pr->branch_id,
                 'supplier_id' => $supplierId,
                 'total_amount' => $total,
                 'order_date' => now(),

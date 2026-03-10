@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-use PragmaRX\Google2FA\Google2FA;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use PragmaRX\Google2FA\Google2FA;
 
 class MFAVerifyController extends Controller
 {
@@ -27,20 +27,16 @@ class MFAVerifyController extends Controller
         $totpCode = preg_replace('/\D/', '', $rawCode);
         $backupCode = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $rawCode));
 
-        // 1 — Google Authenticator TOTP
         if ($totpCode !== '' && $google2fa->verifyKey($user->google2fa_secret, $totpCode)) {
             session(['mfa_passed' => true]);
             return redirect()->route('dashboard');
         }
 
-        // 2 — Backup Code
         if ($backupCode !== '' && $user->mfa_backup_code && Hash::check($backupCode, $user->mfa_backup_code)) {
-
             $user->mfa_backup_code = null;
 
             $newPlain = strtoupper(Str::random(10));
             $user->mfa_backup_code = Hash::make($newPlain);
-
             $user->save();
 
             session(['mfa_passed' => true]);
@@ -52,3 +48,4 @@ class MFAVerifyController extends Controller
         ]);
     }
 }
+

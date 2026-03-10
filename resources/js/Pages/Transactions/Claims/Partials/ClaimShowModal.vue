@@ -283,16 +283,16 @@ function printPage() {
     </div>
 
     <ClaimShowA4
-    v-if="fullClaim && company && !printing"
+    v-if="fullClaim && !printing"
     :claim="fullClaim"
-    :company="company"
+    :company="company || {}"
     />
 
     <Teleport to="body">
     <ClaimShowA4
-        v-if="fullClaim && company && printing"
+        v-if="fullClaim && printing"
         :claim="fullClaim"
-        :company="company"
+        :company="company || {}"
     />
     </Teleport>
 </div>

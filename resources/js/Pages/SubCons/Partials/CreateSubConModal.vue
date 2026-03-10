@@ -1,10 +1,11 @@
 <script setup>
-import { computed } from "vue";
+import { computed, inject } from "vue";
 import { useForm, usePage } from "@inertiajs/vue3";
 
 const emit = defineEmits(["close", "saved"]);
 const page = usePage();
 const bankOptions = computed(() => page.props.bankOptions ?? []);
+const toast = inject("toast", null);
 
 function blankBankAccount() {
     return {
@@ -20,6 +21,10 @@ const form = useForm({
     email: "",
     phone: "",
     address: "",
+    create_login_account: false,
+    login_identity_no: "",
+    login_email: "",
+    login_password: "",
     bank_accounts: [blankBankAccount()],
 });
 
@@ -45,10 +50,15 @@ function submit() {
     form.post(route("sub-cons.store"), {
         preserveScroll: true,
         onSuccess: () => {
+            toast?.value?.show("Sub Con created successfully.", "success");
             form.reset();
             form.bank_accounts = [blankBankAccount()];
             emit("close");
             emit("saved");
+        },
+        onError: (errors) => {
+            const firstError = Object.values(errors ?? {})[0] || "Failed to create Sub Con.";
+            toast?.value?.show(firstError, "error");
         },
     });
 }
@@ -81,6 +91,70 @@ function submit() {
                 </div>
 
                 <div class="max-h-[75vh] space-y-6 overflow-y-auto px-6 py-6 sm:px-8">
+                    <section class="rounded-xl border border-slate-200 p-4 sm:p-5">
+                        <div class="mb-3 flex items-center justify-between gap-4">
+                            <div class="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                <i class="mdi mdi-account-key-outline text-base text-indigo-600"></i>
+                                Sub Con Login Account
+                            </div>
+                            <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+                                <input
+                                    v-model="form.create_login_account"
+                                    type="checkbox"
+                                    class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                />
+                                Create portal login
+                            </label>
+                        </div>
+
+                        <div v-if="form.create_login_account" class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700">
+                                    Login ID (Identity No) <span class="text-red-500">*</span>
+                                </label>
+                                <input
+                                    v-model="form.login_identity_no"
+                                    type="text"
+                                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                                    placeholder="e.g. SC001"
+                                />
+                                <p v-if="form.errors.login_identity_no" class="mt-1 text-xs text-red-600">
+                                    {{ form.errors.login_identity_no }}
+                                </p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-slate-700">
+                                    Login Email <span class="text-red-500">*</span>
+                                </label>
+                                <input
+                                    v-model="form.login_email"
+                                    type="email"
+                                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                                    placeholder="login email"
+                                />
+                                <p v-if="form.errors.login_email" class="mt-1 text-xs text-red-600">
+                                    {{ form.errors.login_email }}
+                                </p>
+                            </div>
+
+                            <div class="sm:col-span-2">
+                                <label class="block text-sm font-medium text-slate-700">
+                                    Temporary Password (Optional)
+                                </label>
+                                <input
+                                    v-model="form.login_password"
+                                    type="text"
+                                    class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                                    placeholder="Leave empty to use default 123456"
+                                />
+                                <p v-if="form.errors.login_password" class="mt-1 text-xs text-red-600">
+                                    {{ form.errors.login_password }}
+                                </p>
+                            </div>
+                        </div>
+                    </section>
+
                     <section class="rounded-xl border border-slate-200 p-4 sm:p-5">
                         <div class="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-700">
                             <i class="mdi mdi-account-tie-outline text-base text-indigo-600"></i>
@@ -254,6 +328,7 @@ function submit() {
                             placeholder="Address"
                         ></textarea>
                     </section>
+
                 </div>
 
                 <div class="flex justify-end gap-3 border-t border-slate-200 bg-slate-50 px-6 py-4 sm:px-8">
@@ -275,4 +350,3 @@ function submit() {
         </div>
     </div>
 </template>
-

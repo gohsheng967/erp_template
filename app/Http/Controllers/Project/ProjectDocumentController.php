@@ -10,15 +10,16 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\Eloquent\Builder;
 
 class ProjectDocumentController extends Controller
 {
     /**
      * List documents + summary (API for DocumentTab)
      */
-    public function index(string $projectUuid)
+    public function index(Request $request, string $projectUuid)
     {
-        $project = $this->resolveProject($projectUuid);
+        $project = $this->resolveProject($request, $projectUuid);
 
         /* ==========================
            Documents list
@@ -76,7 +77,7 @@ class ProjectDocumentController extends Controller
      */
     public function upload(Request $request, string $projectUuid)
     {
-        $project = $this->resolveProject($projectUuid);
+        $project = $this->resolveProject($request, $projectUuid);
 
         $request->validate([
             'file' => 'required|file',
@@ -134,7 +135,7 @@ class ProjectDocumentController extends Controller
      */
     public function uploadUrl(Request $request, string $projectUuid)
     {
-        $project = $this->resolveProject($projectUuid);
+        $project = $this->resolveProject($request, $projectUuid);
 
         $request->validate([
             'url' => 'required|url|max:2048',
@@ -163,9 +164,9 @@ class ProjectDocumentController extends Controller
     /**
      * Download internal file OR redirect to external URL
      */
-    public function download(string $documentUuid)
+    public function download(Request $request, string $documentUuid)
     {
-        $document = $this->resolveDocument($documentUuid);
+        $document = $this->resolveDocument($request, $documentUuid);
 
         // 🔗 External link
         if (is_string($document->filepath)
@@ -187,9 +188,9 @@ class ProjectDocumentController extends Controller
     /**
      * Soft delete document
      */
-    public function destroy(string $documentUuid)
+    public function destroy(Request $request, string $documentUuid)
     {
-        $document = $this->resolveDocument($documentUuid);
+        $document = $this->resolveDocument($request, $documentUuid);
 
         $document->delete();
 
@@ -200,13 +201,41 @@ class ProjectDocumentController extends Controller
        UUID resolvers (explicit, auditable, secure)
     ===================================================== */
 
-    private function resolveProject(string $uuid): Project
+    private function resolveProject(Request $request, string $uuid): Project
     {
-        return Project::where('uuid', $uuid)->firstOrFail();
+        $query = Project::where('uuid', $uuid);
+        $this->scopeToActiveBranch($request, $query, 'branch_id');
+
+        return $query->firstOrFail();
     }
 
-    private function resolveDocument(string $uuid): ProjectDocument
+    private function resolveDocument(Request $request, string $uuid): ProjectDocument
     {
-        return ProjectDocument::where('uuid', $uuid)->firstOrFail();
+        $query = ProjectDocument::where('uuid', $uuid)
+            ->whereHas('project', function (Builder $projectQuery) use ($request) {
+                $this->scopeToActiveBranch($request, $projectQuery, 'branch_id');
+            });
+
+        return $query->firstOrFail();
+    }
+
+    private function scopeToActiveBranch(Request $request, Builder $query, string $column = 'branch_id'): void
+    {
+        $user = $request->user();
+        if (!$user || !$this->shouldScopeToActiveBranch($request)) {
+            return;
+        }
+
+        $branchId = (int) ($user->active_branch_id ?? 0);
+        if ($branchId <= 0) {
+            abort(403, 'Active branch is required.');
+        }
+
+        $query->where($column, $branchId);
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
     }
 }

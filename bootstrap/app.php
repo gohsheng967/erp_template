@@ -21,6 +21,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'guest'      => \App\Http\Middleware\RedirectIfAuthenticated::class,
             'verified'   => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
             'auth.mfa'   => \App\Http\Middleware\EnsureMFAIsVerified::class,
+            'auth.subcon' => \App\Http\Middleware\EnsureSubConIsAuthenticated::class,
+            'branch.context' => \App\Http\Middleware\EnsureActiveBranchContext::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

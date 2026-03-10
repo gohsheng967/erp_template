@@ -20,6 +20,7 @@ use App\Models\SubConTask;
 
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use DB;
 
@@ -32,6 +33,7 @@ class ProjectController extends Controller
     {
         $query = Project::query()
             ->with(['client:id,name', 'manager:id,name']);
+        $this->scopeToActiveBranch($request, $query, 'projects.branch_id');
 
         // SEARCH
         if ($request->filled('search')) {
@@ -79,9 +81,8 @@ class ProjectController extends Controller
     public function create()
     {
         return Inertia::render('Projects/Create', [
-            'clients'     => Client::select('id','name')->orderBy('name')->get(),
-            'departments' => Department::select('id','name')->orderBy('name')->get(),
-            'managers'    => User::select('id','name')->orderBy('name')->get(),
+            'clients'  => Client::select('id','name')->orderBy('name')->get(),
+            'managers' => User::select('id','name')->orderBy('name')->get(),
         ]);
     }
 
@@ -99,7 +100,6 @@ class ProjectController extends Controller
             'extension_date' => 'nullable|date|after_or_equal:end_date',
             'budget'        => 'nullable|numeric|min:0',
             'project_value' => 'nullable|numeric|min:0',
-            'department_id' => 'nullable|integer|exists:departments,id',
             'manager_id'    => 'nullable|integer|exists:users,id',
             'description'   => 'nullable|string',
         ]);
@@ -108,6 +108,9 @@ class ProjectController extends Controller
         if (!$validated['code']) {
             $validated['code'] = 'PRJ-' . str_pad(Project::max('id') + 1, 3, '0', STR_PAD_LEFT);
         }
+
+        $validated['department_id'] = $this->resolveProjectDepartmentId();
+        $validated['branch_id'] = $this->activeBranchId($request);
 
         Project::create($validated);
 
@@ -120,7 +123,9 @@ class ProjectController extends Controller
      */
     public function show($uuid)
     {
-        $project = Project::where('uuid', $uuid)->firstOrFail();
+        $projectQuery = Project::where('uuid', $uuid);
+        $this->scopeToActiveBranch(request(), $projectQuery);
+        $project = $projectQuery->firstOrFail();
 
         $project->load(['client', 'manager']);
         $boundSubCons = $project->subCons()
@@ -190,13 +195,14 @@ class ProjectController extends Controller
      */
     public function edit($uuid)
     {
-        $project = Project::where('uuid', $uuid)->firstOrFail();
+        $projectQuery = Project::where('uuid', $uuid);
+        $this->scopeToActiveBranch(request(), $projectQuery);
+        $project = $projectQuery->firstOrFail();
 
         return Inertia::render('Projects/Edit', [
-            'project'     => $project,
-            'clients'     => Client::select('id','name')->orderBy('name')->get(),
-            'departments' => Department::select('id','name')->orderBy('name')->get(),
-            'managers'    => User::select('id','name')->orderBy('name')->get(),
+            'project'  => $project,
+            'clients'  => Client::select('id','name')->orderBy('name')->get(),
+            'managers' => User::select('id','name')->orderBy('name')->get(),
         ]);
     }
 
@@ -205,6 +211,8 @@ class ProjectController extends Controller
      */
     public function update(Request $request, Project $project)
     {
+        $this->ensureProjectBranchAccess($request, $project);
+
         $validated = $request->validate([
             'name'          => 'required|string|max:255',
             'code'          => 'nullable|string|max:50',
@@ -214,10 +222,12 @@ class ProjectController extends Controller
             'extension_date' => 'nullable|date|after_or_equal:end_date',
             'budget'        => 'nullable|numeric|min:0',
             'project_value' => 'nullable|numeric|min:0',
-            'department_id' => 'nullable|integer|exists:departments,id',
             'manager_id'    => 'nullable|integer|exists:users,id',
             'description'   => 'nullable|string',
         ]);
+
+        $validated['department_id'] = $this->resolveProjectDepartmentId();
+        $validated['branch_id'] = $project->branch_id ?: $this->activeBranchId($request);
 
         $project->update($validated);
 
@@ -227,6 +237,8 @@ class ProjectController extends Controller
 
     public function toggleFinished(Request $request, Project $project)
     {
+        $this->ensureProjectBranchAccess($request, $project);
+
         $validated = $request->validate([
             'is_finished' => ['required', 'boolean'],
         ]);
@@ -248,6 +260,8 @@ class ProjectController extends Controller
      */
     public function destroy(Project $project)
     {
+        $this->ensureProjectBranchAccess(request(), $project);
+
         $project->delete();
 
         return redirect()->route('projects.index')
@@ -256,7 +270,9 @@ class ProjectController extends Controller
 
     public function bindSubCon(Request $request, string $projectUuid)
     {
-        $project = Project::where('uuid', $projectUuid)->firstOrFail();
+        $projectQuery = Project::where('uuid', $projectUuid);
+        $this->scopeToActiveBranch($request, $projectQuery);
+        $project = $projectQuery->firstOrFail();
 
         $validated = $request->validate([
             'sub_con_id' => ['required', 'integer', Rule::exists('sub_cons', 'id')],
@@ -279,7 +295,9 @@ class ProjectController extends Controller
 
     public function createAndBindSubCon(Request $request, string $projectUuid)
     {
-        $project = Project::where('uuid', $projectUuid)->firstOrFail();
+        $projectQuery = Project::where('uuid', $projectUuid);
+        $this->scopeToActiveBranch($request, $projectQuery);
+        $project = $projectQuery->firstOrFail();
         $banks = config('banks.malaysia', []);
 
         $validated = $request->validate([
@@ -319,6 +337,8 @@ class ProjectController extends Controller
 
     public function summary(Project $project)
     {
+        $this->ensureProjectBranchAccess(request(), $project);
+
         $baseQuery = Claim::where('project_id', $project->id);
 
         $summary = [
@@ -359,6 +379,8 @@ class ProjectController extends Controller
 
     public function updateBudget(Request $request, Project $project)
     {
+        $this->ensureProjectBranchAccess($request, $project);
+
         $validated = $request->validate([
             'budget' => ['required', 'numeric', 'min:0'],
         ]);
@@ -372,6 +394,8 @@ class ProjectController extends Controller
 
     public function kpi(Project $project)
     {
+        $this->ensureProjectBranchAccess(request(), $project);
+
         $purchaseOrderUsed = (float) PurchaseOrder::whereHas(
             'purchaseRequest',
             fn ($q) => $q->where('project_id', $project->id)
@@ -579,6 +603,8 @@ class ProjectController extends Controller
     
     public function purchaseRequestSummary(Project $project)
     {
+        $this->ensureProjectBranchAccess(request(), $project);
+
         // =========================
         // PURCHASE REQUEST SUMMARY
         // =========================
@@ -621,6 +647,8 @@ class ProjectController extends Controller
 
     public function aRSummary(Project $project)
     {
+        $this->ensureProjectBranchAccess(request(), $project);
+
         // Base invoices (exclude cancelled)
         $invoices = $project->arInvoices()
             ->whereNotIn('status', ['cancelled']);
@@ -666,10 +694,12 @@ class ProjectController extends Controller
 
     public function topupRequests($project, Request $request)
     {
-        $project = Project::query()
+        $projectQuery = Project::query()
             ->where('id', $project)
             ->orWhere('uuid', $project)
-            ->firstOrFail();
+            ;
+        $this->scopeToActiveBranch($request, $projectQuery, 'branch_id');
+        $project = $projectQuery->firstOrFail();
 
         $status = $request->get('status', 'requested');
         $allowedStatuses = ['requested', 'approved', 'rejected', 'paid'];
@@ -712,6 +742,51 @@ class ProjectController extends Controller
             'topups' => $topups,
             'counts' => $counts,
         ]);
+    }
+
+    private function resolveProjectDepartmentId(): int
+    {
+        $projectDepartmentId = Department::query()
+            ->whereRaw('LOWER(name) = ?', ['project'])
+            ->value('id');
+
+        if (!$projectDepartmentId) {
+            throw ValidationException::withMessages([
+                'department' => 'Project department is not configured.',
+            ]);
+        }
+
+        return (int) $projectDepartmentId;
+    }
+
+    private function activeBranchId(Request $request): int
+    {
+        $branchId = (int) ($request->user()?->active_branch_id ?? 0);
+
+        if ($branchId <= 0) {
+            abort(422, 'Please select an active branch before proceeding.');
+        }
+
+        return $branchId;
+    }
+
+    private function scopeToActiveBranch(Request $request, $query, string $column = 'branch_id'): void
+    {
+        if ($this->shouldScopeToActiveBranch($request)) {
+            $query->where($column, $this->activeBranchId($request));
+        }
+    }
+
+    private function ensureProjectBranchAccess(Request $request, Project $project): void
+    {
+        if ($this->shouldScopeToActiveBranch($request) && (int) $project->branch_id !== $this->activeBranchId($request)) {
+            abort(403, 'You are not allowed to access this project from another branch.');
+        }
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
     }
 
 }

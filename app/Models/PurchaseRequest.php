@@ -13,6 +13,7 @@ class PurchaseRequest extends Model
         'purpose',
         'department_id',
         'project_id',
+        'branch_id',
         'requested_by',
         'submitted_at',
         'status',

@@ -28,6 +28,7 @@ class PettyCashStatementController extends Controller
         $wallet = PettyCashWallet::where('uuid', $walletUuid)
             ->where('is_active', true)
             ->firstOrFail();
+        $this->ensureWalletBranchAccess($request, $wallet);
 
         /* =========================
         MONTH (DEFAULT CURRENT)
@@ -153,6 +154,7 @@ class PettyCashStatementController extends Controller
         ]);
 
         $wallet = PettyCashWallet::where('uuid', $data['wallet_uuid'])->firstOrFail();
+        $this->ensureWalletBranchAccess($request, $wallet);
 
         DB::transaction(function () use (
             $data,
@@ -176,6 +178,7 @@ class PettyCashStatementController extends Controller
                 'description'  => $data['description'] ?? null,
                 'status'       => 'paid',
                 'project_id'   => $projectId,
+                'branch_id'    => $wallet->project?->branch_id ?? $this->activeBranchId($request),
                 'total_amount' => $data['amount'],
                 'remark'       => 'Created from Petty Cash',
                 'submitted_at' => now(),
@@ -225,4 +228,35 @@ class PettyCashStatementController extends Controller
             ->with('success', 'Claim created successfully.');
     }
 
+    private function activeBranchId(Request $request): ?int
+    {
+        if (!$this->shouldScopeToActiveBranch($request)) {
+            return null;
+        }
+
+        $branchId = (int) ($request->user()?->active_branch_id ?? 0);
+        if ($branchId <= 0) {
+            abort(422, 'Please select an active branch before proceeding.');
+        }
+
+        return $branchId;
+    }
+
+    private function ensureWalletBranchAccess(Request $request, PettyCashWallet $wallet): void
+    {
+        $branchId = $this->activeBranchId($request);
+        if ($branchId === null) {
+            return;
+        }
+
+        if ($wallet->context_type === 'project' && (int) ($wallet->project?->branch_id ?? 0) !== $branchId) {
+            abort(404);
+        }
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
 }
+

@@ -40,4 +40,9 @@ class ProjectDocument extends Model
     {
         return $this->belongsTo(FileCategory::class);
     }
+
+    public function project()
+    {
+        return $this->belongsTo(Project::class);
+    }
 }

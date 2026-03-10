@@ -18,6 +18,19 @@ class SubCon extends Model
         'email',
         'address',
         'bank',
+        'login_identity_no',
+        'login_email',
+        'login_password',
+        'login_status',
+        'login_must_change_password',
+    ];
+
+    protected $hidden = [
+        'login_password',
+    ];
+
+    protected $casts = [
+        'login_must_change_password' => 'boolean',
     ];
 
     protected static function booted()

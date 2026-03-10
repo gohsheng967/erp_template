@@ -18,6 +18,7 @@ class ArInvoice extends Model
         'title',
 
         'project_id',
+        'branch_id',
         'customer_id',
 
         'total_amount',

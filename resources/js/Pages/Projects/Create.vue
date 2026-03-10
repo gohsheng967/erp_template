@@ -1,11 +1,9 @@
 <script setup>
-import { ref } from "vue";
 import { Head, Link, useForm, usePage } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 
 const page = usePage();
 const clients = page.props.clients;
-const departments = page.props.departments;
 const managers = page.props.managers;
 
 const form = useForm({
@@ -17,7 +15,6 @@ const form = useForm({
     extension_date: "",
     budget: "",
     project_value: "",
-    department_id: "",
     manager_id: "",
     description: "",
 });
@@ -147,22 +144,6 @@ const form = useForm({
                             v-model="form.project_value"
                             class="w-full border rounded px-3 py-2"
                         />
-                    </div>
-
-                    <!-- Department -->
-                    <div>
-                        <label class="block text-sm font-medium mb-1">
-                            Department
-                        </label>
-                        <select
-                            v-model="form.department_id"
-                            class="w-full border rounded px-3 py-2"
-                        >
-                            <option value="">Select Department</option>
-                            <option v-for="d in departments" :key="d.id" :value="d.id">
-                                {{ d.name }}
-                            </option>
-                        </select>
                     </div>
 
                     <!-- Manager -->

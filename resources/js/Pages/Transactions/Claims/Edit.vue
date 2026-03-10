@@ -105,43 +105,45 @@ function removeItem(index) {
 /* =========================
    Form actions
 ========================= */
+function submitClaim(status) {
+  form.status = status
+
+  form
+    .transform((data) => ({
+      ...data,
+      items: (data.items ?? []).map(({ _fileInput, existing_attachments, ...item }) => item),
+    }))
+    .post(route('claims.update', props.claim.uuid), {
+      preserveScroll: true,
+      forceFormData: true,
+
+      onSuccess: () => {
+        toast?.value?.show(
+          status === 'submitted'
+            ? 'Claim submitted successfully.'
+            : 'Draft saved successfully.',
+          'success'
+        )
+      },
+
+      onError: () => {
+        const first = Object.values(form.errors)?.[0]
+        const msg = Array.isArray(first) ? first[0] : first
+        toast?.value?.show(
+          msg || (status === 'submitted' ? 'Submission failed.' : 'Draft save failed.'),
+          'error'
+        )
+      },
+    })
+}
+
 function saveDraft() {
-  form.status = 'draft'
-
-  form.post(route('claims.update', props.claim.uuid), {
-    preserveScroll: true,
-    forceFormData: true,
-
-    onSuccess: () => {
-      toast?.value?.show('Draft saved successfully.', 'success')
-    },
-
-    onError: () => {
-      const first = Object.values(form.errors)?.[0]
-      const msg = Array.isArray(first) ? first[0] : first
-      toast?.value?.show(msg || 'Draft save failed.', 'error')
-    },
-  })
+  submitClaim('draft')
 }
 
 function confirmSubmit() {
   showSubmitConfirm.value = false
-  form.status = 'submitted'
-
-  form.post(route('claims.update', props.claim.uuid), {
-    preserveScroll: true,
-    forceFormData: true,
-
-    onSuccess: () => {
-      toast?.value?.show('Claim submitted successfully.', 'success')
-    },
-
-    onError: () => {
-      const first = Object.values(form.errors)?.[0]
-      const msg = Array.isArray(first) ? first[0] : first
-      toast?.value?.show(msg || 'Submission failed.', 'error')
-    },
-  })
+  submitClaim('submitted')
 }
 </script>
 

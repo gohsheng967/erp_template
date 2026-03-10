@@ -28,6 +28,7 @@ class PettyCashUsageController extends Controller
 
             $wallet = PettyCashWallet::lockForUpdate()
                 ->findOrFail($validated['wallet_id']);
+            $this->ensureWalletBranchAccess($request, $wallet);
 
             /* =========================
                BALANCE GUARD
@@ -44,6 +45,7 @@ class PettyCashUsageController extends Controller
             $claim = Claim::create([
                 'user_id'      => $request->user()->id,
                 'project_id'   => $wallet->project_id, // nullable (office wallet safe)
+                'branch_id'    => $wallet->project?->branch_id ?? $this->activeBranchId($request),
                 'type'         => 'petty_cash_usage',
                 'title'        => $validated['title'],
                 'status'       => 'approved',
@@ -70,4 +72,36 @@ class PettyCashUsageController extends Controller
             );
         });
     }
+
+    private function activeBranchId(Request $request): ?int
+    {
+        if (!$this->shouldScopeToActiveBranch($request)) {
+            return null;
+        }
+
+        $branchId = (int) ($request->user()?->active_branch_id ?? 0);
+        if ($branchId <= 0) {
+            abort(422, 'Please select an active branch before proceeding.');
+        }
+
+        return $branchId;
+    }
+
+    private function ensureWalletBranchAccess(Request $request, PettyCashWallet $wallet): void
+    {
+        $branchId = $this->activeBranchId($request);
+        if ($branchId === null) {
+            return;
+        }
+
+        if ($wallet->context_type === 'project' && (int) ($wallet->project?->branch_id ?? 0) !== $branchId) {
+            abort(404);
+        }
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
 }
+

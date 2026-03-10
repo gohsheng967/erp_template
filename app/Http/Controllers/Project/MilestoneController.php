@@ -21,6 +21,8 @@ class MilestoneController extends Controller
         Project $project,
         Milestone $milestone
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         return Inertia::render('Projects/Milestones/Show', [
             'project'   => $project,
             'milestone' => $milestone->load([
@@ -37,6 +39,8 @@ class MilestoneController extends Controller
         Project $project,
         Request $request
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         $project->milestones()->create([
             'title'  => $request->input('title', 'New Milestone'),
             'status' => 'draft',
@@ -53,6 +57,8 @@ class MilestoneController extends Controller
         Request $request,
         Milestone $milestone
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         $data = $request->validate([
             'title'       => 'required|string|max:255',
             'priority'    => 'nullable|string',
@@ -66,6 +72,8 @@ class MilestoneController extends Controller
 
     public function updateActionTask(Request $request, Project $project, MilestoneActionTask $task)
     {
+        $this->ensureProjectBranchAccess($project);
+
         $task->update(
             $request->validate([
                 'title'       => 'sometimes|string|max:255',
@@ -85,6 +93,8 @@ class MilestoneController extends Controller
         Project $project,
         MilestoneActionTask $task
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         $task->delete();
         return back();
     }
@@ -97,6 +107,8 @@ class MilestoneController extends Controller
         Request $request,
         Milestone $milestone
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         $data = $request->validate([
             'title'      => 'required|string|max:255',
             'start_date' => 'nullable|date',
@@ -117,6 +129,8 @@ class MilestoneController extends Controller
         Project $project,
         MilestonePhase $phase
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         $phase->update(
             request()->validate([
                 'title'      => 'sometimes|string|max:255',
@@ -133,6 +147,8 @@ class MilestoneController extends Controller
         Request $request,
         MilestonePhaseService $service
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         $data = $request->validate([
             'phases'   => 'required|array',
             'phases.*' => 'exists:milestone_phases,id',
@@ -149,6 +165,8 @@ class MilestoneController extends Controller
         MilestonePhase $phase,
         MilestonePhaseService $service
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         $data = $request->validate([
             'status' => 'required|string',
             'note'   => 'nullable|string',
@@ -171,6 +189,8 @@ class MilestoneController extends Controller
         Request $request,
         MilestonePhase $phase
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         $data = $request->validate([
             'title' => 'required|string|max:255',
         ]);
@@ -189,6 +209,8 @@ class MilestoneController extends Controller
         Project $project,
         MilestonePhaseTask $task
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         $task->update(
             request()->validate([
                 'title'   => 'sometimes|string|max:255',
@@ -203,7 +225,32 @@ class MilestoneController extends Controller
         Project $project,
         MilestonePhaseTask $task
     ) {
+        $this->ensureProjectBranchAccess($project);
+
         $task->delete();
         return back();
+    }
+
+    private function ensureProjectBranchAccess(Project $project): void
+    {
+        $user = request()->user();
+
+        if (!$user || !$this->shouldScopeToActiveBranch(request())) {
+            return;
+        }
+
+        $branchId = (int) ($user->active_branch_id ?? 0);
+        if ($branchId <= 0) {
+            abort(403, 'Active branch is required.');
+        }
+
+        if ((int) $project->branch_id !== $branchId) {
+            abort(404);
+        }
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
     }
 }

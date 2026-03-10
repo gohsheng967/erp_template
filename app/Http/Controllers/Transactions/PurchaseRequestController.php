@@ -36,6 +36,9 @@ class PurchaseRequestController extends Controller
         |--------------------------------------------------------------------------
         */
         $filterQuery = PurchaseRequest::query()
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('purchase_requests.branch_id', $this->activeBranchId($request))
+            )
             ->when($filters['search'], function ($q) use ($filters) {
                 $q->where(function ($qq) use ($filters) {
                     $qq->where('code', 'like', "%{$filters['search']}%")
@@ -146,7 +149,15 @@ class PurchaseRequestController extends Controller
             'requester_remark' => 'nullable|string',
         ]);
 
-        DB::transaction(function () use ($data) {
+        if (!empty($data['project_id'])) {
+            $projectQuery = Project::query()->where('id', $data['project_id']);
+            if ($this->shouldScopeToActiveBranch($request)) {
+                $projectQuery->where('branch_id', $this->activeBranchId($request));
+            }
+            $projectQuery->firstOrFail();
+        }
+
+        DB::transaction(function () use ($data, $request) {
             PurchaseRequest::create([
                 'code'             => null,
                 'title'            => $data['title'],
@@ -154,6 +165,7 @@ class PurchaseRequestController extends Controller
                 'required_date'    => $data['required_date'] ?? null,
                 'department_id'    => $data['department_id'] ?? null,
                 'project_id'       => $data['project_id'] ?? null,
+                'branch_id'        => $this->activeBranchId($request),
                 'requested_by'     => auth()->id(),
                 'status'           => 'draft',
                 'requester_remark' => $data['requester_remark'] ?? null,
@@ -180,6 +192,9 @@ class PurchaseRequestController extends Controller
         $prQuery = PurchaseRequest::query()
             ->where('status', 'draft')
             ->whereIn('department_id', $departmentIds);
+        if ($this->shouldScopeToActiveBranch($request)) {
+            $prQuery->where('branch_id', $this->activeBranchId($request));
+        }
 
         if ($search = $request->input('search')) {
             $prQuery->where(function ($q) use ($search) {
@@ -194,6 +209,9 @@ class PurchaseRequestController extends Controller
             ->get(['id', 'code', 'title']);
 
         $projects = Project::where('status', 'active')
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->orderBy('name')
             ->get(['id', 'code', 'name']);
 
@@ -238,6 +256,7 @@ class PurchaseRequestController extends Controller
                 'project_id' => $data['new_pr']['project_id'] ?? null,
 
                 'department_id' => $data['new_pr']['department_id'],
+                'branch_id' => $this->activeBranchId($request),
 
                 'requested_by' => auth()->id(),
                 'status' => 'draft',
@@ -246,6 +265,9 @@ class PurchaseRequestController extends Controller
         } else {
 
             $pr = PurchaseRequest::whereIn('department_id', $userDepartmentIds)
+                ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                    $q->where('branch_id', $this->activeBranchId($request))
+                )
                 ->findOrFail($data['purchase_request_id']);
         }
 
@@ -263,7 +285,7 @@ class PurchaseRequestController extends Controller
         return back()->with('success', 'Quotation(s) added');
     }
 
-    public function edit(string $uuid)
+    public function edit(Request $request, string $uuid)
     {
         $pr = PurchaseRequest::with([
                 'items',
@@ -274,6 +296,9 @@ class PurchaseRequestController extends Controller
                 'requester',
             ])
             ->where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->firstOrFail();
 
         return Inertia::render('Transactions/PurchaseRequest/Edit', [
@@ -285,9 +310,13 @@ class PurchaseRequestController extends Controller
         ]);
     }
 
-    public function quotations(string $prUuid, string $supplierUuid)
+    public function quotations(Request $request, string $prUuid, string $supplierUuid)
     {
-        $pr = PurchaseRequest::where('uuid', $prUuid)->firstOrFail();
+        $pr = PurchaseRequest::where('uuid', $prUuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->firstOrFail();
         $supplier = Supplier::where('uuid', $supplierUuid)->firstOrFail();
 
         return PurchaseQuotation::query()
@@ -307,7 +336,11 @@ class PurchaseRequestController extends Controller
 
     public function attachQuotation(Request $request, string $uuid)
     {
-        $pr = PurchaseRequest::where('uuid', $uuid)->firstOrFail();
+        $pr = PurchaseRequest::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->firstOrFail();
 
         $data = $request->validate([
             'supplier_uuid' => ['required', 'exists:suppliers,uuid'],
@@ -366,9 +399,13 @@ class PurchaseRequestController extends Controller
         ]);
     }
 
-    public function detachQuotation(string $uuid, string $quotationUuid)
+    public function detachQuotation(Request $request, string $uuid, string $quotationUuid)
     {
-        $pr = PurchaseRequest::where('uuid', $uuid)->firstOrFail();
+        $pr = PurchaseRequest::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->firstOrFail();
 
         $quotation = PurchaseQuotation::where('uuid', $quotationUuid)->firstOrFail();
 
@@ -396,7 +433,11 @@ class PurchaseRequestController extends Controller
         /* =========================
         1️⃣ FETCH PR
         ========================== */
-        $purchaseRequest = PurchaseRequest::where('uuid', $uuid)->firstOrFail();
+        $purchaseRequest = PurchaseRequest::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->firstOrFail();
 
         if ($purchaseRequest->status !== 'draft') {
             abort(403, 'Only draft PR can be edited');
@@ -500,7 +541,11 @@ class PurchaseRequestController extends Controller
 
     public function submit(Request $request, string $uuid)
     {
-        $purchaseRequest = PurchaseRequest::where('uuid', $uuid)->firstOrFail();
+        $purchaseRequest = PurchaseRequest::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->firstOrFail();
 
         if ($purchaseRequest->status !== 'draft') {
             abort(403, 'PR already submitted');
@@ -589,7 +634,7 @@ class PurchaseRequestController extends Controller
             ->with('success', 'Purchase Request submitted');
     }
 
-    public function show(string $uuid)
+    public function show(Request $httpRequest, string $uuid)
     {
         $request = PurchaseRequest::query()
             ->with([
@@ -600,6 +645,9 @@ class PurchaseRequestController extends Controller
                 'quotations.attachment'
             ])
             ->where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($httpRequest), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($httpRequest))
+            )
             ->firstOrFail();
 
         $company = CompanyProfile::first();
@@ -624,6 +672,9 @@ class PurchaseRequestController extends Controller
 
         $pr = PurchaseRequest::with('items')
             ->where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->firstOrFail();
 
         if ($pr->status !== 'submitted') {
@@ -685,11 +736,15 @@ class PurchaseRequestController extends Controller
         ]);    
 }
 
-    public function destroy(string $uuid)
+    public function destroy(Request $request, string $uuid)
     {
-        DB::transaction(function () use ($uuid) {
+        DB::transaction(function () use ($uuid, $request) {
 
-            $pr = PurchaseRequest::where('uuid', $uuid)->firstOrFail();
+            $pr = PurchaseRequest::where('uuid', $uuid)
+                ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                    $q->where('branch_id', $this->activeBranchId($request))
+                )
+                ->firstOrFail();
 
             if ($pr->status !== 'draft') {
                 abort(403, 'Only draft purchase requests can be deleted');
@@ -704,4 +759,20 @@ class PurchaseRequestController extends Controller
 
         return back()->with('success', 'Purchase request deleted');
     }
+
+    private function activeBranchId(Request $request): int
+    {
+        $branchId = (int) ($request->user()?->active_branch_id ?? 0);
+        if ($branchId <= 0) {
+            abort(422, 'Please select an active branch before proceeding.');
+        }
+
+        return $branchId;
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
 }
+

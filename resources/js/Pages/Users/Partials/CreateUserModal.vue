@@ -1,13 +1,19 @@
 <script setup>
-import { inject } from "vue";
+import { computed, inject } from "vue";
 import { useForm } from "@inertiajs/vue3";
 
 const toast = inject("toast", null);
 
-const SUPER_ADMIN_ROLE_ID = 1;
-
 const props = defineProps({
     modelValue: Boolean,
+    departments: {
+        type: Array,
+        default: () => [],
+    },
+    rolesByDept: {
+        type: Object,
+        default: () => ({}),
+    },
 });
 
 const emit = defineEmits([
@@ -20,36 +26,59 @@ const form = useForm({
     name: "",
     email: "",
     status: 1,
+    is_superadmin: false,
     department_roles: [
         {
-            department_id: null,
-            role_id: SUPER_ADMIN_ROLE_ID,
+            department_id: "",
+            role_id: "",
         },
     ],
 });
 
-function submit() {
-    form.post(route("users.store"), {
-        preserveScroll: true,
+const showAssignment = computed(() => !form.is_superadmin);
 
-        onSuccess: () => {
-            toast?.show?.(
-                "Super Admin created successfully",
-                "success"
-            );
-
-            emit("update:modelValue", false);
-            emit("created");
-            form.reset();
-        },
-
-        onError: () => {
-            toast?.show?.(
-                "Failed to create Super Admin. Please check the form.",
-                "error"
-            );
-        },
+function addRow() {
+    form.department_roles.push({
+        department_id: "",
+        role_id: "",
     });
+}
+
+function removeRow(index) {
+    form.department_roles.splice(index, 1);
+}
+
+function submit() {
+    form
+        .transform((data) => ({
+            ...data,
+            department_roles: data.is_superadmin
+                ? []
+                : (data.department_roles ?? []).filter(
+                    (row) => row?.department_id || row?.role_id
+                ),
+        }))
+        .post(route("users.store"), {
+            preserveScroll: true,
+
+            onSuccess: () => {
+                toast?.value?.show("User created successfully.", "success");
+
+                emit("update:modelValue", false);
+                emit("created");
+                form.reset();
+                form.status = 1;
+                form.is_superadmin = false;
+                form.department_roles = [{ department_id: "", role_id: "" }];
+            },
+
+            onError: () => {
+                toast?.value?.show(
+                    "Failed to create user. Please check the form.",
+                    "error"
+                );
+            },
+        });
 }
 </script>
 
@@ -69,9 +98,9 @@ function submit() {
                 ✕
             </button>
 
-            <h2 class="text-xl font-semibold mb-1">Create Super Admin</h2>
+            <h2 class="text-xl font-semibold mb-1">Create User</h2>
             <p class="text-sm text-gray-500 mb-4">
-                This user will have full system access.
+                Set basic account info and access level.
             </p>
 
             <!-- ✅ FORM START -->
@@ -113,14 +142,69 @@ function submit() {
                     </select>
                 </div>
 
-                <!-- ROLE (LOCKED) -->
+                <!-- SUPERADMIN TOGGLE -->
                 <div class="mb-6">
-                    <label class="label">Role</label>
-                    <input
-                        value="Super Admin"
-                        disabled
-                        class="input bg-gray-100 cursor-not-allowed font-semibold"
-                    />
+                    <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                        <input
+                            v-model="form.is_superadmin"
+                            type="checkbox"
+                            class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        Is superadmin account
+                    </label>
+                </div>
+
+                <div v-if="showAssignment" class="mb-6">
+                    <label class="label mb-2 block">Department & Role</label>
+
+                    <div
+                        v-for="(row, index) in form.department_roles"
+                        :key="index"
+                        class="flex items-center gap-3 mb-3"
+                    >
+                        <select v-model="row.department_id" class="input w-1/2">
+                            <option value="">Department</option>
+                            <option
+                                v-for="d in props.departments"
+                                :key="d.id"
+                                :value="d.id"
+                            >
+                                {{ d.name }}
+                            </option>
+                        </select>
+
+                        <select v-model="row.role_id" class="input w-1/2">
+                            <option value="">Role</option>
+                            <option
+                                v-for="r in props.rolesByDept[row.department_id] ?? []"
+                                :key="r.id"
+                                :value="r.id"
+                            >
+                                {{ r.name }}
+                            </option>
+                        </select>
+
+                        <button
+                            v-if="form.department_roles.length > 1"
+                            type="button"
+                            class="text-red-600"
+                            @click="removeRow(index)"
+                        >
+                            ×
+                        </button>
+                    </div>
+
+                    <button
+                        type="button"
+                        class="text-sm text-indigo-600"
+                        @click="addRow"
+                    >
+                        + Add Department & Role
+                    </button>
+
+                    <div v-if="form.errors.department_roles" class="error mt-2">
+                        {{ form.errors.department_roles }}
+                    </div>
                 </div>
 
                 <!-- ACTION -->

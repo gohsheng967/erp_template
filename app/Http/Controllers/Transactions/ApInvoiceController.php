@@ -37,6 +37,14 @@ class ApInvoiceController extends Controller
             $po = PurchaseOrder::lockForUpdate()
                 ->findOrFail($request->purchase_order_id);
 
+            $poBranchId = (int) ($po->branch_id ?: ($po->purchaseRequest?->branch_id ?? 0));
+
+            if ($this->shouldScopeToActiveBranch($request)) {
+                if ($poBranchId !== $this->activeBranchId($request)) {
+                    abort(403, 'You are not allowed to create AP invoice for another branch.');
+                }
+            }
+
             if (!$po->confirmed_at) {
                 throw ValidationException::withMessages([
                     'purchase_order_id' => 'PO must be confirmed before invoicing.',
@@ -67,6 +75,7 @@ class ApInvoiceController extends Controller
                 'uuid'              => Str::uuid(),
                 'purchase_order_id' => $po->id,
                 'supplier_id'       => $po->supplier_id,
+                'branch_id'         => (int) ($poBranchId ?: $this->activeBranchId($request)),
                 'invoice_number'    => $request->invoice_number,
                 'invoice_date'      => $request->invoice_date,
                 'due_date'          => $request->due_date,
@@ -92,6 +101,9 @@ class ApInvoiceController extends Controller
         $tab = $request->get('tab', 'outstanding');
 
         $baseQuery = ApInvoice::query()
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->with([
                 'purchaseOrder:id,code',
                 'supplier:id,company_name',
@@ -125,7 +137,7 @@ class ApInvoiceController extends Controller
         ]);
     }
 
-    public function show(string $uuid)
+    public function show(Request $request, string $uuid)
     {
         $invoice = ApInvoice::with([
             'supplier:id,company_name',
@@ -133,7 +145,11 @@ class ApInvoiceController extends Controller
             'attachments',
             'payments.attachments',       // 👈 REQUIRED
             'payments.createdBy:id,name',
-        ])->where('uuid', $uuid)->firstOrFail();
+        ])->where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->firstOrFail();
 
         $slipNumbers = $invoice->payments
             ->pluck('payment_slip_no')
@@ -172,6 +188,9 @@ class ApInvoiceController extends Controller
             $invoice = ApInvoice::with('payments')
                 ->lockForUpdate()
                 ->where('uuid', $uuid)
+                ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                    $q->where('branch_id', $this->activeBranchId($request))
+                )
                 ->firstOrFail();
 
             if ($invoice->cancelled_at) {
@@ -244,6 +263,9 @@ class ApInvoiceController extends Controller
             ========================= */
             $invoice = ApInvoice::where('uuid', $uuid)
                 ->lockForUpdate()
+                ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                    $q->where('branch_id', $this->activeBranchId($request))
+                )
                 ->firstOrFail();
 
             if ($request->amount > $invoice->balance_amount) {
@@ -349,6 +371,11 @@ class ApInvoiceController extends Controller
                     'invoice',
                     'attachments',
                 ])
+                ->whereHas('invoice', function ($q) use ($request) {
+                    if ($this->shouldScopeToActiveBranch($request)) {
+                        $q->where('branch_id', $this->activeBranchId($request));
+                    }
+                })
                 ->lockForUpdate()
                 ->where('uuid', $uuid)
                 ->firstOrFail();
@@ -460,6 +487,11 @@ class ApInvoiceController extends Controller
         DB::transaction(function () use ($request, $uuid) {
 
             $payment = ApInvoicePayment::with('invoice')
+                ->whereHas('invoice', function ($q) use ($request) {
+                    if ($this->shouldScopeToActiveBranch($request)) {
+                        $q->where('branch_id', $this->activeBranchId($request));
+                    }
+                })
                 ->lockForUpdate()
                 ->where('uuid', $uuid)
                 ->firstOrFail();
@@ -518,7 +550,11 @@ class ApInvoiceController extends Controller
             'payment_slip_remark' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $invoice = ApInvoice::where('uuid', $uuid)->firstOrFail();
+        $invoice = ApInvoice::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->firstOrFail();
 
         if ($request->amount > $invoice->balance_amount) {
             throw ValidationException::withMessages([
@@ -564,4 +600,20 @@ class ApInvoiceController extends Controller
             'slip' => $slip,
         ]);
     }
+
+    private function activeBranchId(Request $request): int
+    {
+        $branchId = (int) ($request->user()?->active_branch_id ?? 0);
+        if ($branchId <= 0) {
+            abort(422, 'Please select an active branch before proceeding.');
+        }
+
+        return $branchId;
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
 }
+

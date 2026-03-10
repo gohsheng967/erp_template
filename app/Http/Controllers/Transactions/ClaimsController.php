@@ -44,6 +44,9 @@ class ClaimsController extends Controller
         |--------------------------------------------------------------------------
         */
         $filterQuery = Claim::query()
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('claims.branch_id', $this->activeBranchId($request))
+            )
             ->when($search, function ($q) use ($search) {
                 $q->where(function ($q) use ($search) {
                     $q->where('claim_no', 'like', "%{$search}%")
@@ -136,6 +139,9 @@ class ClaimsController extends Controller
         $donutByCategory = DB::table('claim_items')
             ->join('claims', 'claims.id', '=', 'claim_items.claim_id')
             ->leftJoin('claim_types', 'claim_types.code', '=', 'claim_items.claim_type')
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('claims.branch_id', $this->activeBranchId($request))
+            )
             ->when($from, fn ($q) =>
                 $q->whereDate('claims.created_at', '>=', $from)
             )
@@ -160,7 +166,11 @@ class ClaimsController extends Controller
         | PROJECT LIST
         |--------------------------------------------------------------------------
         */
-        $projects = Project::select('id', 'name')
+        $projects = Project::query()
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->select('id', 'name')
             ->orderBy('name')
             ->get();
 
@@ -199,10 +209,19 @@ class ClaimsController extends Controller
             'title'=> ['required', 'max:255']
         ]);
 
+        if (!empty($validated['project_id'])) {
+            $projectQuery = Project::query()->where('id', $validated['project_id']);
+            if ($this->shouldScopeToActiveBranch($request)) {
+                $projectQuery->where('branch_id', $this->activeBranchId($request));
+            }
+            $projectQuery->firstOrFail();
+        }
+
         $claim = Claim::create([
             'user_id'      => $request->user()->id,
             'title'        => $validated['title'],
             'project_id'   => $validated['project_id'] ?? null,
+            'branch_id'    => $this->activeBranchId($request),
             'total_amount' => $validated['total_amount'],
             'status'       => 'draft',
         ]);
@@ -210,9 +229,9 @@ class ClaimsController extends Controller
         return redirect()->route('claims.edit', $claim->uuid);
     }
 
-    public function destroy(string $uuid)
+    public function destroy(Request $request, string $uuid)
     {
-        $claim = Claim::where('uuid', $uuid)->firstOrFail();
+        $claim = $this->claimByUuidOrFail($request, $uuid);
 
         if ($claim->status !== 'draft') {
             abort(403);
@@ -223,9 +242,12 @@ class ClaimsController extends Controller
         return back();
     }
 
-    public function edit(string $uuid)
+    public function edit(Request $request, string $uuid)
     {
         $claim = Claim::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->with([
                 'items.attachments', // ✅ REQUIRED
             ])
@@ -270,7 +292,7 @@ class ClaimsController extends Controller
 
     public function update(Request $request, string $uuid)
     {
-        $claim = Claim::where('uuid', $uuid)->firstOrFail();
+        $claim = $this->claimByUuidOrFail($request, $uuid);
 
         /* ------------------------------------------------
         Lock enforcement
@@ -286,6 +308,15 @@ class ClaimsController extends Controller
             'status' => ['required', Rule::in(['draft', 'submitted'])],
             'total_amount' => ['nullable', 'numeric', 'min:0'],
             'items' => ['nullable', 'array'],
+            'items.*.id' => ['nullable', 'integer'],
+            'items.*.title' => ['nullable', 'string', 'max:255'],
+            'items.*.description' => ['nullable', 'string'],
+            'items.*.receipt_no' => ['nullable', 'string', 'max:100'],
+            'items.*.receipt_date' => ['nullable', 'date', 'before_or_equal:today'],
+            'items.*.claim_type' => ['nullable', 'string', 'max:255'],
+            'items.*.amount' => ['nullable', 'numeric', 'min:0'],
+            'items.*.attachment' => ['nullable', 'array'],
+            'items.*.attachment.*' => ['nullable', 'file', 'max:10240'],
 
             // 🔴 MUST KEEP THESE
             'items.*._existing_attachments' => ['nullable', 'array'],
@@ -354,8 +385,10 @@ class ClaimsController extends Controller
             ]);
 
             $keptItemIds = [];
+            $itemsPayload = $validated['items'] ?? null;
+            $hasItemArrayPayload = is_array($itemsPayload);
 
-            foreach ($validated['items'] ?? [] as $index => $item) {
+            foreach (($itemsPayload ?? []) as $index => $item) {
 
                 /* -------- Update or create item -------- */
                 if (!empty($item['id'])) {
@@ -439,15 +472,19 @@ class ClaimsController extends Controller
             }
 
             /* -------- Delete removed items (and their attachments) -------- */
-            $claim->items()
-                ->whereNotIn('id', $keptItemIds)
-                ->each(function ($item) {
-                    $item->attachments()->each(function ($attachment) {
-                        Storage::disk('public')->delete($attachment->file_path);
-                        $attachment->delete();
+            // Only sync-remove when client actually sends item array payload.
+            // This prevents accidental full item wipe when draft save omits items.
+            if ($hasItemArrayPayload) {
+                $claim->items()
+                    ->whereNotIn('id', $keptItemIds)
+                    ->each(function ($item) {
+                        $item->attachments()->each(function ($attachment) {
+                            Storage::disk('public')->delete($attachment->file_path);
+                            $attachment->delete();
+                        });
+                        $item->delete();
                     });
-                    $item->delete();
-                });
+            }
         });
 
         return redirect()
@@ -460,9 +497,12 @@ class ClaimsController extends Controller
             );
     }
 
-    public function show(string $uuid)
+    public function show(Request $request, string $uuid)
     {
         $claim = Claim::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->with([
                 'items.attachments',
                 'issuer',
@@ -498,6 +538,9 @@ class ClaimsController extends Controller
         // LOCK CLAIM (ANTI DOUBLE-SUBMIT)
         // =========================
         $claim = Claim::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->lockForUpdate()
             ->firstOrFail();
 
@@ -543,6 +586,9 @@ class ClaimsController extends Controller
 
             // Lock row to prevent double payment
             $claim = Claim::where('uuid', $uuid)
+                ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                    $q->where('branch_id', $this->activeBranchId($request))
+                )
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -600,7 +646,7 @@ class ClaimsController extends Controller
             'payment_slip_remark' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $claim = Claim::where('uuid', $uuid)->firstOrFail();
+        $claim = $this->claimByUuidOrFail($request, $uuid);
 
         if ($claim->status !== 'approved') {
             abort(422, 'Only approved claims can generate a payment slip.');
@@ -645,4 +691,31 @@ class ClaimsController extends Controller
         ]);
     }
 
+    private function activeBranchId(Request $request): int
+    {
+        $branchId = (int) ($request->user()?->active_branch_id ?? 0);
+
+        if ($branchId <= 0) {
+            abort(422, 'Please select an active branch before proceeding.');
+        }
+
+        return $branchId;
+    }
+
+    private function claimByUuidOrFail(Request $request, string $uuid): Claim
+    {
+        return Claim::query()
+            ->where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->firstOrFail();
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
+
 }
+

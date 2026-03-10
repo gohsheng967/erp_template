@@ -196,4 +196,3 @@ function refreshUsers() {
 .bad { @apply bg-red-100 text-red-700; }
 .action { @apply hover:bg-gray-100 px-2 py-1 rounded; }
 </style>
-

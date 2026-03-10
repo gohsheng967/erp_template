@@ -22,6 +22,7 @@ class UserResource extends JsonResource
             'name' => $this->name,
             'email' => $this->email,
             'identity_no' => $this->identity_no,
+            'is_superadmin' => (bool) $this->is_superadmin,
 
             // MFA
             'mfa_enabled' => (bool) $this->google2fa_secret,

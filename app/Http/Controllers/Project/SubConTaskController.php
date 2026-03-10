@@ -11,13 +11,16 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use App\Services\AttachmentService;
 use App\Services\RunningNumberService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Validation\Rule;
 
 class SubConTaskController extends Controller
 {
     public function index(string $projectUuid)
     {
-        $project = Project::where('uuid', $projectUuid)->firstOrFail();
+        $this->ensureInternalUser(request());
+
+        $project = $this->resolveProject(request(), $projectUuid);
 
         $tasks = SubConTask::with(['subCon:id,uuid,name,company_name', 'parent:id,uuid,title', 'updates'])
             ->where('project_id', $project->id)
@@ -29,7 +32,9 @@ class SubConTaskController extends Controller
 
     public function store(Request $request, string $projectUuid)
     {
-        $project = Project::where('uuid', $projectUuid)->firstOrFail();
+        $this->ensureInternalUser($request);
+
+        $project = $this->resolveProject($request, $projectUuid);
 
         $validated = $request->validate([
             'sub_con_id' => 'required|integer|exists:sub_cons,id',
@@ -75,11 +80,13 @@ class SubConTaskController extends Controller
 
     public function storeUpdate(Request $request, string $projectUuid, string $taskUuid)
     {
-        $project = Project::where('uuid', $projectUuid)->firstOrFail();
+        $project = $this->resolveProject($request, $projectUuid);
 
         $task = SubConTask::where('uuid', $taskUuid)
             ->where('project_id', $project->id)
             ->firstOrFail();
+
+        $this->ensureSubConOwnsTask($request, $task);
 
         if (!in_array($task->status, ['draft', 'submitted'], true)) {
             return back()->withErrors([
@@ -120,7 +127,9 @@ class SubConTaskController extends Controller
 
     public function verify(Request $request, string $projectUuid, string $taskUuid)
     {
-        $task = $this->getTask($projectUuid, $taskUuid);
+        $this->ensureInternalUser($request);
+
+        $task = $this->getTask($request, $projectUuid, $taskUuid);
 
         if ($task->status !== 'submitted') {
             return back()->withErrors([
@@ -162,7 +171,9 @@ class SubConTaskController extends Controller
 
     public function justify(Request $request, string $projectUuid, string $taskUuid)
     {
-        $task = $this->getTask($projectUuid, $taskUuid);
+        $this->ensureInternalUser($request);
+
+        $task = $this->getTask($request, $projectUuid, $taskUuid);
 
         if ($task->status !== 'verified') {
             return back()->withErrors([
@@ -204,7 +215,9 @@ class SubConTaskController extends Controller
 
     public function certify(Request $request, string $projectUuid, string $taskUuid)
     {
-        $task = $this->getTask($projectUuid, $taskUuid);
+        $this->ensureInternalUser($request);
+
+        $task = $this->getTask($request, $projectUuid, $taskUuid);
 
         if ($task->status !== 'justified') {
             return back()->withErrors([
@@ -270,7 +283,9 @@ class SubConTaskController extends Controller
 
     public function paid(Request $request, string $projectUuid, string $taskUuid)
     {
-        $task = $this->getTask($projectUuid, $taskUuid);
+        $this->ensureInternalUser($request);
+
+        $task = $this->getTask($request, $projectUuid, $taskUuid);
 
         if ($task->status !== 'certified') {
             return back()->withErrors([
@@ -309,9 +324,9 @@ class SubConTaskController extends Controller
         return back()->with('success', 'Marked as paid.');
     }
 
-    private function getTask(string $projectUuid, string $taskUuid): SubConTask
+    private function getTask(Request $request, string $projectUuid, string $taskUuid): SubConTask
     {
-        $project = Project::where('uuid', $projectUuid)->firstOrFail();
+        $project = $this->resolveProject($request, $projectUuid);
 
         return SubConTask::where('uuid', $taskUuid)
             ->where('project_id', $project->id)
@@ -320,7 +335,9 @@ class SubConTaskController extends Controller
 
     public function update(Request $request, string $projectUuid, string $taskUuid)
     {
-        $project = Project::where('uuid', $projectUuid)->firstOrFail();
+        $this->ensureInternalUser($request);
+
+        $project = $this->resolveProject($request, $projectUuid);
 
         $task = SubConTask::where('uuid', $taskUuid)
             ->where('project_id', $project->id)
@@ -371,9 +388,11 @@ class SubConTaskController extends Controller
         return back()->with('success', 'Sub Con task updated successfully.');
     }
 
-    public function destroy(string $projectUuid, string $taskUuid)
+    public function destroy(Request $request, string $projectUuid, string $taskUuid)
     {
-        $task = $this->getTask($projectUuid, $taskUuid);
+        $this->ensureInternalUser($request);
+
+        $task = $this->getTask($request, $projectUuid, $taskUuid);
 
         if ($task->children()->exists()) {
             return back()->withErrors([
@@ -386,9 +405,10 @@ class SubConTaskController extends Controller
         return back()->with('success', 'Sub Con task deleted successfully.');
     }
 
-    public function downloadUpdate(string $projectUuid, string $taskUuid, string $updateUuid)
+    public function downloadUpdate(Request $request, string $projectUuid, string $taskUuid, string $updateUuid)
     {
-        $task = $this->getTask($projectUuid, $taskUuid);
+        $task = $this->getTask($request, $projectUuid, $taskUuid);
+        $this->ensureSubConOwnsTask($request, $task);
 
         $update = SubConTaskUpdate::where('uuid', $updateUuid)
             ->where('sub_con_task_id', $task->id)
@@ -405,5 +425,54 @@ class SubConTaskController extends Controller
         $name = $update->attachment_name ?? basename($update->attachment_path);
 
         return Storage::disk('public')->download($update->attachment_path, $name);
+    }
+
+    private function resolveProject(Request $request, string $projectUuid): Project
+    {
+        $query = Project::where('uuid', $projectUuid);
+        $this->scopeToActiveBranch($request, $query, 'branch_id');
+
+        return $query->firstOrFail();
+    }
+
+    private function ensureInternalUser(Request $request): void
+    {
+        if ($request->user()?->sub_con_id) {
+            abort(403, 'Sub Con account is not allowed to perform this action.');
+        }
+    }
+
+    private function ensureSubConOwnsTask(Request $request, SubConTask $task): void
+    {
+        $subConId = $request->user()?->sub_con_id;
+
+        if (!$subConId) {
+            return;
+        }
+
+        if ((int) $subConId !== (int) $task->sub_con_id) {
+            abort(403, 'You are not allowed to access this task.');
+        }
+    }
+
+    private function scopeToActiveBranch(Request $request, Builder $query, string $column = 'branch_id'): void
+    {
+        $user = $request->user();
+
+        if (!$user || !$this->shouldScopeToActiveBranch($request) || $user->sub_con_id) {
+            return;
+        }
+
+        $branchId = (int) ($user->active_branch_id ?? 0);
+        if ($branchId <= 0) {
+            abort(403, 'Active branch is required.');
+        }
+
+        $query->where($column, $branchId);
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
     }
 }

@@ -73,9 +73,6 @@ function toggleFinished() {
                         <p class="text-gray-500 text-sm">
                             End Date: {{ project.end_date || "-" }} · Extension Date: {{ project.extension_date || "-" }}
                         </p>
-                        <p class="text-gray-500 text-sm">
-                            Project Value: {{ formatCurrency(project.project_value || 0) }}
-                        </p>
                     </div>
 
                     <div class="flex items-center gap-3">

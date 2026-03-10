@@ -50,6 +50,47 @@ class StoreUserRequest extends FormRequest
             'name'        => 'required|string|max:255',
             'email'       => 'required|email|unique:users,email',
             'status'      => 'required|in:0,1',
+            'is_superadmin' => ['nullable', 'boolean'],
+            'department_roles' => ['nullable', 'array'],
+            'department_roles.*.department_id' => ['required_with:department_roles', 'exists:departments,id'],
+            'department_roles.*.role_id' => [
+                'required_with:department_roles',
+                'exists:roles,id',
+                function ($attr, $value, $fail) {
+                    $parts = explode('.', $attr);
+                    $index = $parts[1] ?? null;
+                    $dept = $index !== null ? ($this->department_roles[$index]['department_id'] ?? null) : null;
+
+                    if (!$dept) {
+                        return;
+                    }
+
+                    $valid = DB::table('pivot_department_role')
+                        ->where('department_id', $dept)
+                        ->where('role_id', $value)
+                        ->exists();
+
+                    if (!$valid) {
+                        $fail('Selected role does not belong to this department.');
+                    }
+                },
+            ],
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            $isSuperAdmin = filter_var($this->input('is_superadmin', false), FILTER_VALIDATE_BOOLEAN);
+            $rows = collect($this->input('department_roles', []))
+                ->filter(fn ($row) => !empty($row['department_id']) || !empty($row['role_id']));
+
+            if (!$isSuperAdmin && $rows->isEmpty()) {
+                $validator->errors()->add(
+                    'department_roles',
+                    'At least one department & role is required for normal users.'
+                );
+            }
+        });
     }
 }

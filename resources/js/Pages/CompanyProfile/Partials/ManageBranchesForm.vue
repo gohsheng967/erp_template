@@ -11,11 +11,8 @@ const toast = inject("toast", null);
 
 const branches = computed(() => page.props.branches ?? []);
 const isSuperAdmin = computed(() => {
-    const user = page.props.auth?.user?.data;
-    const departments = user?.departments ?? [];
-    return departments.some((d) =>
-        ["superadmin", "super admin"].includes(String(d.name ?? "").toLowerCase())
-    );
+    const user = page.props.auth?.user?.data ?? page.props.auth?.user;
+    return !!user?.is_superadmin;
 });
 
 const createForm = useForm({

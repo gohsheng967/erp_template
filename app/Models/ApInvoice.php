@@ -15,6 +15,7 @@ class ApInvoice extends Model
         'uuid',
         'purchase_order_id',
         'supplier_id',
+        'branch_id',
         'invoice_number',
         'invoice_date',
         'due_date',

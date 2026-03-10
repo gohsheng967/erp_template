@@ -10,7 +10,7 @@ const props = defineProps({
     },
     company: {
         type: Object,
-        required: true,
+        default: () => ({}),
     },
 })
 

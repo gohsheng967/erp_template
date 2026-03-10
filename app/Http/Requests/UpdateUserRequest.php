@@ -32,8 +32,8 @@ class UpdateUserRequest extends FormRequest
                 'email',
                 Rule::unique('users', 'email')->ignore($user->id),
             ],
-
             'status' => 'required|in:0,1',
+            'is_superadmin' => ['nullable', 'boolean'],
         ];
 
         /**

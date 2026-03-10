@@ -55,6 +55,9 @@ class ArInvoiceController extends Controller
                 'customer:id,name',
                 'issuer:id,name',
             ])
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('ar_invoices.branch_id', $this->activeBranchId($request))
+            )
             ->withCount('items')
             ->withSum('items', 'amount')
             ->withSum('receipts', 'amount')
@@ -115,6 +118,9 @@ class ArInvoiceController extends Controller
         */
         $approvedInvoiceQuery = ArInvoice::query()
             ->where('status', 'approved')
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->when($projectId, fn ($q) =>
                 $q->where('project_id', $projectId)
             )
@@ -130,6 +136,9 @@ class ArInvoiceController extends Controller
         $receivedTotal = (float) DB::table('ar_invoice_receipts')
             ->join('ar_invoices', 'ar_invoice_receipts.ar_invoice_id', '=', 'ar_invoices.id')
             ->where('ar_invoices.status', 'approved')
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('ar_invoices.branch_id', $this->activeBranchId($request))
+            )
             ->when($projectId, fn ($q) =>
                 $q->where('ar_invoices.project_id', $projectId)
             )
@@ -152,7 +161,13 @@ class ArInvoiceController extends Controller
         | Dropdown Data
         |--------------------------------------------------------------------------
         */
-        $projects  = Project::select('id', 'name')->orderBy('name')->get();
+        $projects  = Project::query()
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->select('id', 'name')
+            ->orderBy('name')
+            ->get();
         $customers = Client::select('id', 'name')->orderBy('name')->get();
 
         /*
@@ -204,9 +219,18 @@ class ArInvoiceController extends Controller
             'payment_term_days' => ['nullable', 'integer', 'min:0'],
         ]);
 
+        if (!empty($validated['project_id'])) {
+            $projectQuery = Project::query()->where('id', $validated['project_id']);
+            if ($this->shouldScopeToActiveBranch($request)) {
+                $projectQuery->where('branch_id', $this->activeBranchId($request));
+            }
+            $projectQuery->firstOrFail();
+        }
+
         $invoice = ArInvoice::create([
             'title'        => $validated['title'],
             'project_id'   => $validated['project_id'] ?? null,
+            'branch_id'    => $this->activeBranchId($request),
             'customer_id'  => $validated['customer_id'],
             'total_amount' => $validated['total_amount'],
             'payment_term_days' => $validated['payment_term_days'] ?? null,
@@ -221,9 +245,12 @@ class ArInvoiceController extends Controller
      * EDIT (DRAFT ONLY)
      * ============================================================
      */
-    public function edit(string $uuid)
+    public function edit(Request $request, string $uuid)
     {
         $invoice = ArInvoice::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->with(['items.attachments'])
             ->firstOrFail();
 
@@ -242,7 +269,11 @@ class ArInvoiceController extends Controller
      */
     public function update(Request $request, string $uuid)
     {
-        $invoice = ArInvoice::where('uuid', $uuid)->firstOrFail();
+        $invoice = ArInvoice::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->firstOrFail();
 
         if ($invoice->status !== 'draft') {
             abort(403, 'Invoice is locked.');
@@ -367,6 +398,9 @@ class ArInvoiceController extends Controller
         ]);
 
         $invoice = ArInvoice::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->lockForUpdate()
             ->firstOrFail();
 
@@ -404,6 +438,9 @@ class ArInvoiceController extends Controller
 
         return DB::transaction(function () use ($validated, $uuid, $request) {
             $invoice = ArInvoice::where('uuid', $uuid)
+                ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                    $q->where('branch_id', $this->activeBranchId($request))
+                )
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -462,9 +499,12 @@ class ArInvoiceController extends Controller
      * SHOW (PDF / VIEW)
      * ============================================================
      */
-    public function show(string $uuid)
+    public function show(Request $request, string $uuid)
     {
         $invoice = ArInvoice::where('uuid', $uuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
             ->with([
                 'items.attachments',
                 'issuer',
@@ -485,11 +525,14 @@ class ArInvoiceController extends Controller
         ]);
     }
 
-    public function cancel(string $uuid)
+    public function cancel(Request $request, string $uuid)
     {
-        return DB::transaction(function () use ($uuid) {
+        return DB::transaction(function () use ($uuid, $request) {
 
             $invoice = ArInvoice::where('uuid', $uuid)
+                ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                    $q->where('branch_id', $this->activeBranchId($request))
+                )
                 ->lockForUpdate()
                 ->firstOrFail();
 
@@ -506,4 +549,21 @@ class ArInvoiceController extends Controller
         });
     }
 
+    private function activeBranchId(Request $request): int
+    {
+        $branchId = (int) ($request->user()?->active_branch_id ?? 0);
+
+        if ($branchId <= 0) {
+            abort(422, 'Please select an active branch before proceeding.');
+        }
+
+        return $branchId;
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
+
 }
+

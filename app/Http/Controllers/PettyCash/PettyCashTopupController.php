@@ -21,6 +21,7 @@ class PettyCashTopupController extends Controller
     public function index(Request $request)
     {
         $tab = $request->get('tab', 'requested');
+        $branchId = $this->activeBranchId($request);
 
         /* =========================
         BASE QUERY
@@ -38,6 +39,17 @@ class PettyCashTopupController extends Controller
                 'attachment',
             ])
             ->orderByDesc('created_at');
+
+        if ($branchId !== null) {
+            $baseQuery->where(function ($q) use ($branchId) {
+                $q->whereHas('wallet.project', fn ($project) => $project->where('branch_id', $branchId))
+                    ->orWhereHas('companyBankAccount', fn ($bank) => $bank->where('branch_id', $branchId))
+                    ->orWhereHas(
+                        'paymentSlip.companyBankAccount',
+                        fn ($bank) => $bank->where('branch_id', $branchId)
+                    );
+            });
+        }
 
         /* =========================
         STATUS QUERIES
@@ -92,11 +104,19 @@ class PettyCashTopupController extends Controller
 
             // Required for CreateTopupModal
             'projects' => Project::select('id', 'name')
+                ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
                 ->orderBy('name')
                 ->get(),
 
             // Optional (future use)
-            'wallets' => PettyCashWallet::with('project')->get(),
+            'wallets' => PettyCashWallet::with('project')
+                ->when($branchId !== null, function ($q) use ($branchId) {
+                    $q->where(function ($wallet) use ($branchId) {
+                        $wallet->where('context_type', 'office')
+                            ->orWhereHas('project', fn ($project) => $project->where('branch_id', $branchId));
+                    });
+                })
+                ->get(),
 
             'activeTab' => $tab,
 
@@ -110,6 +130,8 @@ class PettyCashTopupController extends Controller
 
     public function store(Request $request)
     {
+        $branchId = $this->activeBranchId($request);
+
         $validated = $request->validate([
             'context_type' => ['required', 'in:office,project'],
             'project_id'   => ['nullable', 'exists:projects,id'],
@@ -146,6 +168,15 @@ class PettyCashTopupController extends Controller
                 ]);
             }
 
+            if (
+                $branchId !== null
+                && !Project::where('id', $validated['project_id'])->where('branch_id', $branchId)->exists()
+            ) {
+                throw ValidationException::withMessages([
+                    'project_id' => 'Selected project does not belong to active branch.',
+                ]);
+            }
+
             $wallet = PettyCashWallet::firstOrCreate(
                 [
                     'context_type' => 'project',
@@ -174,8 +205,10 @@ class PettyCashTopupController extends Controller
     /* =========================
        APPROVE TOP-UP
     ========================== */
-    public function approve(PettyCashTopup $topup)
+    public function approve(Request $request, PettyCashTopup $topup)
     {
+        $this->ensureTopupBranchAccess($request, $topup);
+
         if ($topup->status !== 'requested') {
             abort(422, 'Invalid top-up state.');
         }
@@ -189,13 +222,15 @@ class PettyCashTopupController extends Controller
         return back()->with('success', 'Top-up approved.');
     }
 
-    public function reject(PettyCashTopup $topup)
+    public function reject(Request $request, PettyCashTopup $topup)
     {
+        $this->ensureTopupBranchAccess($request, $topup);
+
         if ($topup->status !== 'requested') {
             abort(422, 'Invalid top-up state.');
         }
 
-        request()->validate([
+        $request->validate([
             'reason' => ['required', 'string', 'max:255'],
         ]);
 
@@ -203,7 +238,7 @@ class PettyCashTopupController extends Controller
             'status'      => 'rejected',
             'rejected_by' => auth()->id(),
             'rejected_at' => now(),
-            'rejected_reason' => request()->reason,
+            'rejected_reason' => $request->reason,
         ]);
 
         return back()->with('success', 'Top-up rejected.');
@@ -214,6 +249,8 @@ class PettyCashTopupController extends Controller
     ========================== */
     public function pay(Request $request, PettyCashTopup $topup, PettyCashTransactionService $service) 
     {
+        $this->ensureTopupBranchAccess($request, $topup);
+
         $request->validate([
             'payment_ref_no' => ['required', 'string', 'max:255'],
             'attachments'   => ['required', 'array', 'min:1'],
@@ -254,6 +291,8 @@ class PettyCashTopupController extends Controller
 
     public function uploadSlip(Request $request, PettyCashTopup $topup)
     {
+        $this->ensureTopupBranchAccess($request, $topup);
+
         if (!$topup->payment_slip_no) {
             abort(422, 'Payment slip number is required before upload.');
         }
@@ -280,6 +319,8 @@ class PettyCashTopupController extends Controller
 
     public function paymentSlip(Request $request, PettyCashTopup $topup)
     {
+        $this->ensureTopupBranchAccess($request, $topup);
+
         if ($topup->status !== 'approved') {
             abort(422, 'Only approved top-ups can generate a payment slip.');
         }
@@ -340,8 +381,10 @@ class PettyCashTopupController extends Controller
         ]);
     }
 
-    public function destroy(PettyCashTopup $topup)
+    public function destroy(Request $request, PettyCashTopup $topup)
     {
+        $this->ensureTopupBranchAccess($request, $topup);
+
         if ($topup->status !== 'requested') {
             abort(403, 'Only requested top-ups can be deleted.');
         }
@@ -355,4 +398,45 @@ class PettyCashTopupController extends Controller
         return back()->with('success', 'Top-up request deleted.');
     }
 
+    private function activeBranchId(Request $request): ?int
+    {
+        if (!$this->shouldScopeToActiveBranch($request)) {
+            return null;
+        }
+
+        $branchId = (int) ($request->user()?->active_branch_id ?? 0);
+        if ($branchId <= 0) {
+            abort(422, 'Please select an active branch before proceeding.');
+        }
+
+        return $branchId;
+    }
+
+    private function ensureTopupBranchAccess(Request $request, PettyCashTopup $topup): void
+    {
+        $branchId = $this->activeBranchId($request);
+        if ($branchId === null) {
+            return;
+        }
+
+        $topup->loadMissing([
+            'wallet.project:id,branch_id',
+            'companyBankAccount:id,branch_id',
+            'paymentSlip.companyBankAccount:id,branch_id',
+        ]);
+
+        $isAllowed = (int) ($topup->wallet?->project?->branch_id ?? 0) === $branchId
+            || (int) ($topup->companyBankAccount?->branch_id ?? 0) === $branchId
+            || (int) ($topup->paymentSlip?->companyBankAccount?->branch_id ?? 0) === $branchId;
+
+        if (!$isAllowed) {
+            abort(404);
+        }
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
 }
+

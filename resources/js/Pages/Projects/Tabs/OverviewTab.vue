@@ -42,6 +42,17 @@ const timelineProgress = computed(() => {
     return Math.round((elapsed / total) * 100)
 })
 
+const projectValueAmount = computed(() => Number(props.project.project_value ?? 0))
+const projectBudgetAmount = computed(() => Number(props.project.budget ?? 0))
+const valueVariance = computed(() => projectValueAmount.value - projectBudgetAmount.value)
+const valueVarianceLabel = computed(() =>
+    valueVariance.value >= 0 ? "Above Budget" : "Below Budget"
+)
+const valueUtilizationPercent = computed(() => {
+    if (projectBudgetAmount.value <= 0) return 0
+    return Math.round((projectValueAmount.value / projectBudgetAmount.value) * 100)
+})
+
 const kpi = ref({
     budget: {
         total: 0,
@@ -202,6 +213,57 @@ onMounted(() => {
             <p class="text-gray-500 text-sm mt-2">
                 Progress: {{ timelineProgress }}%
             </p>
+
+            <div class="mt-4 rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-4">
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Financial Snapshot</p>
+                <div class="mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                        <p class="text-xs text-slate-500">Project Value</p>
+                        <p class="text-2xl font-bold text-slate-900">
+                            {{ formatCurrency(projectValueAmount) }}
+                        </p>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:w-[440px]">
+                        <div class="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                            <p class="text-xs text-slate-500">Budget</p>
+                            <p class="text-sm font-semibold text-slate-900">
+                                {{ formatCurrency(projectBudgetAmount) }}
+                            </p>
+                        </div>
+                        <div
+                            class="rounded-lg border px-3 py-2"
+                            :class="valueVariance >= 0
+                                ? 'border-emerald-200 bg-emerald-50'
+                                : 'border-amber-200 bg-amber-50'"
+                        >
+                            <p
+                                class="text-xs"
+                                :class="valueVariance >= 0 ? 'text-emerald-700' : 'text-amber-700'"
+                            >
+                                {{ valueVarianceLabel }}
+                            </p>
+                            <p
+                                class="text-sm font-semibold"
+                                :class="valueVariance >= 0 ? 'text-emerald-900' : 'text-amber-900'"
+                            >
+                                {{ formatCurrency(Math.abs(valueVariance)) }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <div class="mb-1 flex items-center justify-between text-xs">
+                        <span class="text-slate-500">Value vs Budget</span>
+                        <span class="font-semibold text-slate-700">{{ valueUtilizationPercent }}%</span>
+                    </div>
+                    <div class="h-2 rounded-full bg-slate-200 overflow-hidden">
+                        <div
+                            class="h-full rounded-full bg-indigo-500"
+                            :style="{ width: `${Math.min(valueUtilizationPercent, 100)}%` }"
+                        />
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- 2️⃣ KPI CARDS -->

@@ -27,6 +27,8 @@ class User extends Authenticatable
         'profile_photo',
         'signature_path',
         'active_branch_id',
+        'status',
+        'is_superadmin',
         'contact_channels',
         'identity_no'
     ];
@@ -52,6 +54,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'contact_channels' => 'array',
+            'is_superadmin' => 'boolean',
         ];
     }
 
@@ -93,12 +96,7 @@ class User extends Authenticatable
 
     public function isSuperAdmin(): bool
     {
-        return $this->departments()
-            ->whereIn('departments.name', ['Superadmin', 'superadmin', 'Super Admin'])
-            ->exists()
-            || $this->roles()
-                ->whereIn('roles.name', ['Superadmin', 'superadmin', 'Super Admin'])
-                ->exists();
+        return (bool) $this->is_superadmin;
     }
 
     public function toResource()

@@ -83,7 +83,9 @@ function removeRow(index) {
 function submit() {
     if (isProtected.value) return;
 
-    form.department_roles = rows.value;
+    form.department_roles = rows.value.filter(
+        (row) => row?.department_id || row?.role_id
+    );
 
     form.patch(route("users.update", props.user.id), {
         preserveScroll: true,

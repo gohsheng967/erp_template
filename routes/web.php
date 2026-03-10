@@ -14,9 +14,11 @@ use App\Http\Controllers\ClientController;
 use App\Http\Controllers\WidgetController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\SubConController;
+use App\Http\Controllers\SubConPortalController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ClaimTypeController;
+use App\Http\Controllers\PublicInventoryController;
 use App\Http\Controllers\BranchContextController;
 use App\Http\Controllers\BranchController;
 
@@ -48,6 +50,7 @@ use App\Http\Controllers\Pdf\ClaimPdfController;
 
 use App\Http\Controllers\Auth\MFASetupController;
 use App\Http\Controllers\Auth\MFAVerifyController;
+use App\Http\Controllers\Auth\SubConAuthenticatedSessionController;
 
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -56,6 +59,24 @@ use Illuminate\Foundation\Application;
 // Redirect directly to login
 Route::get('/', function () {
     return redirect()->route('login');
+});
+
+// Sub Con Portal Authentication (separate from staff users)
+Route::get('/sub-con/login', [SubConAuthenticatedSessionController::class, 'create'])
+    ->name('sub-con.login');
+Route::post('/sub-con/login', [SubConAuthenticatedSessionController::class, 'store'])
+    ->name('sub-con.login.store');
+Route::post('/sub-con/logout', [SubConAuthenticatedSessionController::class, 'destroy'])
+    ->name('sub-con.logout');
+
+Route::middleware('auth.subcon')->prefix('sub-con')->name('sub-con.')->group(function () {
+    Route::get('/password/change', [SubConAuthenticatedSessionController::class, 'showChangePassword'])
+        ->name('password.change');
+    Route::post('/password/change', [SubConAuthenticatedSessionController::class, 'updatePassword'])
+        ->name('password.update');
+    Route::get('/portal', [SubConPortalController::class, 'index'])->name('portal');
+    Route::post('/tasks/{task}/updates', [SubConPortalController::class, 'storeUpdate'])->name('tasks.updates.store');
+    Route::get('/tasks/{task}/updates/{update}/download', [SubConPortalController::class, 'downloadUpdate'])->name('tasks.updates.download');
 });
 
 Route::prefix('public')->name('public.')->group(function () {
@@ -106,10 +127,13 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         ->name('company.branches.destroy');
 
     Route::get('/payment-slips', [PaymentSlipController::class, 'index'])
+        ->middleware('branch.context')
         ->name('payment-slips.index');
     Route::post('/payment-slips/{paymentSlip}/upload', [PaymentSlipController::class, 'upload'])
+        ->middleware('branch.context')
         ->name('payment-slips.upload');
     Route::post('/payment-slips/{paymentSlip}/cancel', [PaymentSlipController::class, 'cancel'])
+        ->middleware('branch.context')
         ->name('payment-slips.cancel');
 
 
@@ -138,17 +162,19 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     Route::patch('/roles/{role}', [RoleController::class, 'update'])->name('roles.update');
     Route::delete('/roles/{role}', [RoleController::class, 'destroy'])->name('roles.destroy');
 
-    // Permission Management (view roles â†’ assign permissions)
-    Route::get('/permissions', [PermissionController::class, 'index'])
-        ->name('permissions.index');
+    if (class_exists(\App\Http\Controllers\PermissionController::class)) {
+        // Permission Management (view roles â†’ assign permissions)
+        Route::get('/permissions', [PermissionController::class, 'index'])
+            ->name('permissions.index');
 
-    // Load permissions for a specific role
-    Route::get('/permissions/{role}', [PermissionController::class, 'show'])
-        ->name('permissions.show');
+        // Load permissions for a specific role
+        Route::get('/permissions/{role}', [PermissionController::class, 'show'])
+            ->name('permissions.show');
 
-    // Save updated permissions for a role
-    Route::post('/permissions/{role}/update', [PermissionController::class, 'update'])
-        ->name('permissions.update');
+        // Save updated permissions for a role
+        Route::post('/permissions/{role}/update', [PermissionController::class, 'update'])
+            ->name('permissions.update');
+    }
 
 
     Route::get('/file-categories', [FileCategoryController::class, 'index'])->name('file-categories.index');
@@ -163,32 +189,41 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
 
     Route::get('/projects', [ProjectController::class, 'index'])
+        ->middleware('branch.context')
         ->name('projects.index');
 
     Route::get('/projects/create', [ProjectController::class, 'create'])
+        ->middleware('branch.context')
         ->name('projects.create');
 
     Route::post('/projects', [ProjectController::class, 'store'])
+        ->middleware('branch.context')
         ->name('projects.store');
 
     Route::get('/projects/{project}', [ProjectController::class, 'show'])
+        ->middleware('branch.context')
         ->name('projects.show');
 
     Route::get('/projects/{project}/edit', [ProjectController::class, 'edit'])
+        ->middleware('branch.context')
         ->name('projects.edit');
 
     Route::put('/projects/{project}', [ProjectController::class, 'update'])
+        ->middleware('branch.context')
         ->name('projects.update');
 
     Route::delete('/projects/{project}', [ProjectController::class, 'destroy'])
+        ->middleware('branch.context')
         ->name('projects.destroy');
 
     Route::patch('/projects/{project}/budget', [ProjectController::class, 'updateBudget'])
+        ->middleware('branch.context')
         ->name('projects.update-budget');
     Route::patch('/projects/{project}/toggle-finished', [ProjectController::class, 'toggleFinished'])
+        ->middleware('branch.context')
         ->name('projects.toggle-finished');
 
-    Route::prefix('projects/{project}/sub-con-tasks')->name('projects.sub-con-tasks.')->group(function () {
+    Route::prefix('projects/{project}/sub-con-tasks')->middleware('branch.context')->name('projects.sub-con-tasks.')->group(function () {
         Route::post('/', [SubConTaskController::class, 'store'])->name('store');
         Route::patch('/{task}', [SubConTaskController::class, 'update'])->name('update');
         Route::delete('/{task}', [SubConTaskController::class, 'destroy'])->name('destroy');
@@ -200,31 +235,37 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::post('/{task}/mark-paid', [SubConTaskController::class, 'paid'])->name('paid');
     });
 
-    Route::prefix('projects/{project}/sub-cons')->name('projects.sub-cons.')->group(function () {
+    Route::prefix('projects/{project}/sub-cons')->middleware('branch.context')->name('projects.sub-cons.')->group(function () {
         Route::post('/bind', [ProjectController::class, 'bindSubCon'])->name('bind');
         Route::post('/create', [ProjectController::class, 'createAndBindSubCon'])->name('create');
     });
 
 
     Route::get('/projects/{project}/claims/summary', [ProjectController::class, 'summary'])
+        ->middleware('branch.context')
         ->name('projects.claims.summary');
 
     Route::get('/projects/{project}/purchase-requests/summary', [ProjectController::class, 'purchaseRequestSummary'])
+        ->middleware('branch.context')
         ->name('projects.pr.summary');
 
     Route::get('/projects/{project}/ar/summary', [ProjectController::class, 'aRSummary'])
+        ->middleware('branch.context')
         ->name('projects.ar.summary');
 
     Route::get('/projects/{project}/topups', [ProjectController::class, 'topupRequests'])
+        ->middleware('branch.context')
         ->name('projects.topups.index');
 
     Route::get('projects/{project}/overview/kpi',  [ProjectController::class, 'kpi'])
+        ->middleware('branch.context')
         ->name('projects.overview.kpi');
 
     // ----------------------------------------
     // PROJECT DOCUMENTS
     // ----------------------------------------
     Route::prefix('projects')
+        ->middleware('branch.context')
         ->name('projects.')
         ->group(function () {
 
@@ -264,7 +305,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         // ------------------------------
     // PURCHASE ORDERS
     // ------------------------------
-    Route::prefix('purchase-orders')->name('purchase-orders.')->group(function () {
+    Route::prefix('purchase-orders')->middleware('branch.context')->name('purchase-orders.')->group(function () {
         Route::get('/', [PurchaseOrderController::class, 'index'])
             ->name('index');
 
@@ -293,7 +334,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     // ------------------------------
     // CLAIMS
     // ------------------------------
-    Route::prefix('claims')->name('claims.')->group(function () {
+    Route::prefix('claims')->middleware('branch.context')->name('claims.')->group(function () {
         Route::get('/', [ClaimsController::class, 'index'])->name('index');
         Route::get('/create', [ClaimsController::class, 'create'])->name('create');
         Route::post('/', [ClaimsController::class, 'store'])->name('store');
@@ -306,7 +347,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::post('/{claim}/payment-slip', [ClaimsController::class, 'paymentSlip'])->name('payment-slip');
     });
 
-    Route::prefix('ar-invoices')->name('ar-invoices.')->group(function () {
+    Route::prefix('ar-invoices')->middleware('branch.context')->name('ar-invoices.')->group(function () {
         Route::get('/', [ArInvoiceController::class, 'index'])
             ->name('index');
 
@@ -335,7 +376,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
             ->name('received');
     });
 
-    Route::prefix('ap-invoices')->name('ap-invoices.')->group(function () {
+    Route::prefix('ap-invoices')->middleware('branch.context')->name('ap-invoices.')->group(function () {
 
         // LIST (later)
         Route::get('/', [ApInvoiceController::class, 'index'])
@@ -369,7 +410,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     });
 
 
-    Route::prefix('petty-cash')->name('petty-cash.')->group(function () {
+    Route::prefix('petty-cash')->middleware('branch.context')->name('petty-cash.')->group(function () {
         Route::get('/', [PettyCashController::class, 'index'])->name('index');
         Route::post('/usage', [PettyCashUsageController::class, 'store'])->name('usage.store');
 
@@ -419,7 +460,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::get('/simple-list/options', [SupplierController::class, 'list'])->name('simple-list');
     });
 
-    Route::prefix('purchase-request')->name('purchase-request.')->group(function () {
+    Route::prefix('purchase-request')->middleware('branch.context')->name('purchase-request.')->group(function () {
         Route::get('/',[PurchaseRequestController::class, 'index'])->name('index');
         Route::post('/purchase-quotations', [PurchaseRequestController::class, 'addQuotations'])->name('add-quote');
         Route::get('/init-form',[PurchaseRequestController::class, 'initPurchaseRequestForm'])->name('init-form');
@@ -440,15 +481,17 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     // ------------------------------
     // INVOICE
     // ------------------------------
-    Route::prefix('invoice')->name('invoice.')->group(function () {
-        Route::get('/', [InvoiceController::class, 'index'])->name('index');
-        Route::get('/create', [InvoiceController::class, 'create'])->name('create');
-        Route::post('/', [InvoiceController::class, 'store'])->name('store');
-        Route::get('/{invoice}', [InvoiceController::class, 'show'])->name('show');
-        Route::get('/{invoice}/edit', [InvoiceController::class, 'edit'])->name('edit');
-        Route::put('/{invoice}', [InvoiceController::class, 'update'])->name('update');
-        Route::delete('/{invoice}', [InvoiceController::class, 'destroy'])->name('destroy');
-    });
+    if (class_exists(\App\Http\Controllers\InvoiceController::class)) {
+        Route::prefix('invoice')->name('invoice.')->group(function () {
+            Route::get('/', [InvoiceController::class, 'index'])->name('index');
+            Route::get('/create', [InvoiceController::class, 'create'])->name('create');
+            Route::post('/', [InvoiceController::class, 'store'])->name('store');
+            Route::get('/{invoice}', [InvoiceController::class, 'show'])->name('show');
+            Route::get('/{invoice}/edit', [InvoiceController::class, 'edit'])->name('edit');
+            Route::put('/{invoice}', [InvoiceController::class, 'update'])->name('update');
+            Route::delete('/{invoice}', [InvoiceController::class, 'destroy'])->name('destroy');
+        });
+    }
 
     Route::prefix('inventory')->name('inventory.')->group(function () {
 
@@ -493,27 +536,34 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
     // ----------------------------------------
     // MILESTONES
     // ----------------------------------------
-    Route::post('/projects/{project}/milestones', [ProjectMilestoneController::class, 'store'])
-        ->name('projects.milestones.store');
+    if (class_exists(\App\Http\Controllers\Project\ProjectMilestoneController::class)) {
+        Route::post('/projects/{project}/milestones', [ProjectMilestoneController::class, 'store'])
+            ->middleware('branch.context')
+            ->name('projects.milestones.store');
 
-    Route::put('/projects/{project}/milestones/{milestone}', [ProjectMilestoneController::class, 'update'])
-        ->name('projects.milestones.update');
+        Route::put('/projects/{project}/milestones/{milestone}', [ProjectMilestoneController::class, 'update'])
+            ->middleware('branch.context')
+            ->name('projects.milestones.update');
 
-    Route::delete('/projects/{project}/milestones/{milestone}', [ProjectMilestoneController::class, 'destroy'])
-        ->name('projects.milestones.destroy');
+        Route::delete('/projects/{project}/milestones/{milestone}', [ProjectMilestoneController::class, 'destroy'])
+            ->middleware('branch.context')
+            ->name('projects.milestones.destroy');
+    }
 
 
     // ----------------------------------------
     // MILESTONE â†’ TASKS
     // ----------------------------------------
-    Route::post('/milestones/{milestone}/tasks', [ProjectTaskController::class, 'store'])
-        ->name('milestones.tasks.store');
+    if (class_exists(\App\Http\Controllers\Project\ProjectTaskController::class)) {
+        Route::post('/milestones/{milestone}/tasks', [ProjectTaskController::class, 'store'])
+            ->name('milestones.tasks.store');
 
-    Route::put('/milestones/{milestone}/tasks/{task}', [ProjectTaskController::class, 'update'])
-        ->name('milestones.tasks.update');
+        Route::put('/milestones/{milestone}/tasks/{task}', [ProjectTaskController::class, 'update'])
+            ->name('milestones.tasks.update');
 
-    Route::delete('/milestones/{milestone}/tasks/{task}', [ProjectTaskController::class, 'destroy'])
-        ->name('milestones.tasks.destroy');
+        Route::delete('/milestones/{milestone}/tasks/{task}', [ProjectTaskController::class, 'destroy'])
+            ->name('milestones.tasks.destroy');
+    }
 
 // ------------------------------
     // DOCUMENT MODULE
@@ -564,7 +614,7 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
     });
 
-    Route::prefix('projects/{project}')->group(function () {
+    Route::prefix('projects/{project}')->middleware('branch.context')->group(function () {
 
         Route::post('milestones', 
             [MilestoneController::class, 'store']

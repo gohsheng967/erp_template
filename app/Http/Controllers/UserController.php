@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Department;
-use App\Models\Role;
 use App\Models\Branch;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -44,18 +43,25 @@ class UserController extends Controller
                     'name'         => $u->name,
                     'email'        => $u->email,
                     'status'       => $u->status,
+                    'is_superadmin' => (bool) $u->is_superadmin,
 
-                    // check if user belongs to Superadmin department
-                    'is_protected' => $u->departments->contains('name', 'Superadmin'),
+                    'is_protected' => $u->isSuperAdmin(),
 
-                    'assignments'  => $u->departments->map(function ($d) use ($u) {
-                        return [
-                            'department_id' => $d->id,
-                            'department'    => $d->name,
-                            'role_id'       => $d->pivot->role_id,
-                            'role'          => $u->roles->firstWhere('id', $d->pivot->role_id)?->name
-                        ];
-                    }),
+                    'assignments'  => $u->is_superadmin
+                        ? collect([[
+                            'department_id' => null,
+                            'department' => 'System',
+                            'role_id' => null,
+                            'role' => 'Superadmin',
+                        ]])
+                        : $u->departments->map(function ($d) use ($u) {
+                            return [
+                                'department_id' => $d->id,
+                                'department'    => $d->name,
+                                'role_id'       => $d->pivot->role_id,
+                                'role'          => $u->roles->firstWhere('id', $d->pivot->role_id)?->name
+                            ];
+                        }),
                     'branches' => $u->branches->map(fn ($b) => [
                         'id' => $b->id,
                         'name' => $b->name,
@@ -102,21 +108,21 @@ class UserController extends Controller
                 'email'       => $request->email,
                 'password'    => bcrypt('123456'),
                 'status'      => $request->status,
+                'is_superadmin' => (bool) $request->boolean('is_superadmin'),
                 'active_branch_id' => $activeBranchId,
             ]);
 
-            // 🔐 FORCE Super Admin role (ignore request input)
-            $superAdminRoleId = DB::table('roles')
-                ->where('name', 'superadmin')
-                ->value('id');
-
-            DB::table('pivot_user_departments')->insert([
-                'user_id'       => $user->id,
-                'department_id' => 1,
-                'role_id'       => $superAdminRoleId,
-                'created_at'    => now(),
-                'updated_at'    => now(),
-            ]);
+            if (!$user->is_superadmin) {
+                foreach ($request->input('department_roles', []) as $dr) {
+                    DB::table('pivot_user_departments')->insert([
+                        'user_id'       => $user->id,
+                        'department_id' => $dr['department_id'],
+                        'role_id'       => $dr['role_id'],
+                        'created_at'    => now(),
+                        'updated_at'    => now(),
+                    ]);
+                }
+            }
 
             DB::table('pivot_user_branches')->insert([
                 'user_id' => $user->id,
@@ -126,7 +132,7 @@ class UserController extends Controller
             ]);
         });
 
-        return back()->with('success', 'Super Admin created successfully.');
+        return back()->with('success', 'User created successfully.');
     }
 
 
@@ -205,7 +211,7 @@ class UserController extends Controller
     */
     public function resetPassword(User $user)
     {
-        if ($user->departments()->where('name', 'Superadmin')->exists()) {
+        if ($user->isSuperAdmin()) {
             abort(403, "Superadmin password cannot be reset.");
         }
 
@@ -223,7 +229,7 @@ class UserController extends Controller
     */
     public function toggleStatus(User $user)
     {
-        if ($user->departments()->where('name', 'Superadmin')->exists()) {
+        if ($user->isSuperAdmin()) {
             abort(403, "Superadmin status cannot be changed.");
         }
 

@@ -15,7 +15,8 @@ const { capitalize } = useFormat();
 
 const bankOptions = computed(() => page.props.bankOptions ?? []);
 const bankAccounts = computed(() => page.props.companyBankAccounts ?? []);
-const allowedBranches = computed(() => page.props.auth?.user?.data?.branches ?? []);
+const authUser = computed(() => page.props.auth?.user?.data ?? page.props.auth?.user ?? null);
+const allowedBranches = computed(() => authUser.value?.branches ?? []);
 const collapsedByBranch = ref({});
 
 const formsByBranch = reactive({});
