@@ -17,6 +17,8 @@ class PaymentSlipController extends Controller
 {
     public function index(Request $request)
     {
+        $activeBranchId = $this->activeBranchId($request);
+
         $slipsQuery = PaymentSlip::query()
             ->with([
                 'companyBankAccount',
@@ -39,6 +41,30 @@ class PaymentSlipController extends Controller
                 },
             ])
             ->withCount('attachments');
+
+        if ($activeBranchId !== null) {
+            $slipsQuery->where(function ($query) use ($activeBranchId) {
+                $query->whereHas('companyBankAccount', fn ($bank) => $bank->where('branch_id', $activeBranchId))
+                    ->orWhereHasMorph(
+                        'source',
+                        [Claim::class],
+                        fn ($source) => $source->where('branch_id', $activeBranchId)
+                    )
+                    ->orWhereHasMorph(
+                        'source',
+                        [ApInvoice::class],
+                        fn ($source) => $source->where('branch_id', $activeBranchId)
+                    )
+                    ->orWhereHasMorph(
+                        'source',
+                        [PettyCashTopup::class],
+                        fn ($source) => $source->whereHas(
+                            'wallet.project',
+                            fn ($project) => $project->where('branch_id', $activeBranchId)
+                        )
+                    );
+            });
+        }
 
         if ($request->filled('status')) {
             if ($request->status === 'cancelled') {
@@ -175,7 +201,11 @@ class PaymentSlipController extends Controller
 
         return Inertia::render('PaymentSlips/Index', [
             'slips' => $slips,
-            'projects' => Project::select('id', 'name')->orderBy('name')->get(),
+            'projects' => Project::query()
+                ->when($activeBranchId !== null, fn ($q) => $q->where('branch_id', $activeBranchId))
+                ->select('id', 'name')
+                ->orderBy('name')
+                ->get(),
             'filters' => $request->only([
                 'search',
                 'status',
@@ -189,6 +219,8 @@ class PaymentSlipController extends Controller
 
     public function upload(Request $request, PaymentSlip $paymentSlip)
     {
+        $this->ensurePaymentSlipBranchAccess($request, $paymentSlip);
+
         $request->validate([
             'attachments' => ['required', 'array', 'min:1'],
             'attachments.*' => ['file', 'max:10240'],
@@ -203,6 +235,8 @@ class PaymentSlipController extends Controller
 
     public function cancel(Request $request, PaymentSlip $paymentSlip)
     {
+        $this->ensurePaymentSlipBranchAccess($request, $paymentSlip);
+
         if ($paymentSlip->cancelled_at) {
             abort(422, 'Payment slip already cancelled.');
         }
@@ -272,5 +306,63 @@ class PaymentSlipController extends Controller
         ]);
 
         return back()->with('success', 'Payment slip cancelled.');
+    }
+
+    private function activeBranchId(Request $request): ?int
+    {
+        if (!$this->shouldScopeToActiveBranch($request)) {
+            return null;
+        }
+
+        $branchId = (int) ($request->user()?->active_branch_id ?? 0);
+        if ($branchId <= 0) {
+            abort(422, 'Please select an active branch before proceeding.');
+        }
+
+        return $branchId;
+    }
+
+    private function shouldScopeToActiveBranch(Request $request): bool
+    {
+        return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
+
+    private function ensurePaymentSlipBranchAccess(Request $request, PaymentSlip $paymentSlip): void
+    {
+        $activeBranchId = $this->activeBranchId($request);
+        if ($activeBranchId === null) {
+            return;
+        }
+
+        $paymentSlip->loadMissing([
+            'companyBankAccount:id,branch_id',
+            'source' => function (MorphTo $morphTo) {
+                $morphTo->morphWith([
+                    Claim::class => [],
+                    ApInvoice::class => [],
+                    PettyCashTopup::class => ['wallet.project:id,branch_id'],
+                ]);
+            },
+        ]);
+
+        $source = $paymentSlip->source;
+        $isAllowed = false;
+
+        if ((int) ($paymentSlip->companyBankAccount?->branch_id ?? 0) === $activeBranchId) {
+            $isAllowed = true;
+        } elseif ($source instanceof Claim && (int) $source->branch_id === $activeBranchId) {
+            $isAllowed = true;
+        } elseif ($source instanceof ApInvoice && (int) $source->branch_id === $activeBranchId) {
+            $isAllowed = true;
+        } elseif (
+            $source instanceof PettyCashTopup
+            && (int) ($source->wallet?->project?->branch_id ?? 0) === $activeBranchId
+        ) {
+            $isAllowed = true;
+        }
+
+        if (!$isAllowed) {
+            abort(404);
+        }
     }
 }
