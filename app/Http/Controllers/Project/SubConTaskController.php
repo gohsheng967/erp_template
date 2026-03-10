@@ -38,6 +38,16 @@ class SubConTaskController extends Controller
             'parent_id' => 'nullable|integer|exists:sub_con_tasks,id',
         ]);
 
+        $isBound = $project->subCons()
+            ->where('sub_cons.id', $validated['sub_con_id'])
+            ->exists();
+
+        if (!$isBound) {
+            return back()->withErrors([
+                'sub_con_id' => 'Selected Sub Con is not bound to this project.',
+            ]);
+        }
+
         if (!empty($validated['parent_id'])) {
             $parent = SubConTask::where('id', $validated['parent_id'])
                 ->where('project_id', $project->id)
@@ -322,6 +332,16 @@ class SubConTaskController extends Controller
             'amount' => 'nullable|numeric|min:0',
             'parent_id' => 'nullable|integer|exists:sub_con_tasks,id',
         ]);
+
+        $isBound = $project->subCons()
+            ->where('sub_cons.id', $validated['sub_con_id'])
+            ->exists();
+
+        if (!$isBound) {
+            return back()->withErrors([
+                'sub_con_id' => 'Selected Sub Con is not bound to this project.',
+            ]);
+        }
 
         if (!empty($validated['parent_id'])) {
             $parent = SubConTask::where('id', $validated['parent_id'])

@@ -2,8 +2,10 @@
 import { ref } from "vue";
 import { Link, usePage } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
+import { useFormat } from "@/Composables/useFormat";
 
 const page = usePage();
+const { formatCurrency } = useFormat();
 
 const projects = page.props.projects;
 const filters = page.props.filters;
@@ -157,6 +159,7 @@ function resetFilters() {
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Start</th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">End</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project Value</th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                             <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
                         </tr>
@@ -183,6 +186,10 @@ function resetFilters() {
 
                             <td class="px-4 py-3 text-sm">
                                 {{ prj.end_date ?? '-' }}
+                            </td>
+
+                            <td class="px-4 py-3 text-sm">
+                                {{ formatCurrency(prj.project_value ?? 0) }}
                             </td>
 
                             <td class="px-4 py-3 text-sm">

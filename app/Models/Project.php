@@ -12,7 +12,15 @@ class Project extends Model
 
     protected $fillable = [
         'code', 'name', 'client_id', 'start_date', 'end_date',
-        'budget', 'department_id', 'manager_id', 'status', 'description'
+        'extension_date',
+        'budget', 'project_value', 'department_id', 'manager_id', 'status',
+        'is_finished', 'finished_at', 'description'
+    ];
+
+    protected $casts = [
+        'extension_date' => 'date',
+        'is_finished' => 'boolean',
+        'finished_at' => 'datetime',
     ];
 
     protected static function booted()
@@ -81,5 +89,11 @@ class Project extends Model
     public function subConTasks()
     {
         return $this->hasMany(SubConTask::class);
+    }
+
+    public function subCons()
+    {
+        return $this->belongsToMany(SubCon::class, 'project_sub_cons', 'project_id', 'sub_con_id')
+            ->withTimestamps();
     }
 }

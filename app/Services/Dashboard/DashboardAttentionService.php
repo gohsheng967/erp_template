@@ -28,6 +28,7 @@ class DashboardAttentionService
                     $this->arInvoiceDueOrOverdue(),
                     $this->arInvoicePendingCollectionFromTerms(),
                     $this->apInvoiceDueOrOverdue(),
+                    $this->projectPastExtensionDate(),
                 ])),
                 'warning' => array_values(array_filter([
                     $this->arInvoiceDueSoon(),
@@ -35,6 +36,7 @@ class DashboardAttentionService
                     $this->lowPettyCash(),
                     $this->pendingPurchaseOrders(),
                     $this->vehicleInsuranceExpiring(),
+                    $this->projectNearEndOrWithinExtension(),
                 ])),
             ]
         );
@@ -42,7 +44,7 @@ class DashboardAttentionService
 
     protected function cacheKey(): string
     {
-        return 'dashboard.attention.user.v3.' . $this->user->id;
+        return 'dashboard.attention.user.v4.' . $this->user->id;
     }
 
     /* ==========================================================
@@ -185,6 +187,41 @@ class DashboardAttentionService
         ];
     }
 
+    protected function projectPastExtensionDate(): ?array
+    {
+        if (!class_exists(\App\Models\Project::class)) {
+            return null;
+        }
+
+        $today = now()->toDateString();
+
+        $count = \App\Models\Project::query()
+            ->where('is_finished', false)
+            ->whereNotIn('status', ['completed', 'cancelled'])
+            ->whereNotNull('end_date')
+            ->where(function ($query) use ($today) {
+                $query->where(function ($subQuery) use ($today) {
+                    $subQuery->whereNotNull('extension_date')
+                        ->whereDate('extension_date', '<', $today);
+                })->orWhere(function ($subQuery) use ($today) {
+                    $subQuery->whereNull('extension_date')
+                        ->whereDate('end_date', '<', $today);
+                });
+            })
+            ->count();
+
+        if ($count === 0) {
+            return null;
+        }
+
+        return [
+            'level'   => 'critical',
+            'icon'    => 'mdi-calendar-remove',
+            'message' => "{$count} project(s) past end/extension date and not flagged as finished",
+            'route'   => 'projects.index',
+        ];
+    }
+
     /* ==========================================================
        🟠 WARNING
     ========================================================== */
@@ -290,6 +327,42 @@ class DashboardAttentionService
             'message' => "{$count} vehicle insurance(s) expiring within {$days} days",
             'route'   => 'inventory.vehicles.index',
             'params'  => ['insurance_expiring' => true],
+        ];
+    }
+
+    protected function projectNearEndOrWithinExtension(): ?array
+    {
+        if (!class_exists(\App\Models\Project::class)) {
+            return null;
+        }
+
+        $nearDays = 7;
+        $today = now()->toDateString();
+        $nearDate = now()->addDays($nearDays)->toDateString();
+
+        $count = \App\Models\Project::query()
+            ->where('is_finished', false)
+            ->whereNotIn('status', ['completed', 'cancelled'])
+            ->whereNotNull('end_date')
+            ->where(function ($query) use ($today, $nearDate) {
+                $query->whereBetween('end_date', [$today, $nearDate])
+                    ->orWhere(function ($subQuery) use ($today) {
+                        $subQuery->whereDate('end_date', '<', $today)
+                            ->whereNotNull('extension_date')
+                            ->whereDate('extension_date', '>=', $today);
+                    });
+            })
+            ->count();
+
+        if ($count === 0) {
+            return null;
+        }
+
+        return [
+            'level'   => 'warning',
+            'icon'    => 'mdi-calendar-alert',
+            'message' => "{$count} project(s) near end date or currently within extension date",
+            'route'   => 'projects.index',
         ];
     }
 }

@@ -38,4 +38,15 @@ class SubCon extends Model
     {
         return $this->hasMany(SubConTask::class, 'sub_con_id');
     }
+
+    public function bankAccounts()
+    {
+        return $this->hasMany(SubConBankAccount::class, 'sub_con_id')->orderBy('id');
+    }
+
+    public function projects()
+    {
+        return $this->belongsToMany(Project::class, 'project_sub_cons', 'sub_con_id', 'project_id')
+            ->withTimestamps();
+    }
 }

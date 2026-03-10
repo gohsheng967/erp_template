@@ -185,6 +185,8 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
 
     Route::patch('/projects/{project}/budget', [ProjectController::class, 'updateBudget'])
         ->name('projects.update-budget');
+    Route::patch('/projects/{project}/toggle-finished', [ProjectController::class, 'toggleFinished'])
+        ->name('projects.toggle-finished');
 
     Route::prefix('projects/{project}/sub-con-tasks')->name('projects.sub-con-tasks.')->group(function () {
         Route::post('/', [SubConTaskController::class, 'store'])->name('store');
@@ -196,6 +198,11 @@ Route::middleware(['auth', 'auth.mfa'])->group(function () {
         Route::post('/{task}/justify-payment', [SubConTaskController::class, 'justify'])->name('justify');
         Route::post('/{task}/payment-cert', [SubConTaskController::class, 'certify'])->name('certify');
         Route::post('/{task}/mark-paid', [SubConTaskController::class, 'paid'])->name('paid');
+    });
+
+    Route::prefix('projects/{project}/sub-cons')->name('projects.sub-cons.')->group(function () {
+        Route::post('/bind', [ProjectController::class, 'bindSubCon'])->name('bind');
+        Route::post('/create', [ProjectController::class, 'createAndBindSubCon'])->name('create');
     });
 
 

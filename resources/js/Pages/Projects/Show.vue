@@ -1,15 +1,15 @@
 <script setup>
 import { ref } from "vue";
-import { Head, Link, usePage } from "@inertiajs/vue3";
+import { Head, Link, router, usePage } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 
 // Import tab components
 import OverviewTab from "./Tabs/OverviewTab.vue";
 import DocumentationTab from "./Tabs/DocumentationTab.vue";
-import FunctionalityTab from "./Tabs/AccountingTab.vue";
 import MilestonesTab from "./Tabs/MilestonesTab.vue";
 import AccountingTab from "./Tabs/AccountingTab.vue";
 import SubConTasksTab from "./Tabs/SubConTasksTab.vue";
+import SubConsTab from "./Tabs/SubConsTab.vue";
 import { useFormat } from '@/Composables/useFormat'
 
 const { capitalize, formatCurrency } = useFormat()
@@ -25,6 +25,7 @@ const tabs = [
     { key: "documentation", label: "Documentation" },
     { key: "accounting", label: "Accounting" },
     { key: "milestones", label: "Milestones" },
+    { key: "subcons", label: "Sub Con" },
     { key: "subcon_tasks", label: "Sub Con's Task" },
 ];
 
@@ -33,6 +34,24 @@ function onBudgetUpdated(newBudget) {
         ...project.value,
         budget: Number(newBudget),
     }
+}
+
+function toggleFinished() {
+    const nextState = !project.value.is_finished;
+
+    router.patch(
+        route("projects.toggle-finished", project.value.id),
+        { is_finished: nextState },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                project.value = {
+                    ...project.value,
+                    is_finished: nextState,
+                };
+            },
+        }
+    );
 }
 
 </script>
@@ -51,14 +70,31 @@ function onBudgetUpdated(newBudget) {
                         <p class="text-gray-500 text-sm">
                             Project Code: {{ project.code }} · Status: {{ capitalize(project.status) }}
                         </p>
+                        <p class="text-gray-500 text-sm">
+                            End Date: {{ project.end_date || "-" }} · Extension Date: {{ project.extension_date || "-" }}
+                        </p>
+                        <p class="text-gray-500 text-sm">
+                            Project Value: {{ formatCurrency(project.project_value || 0) }}
+                        </p>
                     </div>
 
-                    <Link
-                        :href="route('projects.index')"
-                        class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
-                    >
-                        Back
-                    </Link>
+                    <div class="flex items-center gap-3">
+                        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                                type="checkbox"
+                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                :checked="!!project.is_finished"
+                                @change="toggleFinished"
+                            />
+                            Project Finished
+                        </label>
+                        <Link
+                            :href="route('projects.index')"
+                            class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                        >
+                            Back
+                        </Link>
+                    </div>
                 </div>
             </div>
 
@@ -102,6 +138,14 @@ function onBudgetUpdated(newBudget) {
                 <MilestonesTab
                     v-if="activeTab === 'milestones'"
                     :project="project"
+                />
+
+                <SubConsTab
+                    v-if="activeTab === 'subcons'"
+                    :project="project"
+                    :project-sub-cons="page.props.projectSubCons"
+                    :sub-con-options="page.props.subConOptions"
+                    :bank-options="page.props.bankOptions"
                 />
 
                 <SubConTasksTab

@@ -24,6 +24,13 @@ watch(
 
 const resetDigits = () => {
     digits.value = ['', '', '', '', '', '']
+    form.code = ''
+}
+
+const clearAuthenticatorInputs = () => {
+    if (useBackup.value) return
+    resetDigits()
+    nextTick(() => digitInputs.value?.[0]?.focus())
 }
 
 const toggleBackup = () => {
@@ -74,6 +81,7 @@ const submit = () => {
         onError: (formErrors) => {
             const message = formErrors.code || 'Invalid verification code.'
             toast?.value?.show(message, 'error')
+            clearAuthenticatorInputs()
         },
     })
 }
@@ -151,3 +159,4 @@ const submit = () => {
         </div>
     </div>
 </template>
+

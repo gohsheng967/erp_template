@@ -16,7 +16,9 @@ const form = useForm({
     client_id: project.client_id,
     start_date: project.start_date,
     end_date: project.end_date,
+    extension_date: project.extension_date ?? "",
     budget: project.budget,
+    project_value: project.project_value ?? "",
     department_id: project.department_id,
     manager_id: project.manager_id,
     description: project.description,
@@ -112,6 +114,18 @@ const form = useForm({
                         />
                     </div>
 
+                    <!-- Extension Date -->
+                    <div>
+                        <label class="block text-sm font-medium mb-1">
+                            Extension Date
+                        </label>
+                        <input
+                            type="date"
+                            v-model="form.extension_date"
+                            class="w-full border rounded px-3 py-2"
+                        />
+                    </div>
+
                     <!-- Budget -->
                     <div>
                         <label class="block text-sm font-medium mb-1">
@@ -120,6 +134,18 @@ const form = useForm({
                         <input
                             type="number"
                             v-model="form.budget"
+                            class="w-full border rounded px-3 py-2"
+                        />
+                    </div>
+
+                    <!-- Project Value -->
+                    <div>
+                        <label class="block text-sm font-medium mb-1">
+                            Project Value (RM)
+                        </label>
+                        <input
+                            type="number"
+                            v-model="form.project_value"
                             class="w-full border rounded px-3 py-2"
                         />
                     </div>

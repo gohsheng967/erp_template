@@ -71,6 +71,20 @@ function refreshList() {
         preserveScroll: true,
     });
 }
+
+function bankSummary(subCon) {
+    const accounts = Array.isArray(subCon.bank_accounts) ? subCon.bank_accounts : [];
+    if (!accounts.length) return subCon.bank ?? "-";
+
+    const [first] = accounts;
+    const firstLabel = [first.bank_name, first.account_no].filter(Boolean).join(" - ");
+
+    if (accounts.length === 1) {
+        return firstLabel || "-";
+    }
+
+    return `${firstLabel} (+${accounts.length - 1} more)`;
+}
 </script>
 
 <template>
@@ -97,7 +111,7 @@ function refreshList() {
                         <input
                             v-model="search"
                             type="text"
-                            placeholder="Name / Email / Company / Phone / Bank"
+                            placeholder="Name / Email / Company / Phone / Bank Account"
                             class="border rounded-md px-3 py-2 w-full"
                             @keyup.enter="applyFilters"
                         />
@@ -136,7 +150,7 @@ function refreshList() {
                                 Phone
                             </th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                                Bank
+                                Bank Accounts
                             </th>
                             <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                                 Actions
@@ -163,7 +177,7 @@ function refreshList() {
                             </td>
 
                             <td class="px-4 py-3 text-sm">
-                                {{ subCon.bank ?? "-" }}
+                                {{ bankSummary(subCon) }}
                             </td>
 
                             <td class="px-4 py-3 text-center">

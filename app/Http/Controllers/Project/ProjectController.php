@@ -19,6 +19,7 @@ use App\Models\SubCon;
 use App\Models\SubConTask;
 
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use DB;
 
@@ -94,8 +95,10 @@ class ProjectController extends Controller
             'code'          => 'nullable|string|max:50',
             'client_id'     => 'nullable|integer|exists:clients,id',
             'start_date'    => 'nullable|date',
-            'end_date'      => 'nullable|date|after_or_equal:start_date',
+            'end_date'      => 'nullable|date|after_or_equal:start_date|required_with:extension_date',
+            'extension_date' => 'nullable|date|after_or_equal:end_date',
             'budget'        => 'nullable|numeric|min:0',
+            'project_value' => 'nullable|numeric|min:0',
             'department_id' => 'nullable|integer|exists:departments,id',
             'manager_id'    => 'nullable|integer|exists:users,id',
             'description'   => 'nullable|string',
@@ -120,6 +123,28 @@ class ProjectController extends Controller
         $project = Project::where('uuid', $uuid)->firstOrFail();
 
         $project->load(['client', 'manager']);
+        $boundSubCons = $project->subCons()
+            ->with('bankAccounts')
+            ->orderBy('name')
+            ->get(['sub_cons.id', 'sub_cons.uuid', 'sub_cons.name', 'sub_cons.company_name', 'sub_cons.phone', 'sub_cons.email']);
+
+        $subConTasks = SubConTask::with([
+            'subCon:id,uuid,name,company_name',
+            'parent:id,uuid,title',
+            'children:id,parent_id',
+            'updates',
+            'paymentSlip.companyBankAccount',
+            'paymentSlip.attachments',
+            'paymentSlip.source',
+            'paymentSlip.source.subCon',
+            'paymentSlip.source.project',
+        ])
+            ->where('project_id', $project->id)
+            ->orderByDesc('id')
+            ->get();
+
+        $projectSubConSummaries = $this->buildProjectSubConSummaries($boundSubCons, $subConTasks);
+        $boundSubConIds = $boundSubCons->pluck('id');
 
         return Inertia::render('Projects/Show', [
             'project' => $project,
@@ -141,23 +166,22 @@ class ProjectController extends Controller
 
             'users' => User::orderBy('name')->get(['id', 'name']),
 
-            'subCons' => SubCon::orderBy('name')
+            'subCons' => $boundSubCons->map(fn ($subCon) => [
+                'id' => $subCon->id,
+                'uuid' => $subCon->uuid,
+                'name' => $subCon->name,
+                'company_name' => $subCon->company_name,
+            ])->values(),
+
+            'subConOptions' => SubCon::orderBy('name')
+                ->whereNotIn('id', $boundSubConIds)
                 ->get(['id', 'uuid', 'name', 'company_name']),
 
-            'subConTasks' => SubConTask::with([
-                'subCon:id,uuid,name,company_name',
-                'parent:id,uuid,title',
-                'children:id,parent_id',
-                'updates',
-                'paymentSlip.companyBankAccount',
-                'paymentSlip.attachments',
-                'paymentSlip.source',
-                'paymentSlip.source.subCon',
-                'paymentSlip.source.project',
-            ])
-                ->where('project_id', $project->id)
-                ->orderByDesc('id')
-                ->get(),
+            'projectSubCons' => $projectSubConSummaries,
+
+            'bankOptions' => config('banks.malaysia', []),
+
+            'subConTasks' => $subConTasks,
         ]);
     }
 
@@ -186,8 +210,10 @@ class ProjectController extends Controller
             'code'          => 'nullable|string|max:50',
             'client_id'     => 'nullable|integer|exists:clients,id',
             'start_date'    => 'nullable|date',
-            'end_date'      => 'nullable|date|after_or_equal:start_date',
+            'end_date'      => 'nullable|date|after_or_equal:start_date|required_with:extension_date',
+            'extension_date' => 'nullable|date|after_or_equal:end_date',
             'budget'        => 'nullable|numeric|min:0',
+            'project_value' => 'nullable|numeric|min:0',
             'department_id' => 'nullable|integer|exists:departments,id',
             'manager_id'    => 'nullable|integer|exists:users,id',
             'description'   => 'nullable|string',
@@ -199,6 +225,24 @@ class ProjectController extends Controller
             ->with('success', 'Project updated successfully.');
     }
 
+    public function toggleFinished(Request $request, Project $project)
+    {
+        $validated = $request->validate([
+            'is_finished' => ['required', 'boolean'],
+        ]);
+
+        $isFinished = (bool) $validated['is_finished'];
+
+        $project->update([
+            'is_finished' => $isFinished,
+            'finished_at' => $isFinished ? now() : null,
+        ]);
+
+        return back()->with('success', $isFinished
+            ? 'Project flagged as finished.'
+            : 'Project marked as ongoing.');
+    }
+
     /**
      * DELETE PROJECT
      */
@@ -208,6 +252,69 @@ class ProjectController extends Controller
 
         return redirect()->route('projects.index')
             ->with('success', 'Project deleted.');
+    }
+
+    public function bindSubCon(Request $request, string $projectUuid)
+    {
+        $project = Project::where('uuid', $projectUuid)->firstOrFail();
+
+        $validated = $request->validate([
+            'sub_con_id' => ['required', 'integer', Rule::exists('sub_cons', 'id')],
+        ]);
+
+        $alreadyBound = $project->subCons()
+            ->where('sub_cons.id', $validated['sub_con_id'])
+            ->exists();
+
+        if ($alreadyBound) {
+            return back()->withErrors([
+                'sub_con_id' => 'This Sub Con is already bound to the project.',
+            ]);
+        }
+
+        $project->subCons()->attach($validated['sub_con_id']);
+
+        return back()->with('success', 'Sub Con bound to project.');
+    }
+
+    public function createAndBindSubCon(Request $request, string $projectUuid)
+    {
+        $project = Project::where('uuid', $projectUuid)->firstOrFail();
+        $banks = config('banks.malaysia', []);
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'company_name' => 'nullable|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:50',
+            'address' => 'nullable|string',
+            'bank_accounts' => 'nullable|array|max:10',
+            'bank_accounts.*.bank_name' => ['nullable', 'string', 'max:255', Rule::in($banks)],
+            'bank_accounts.*.account_name' => 'nullable|string|max:255',
+            'bank_accounts.*.account_no' => 'nullable|string|max:100',
+        ]);
+
+        $bankAccounts = $this->normalizeSubConBankAccounts($validated['bank_accounts'] ?? []);
+        $legacyBank = $bankAccounts[0]['bank_name'] ?? null;
+
+        DB::transaction(function () use ($project, $validated, $bankAccounts, $legacyBank) {
+            $subCon = SubCon::create([
+                'name' => $validated['name'],
+                'company_name' => $validated['company_name'] ?? null,
+                'email' => $validated['email'] ?? null,
+                'phone' => $validated['phone'] ?? null,
+                'address' => $validated['address'] ?? null,
+                'bank' => $legacyBank,
+            ]);
+
+            if (!empty($bankAccounts)) {
+                $subCon->bankAccounts()->createMany($bankAccounts);
+            }
+
+            $project->subCons()->attach($subCon->id);
+        });
+
+        return back()->with('success', 'Sub Con created and bound to project.');
     }
 
     public function summary(Project $project)
@@ -350,6 +457,100 @@ class ProjectController extends Controller
             'top_costs' => $topCosts,
             'recent_activities' => $recentActivities,
         ]);
+    }
+
+    private function buildProjectSubConSummaries($boundSubCons, $subConTasks)
+    {
+        $tasksBySubCon = $subConTasks->groupBy('sub_con_id');
+
+        return $boundSubCons->map(function ($subCon) use ($tasksBySubCon) {
+            $tasks = $tasksBySubCon->get($subCon->id, collect());
+            $statusCounts = $tasks->countBy('status');
+
+            $totalTasks = $tasks->count();
+            $submitted = (int) ($statusCounts['submitted'] ?? 0);
+            $verified = (int) ($statusCounts['verified'] ?? 0);
+            $justified = (int) ($statusCounts['justified'] ?? 0);
+            $certified = (int) ($statusCounts['certified'] ?? 0);
+            $paid = (int) ($statusCounts['paid'] ?? 0);
+            $draft = (int) ($statusCounts['draft'] ?? 0);
+
+            $avgProgress = $totalTasks > 0
+                ? round((float) $tasks->avg('progress_percent'), 1)
+                : 0.0;
+
+            $invoicedAmount = (float) $tasks
+                ->whereIn('status', ['certified', 'paid'])
+                ->sum(fn ($task) => (float) $task->amount);
+
+            $paidAmount = (float) $tasks
+                ->where('status', 'paid')
+                ->sum(fn ($task) => (float) $task->amount);
+
+            $paymentStatus = 'No Task';
+            if ($totalTasks > 0 && $paid === $totalTasks) {
+                $paymentStatus = 'Paid';
+            } elseif ($paid > 0) {
+                $paymentStatus = 'Partially Paid';
+            } elseif ($certified > 0) {
+                $paymentStatus = 'Pending Payment';
+            } elseif ($submitted > 0 || $verified > 0 || $justified > 0) {
+                $paymentStatus = 'In Progress';
+            } elseif ($draft > 0) {
+                $paymentStatus = 'Draft';
+            }
+
+            $latestTaskUpdate = $tasks->max('updated_at');
+
+            return [
+                'id' => $subCon->id,
+                'uuid' => $subCon->uuid,
+                'name' => $subCon->name,
+                'company_name' => $subCon->company_name,
+                'phone' => $subCon->phone,
+                'email' => $subCon->email,
+                'bank_accounts' => $subCon->bankAccounts->map(fn ($account) => [
+                    'id' => $account->id,
+                    'bank_name' => $account->bank_name,
+                    'account_name' => $account->account_name,
+                    'account_no' => $account->account_no,
+                ])->values(),
+                'stats' => [
+                    'total_tasks' => $totalTasks,
+                    'draft_tasks' => $draft,
+                    'submitted_tasks' => $submitted,
+                    'verified_tasks' => $verified,
+                    'justified_tasks' => $justified,
+                    'certified_tasks' => $certified,
+                    'paid_tasks' => $paid,
+                    'avg_progress_percent' => $avgProgress,
+                    'invoiced_amount' => $invoicedAmount,
+                    'paid_amount' => $paidAmount,
+                    'outstanding_amount' => max($invoicedAmount - $paidAmount, 0),
+                    'payment_status' => $paymentStatus,
+                    'latest_task_update_at' => $latestTaskUpdate,
+                ],
+            ];
+        })->values();
+    }
+
+    private function normalizeSubConBankAccounts(array $accounts): array
+    {
+        return collect($accounts)
+            ->map(function ($account) {
+                return [
+                    'bank_name' => trim((string) ($account['bank_name'] ?? '')),
+                    'account_name' => trim((string) ($account['account_name'] ?? '')),
+                    'account_no' => trim((string) ($account['account_no'] ?? '')),
+                ];
+            })
+            ->filter(function ($account) {
+                return $account['bank_name'] !== ''
+                    || $account['account_name'] !== ''
+                    || $account['account_no'] !== '';
+            })
+            ->values()
+            ->all();
     }
 
     private function formatActivityMessage(ProjectActivityLog $log): string

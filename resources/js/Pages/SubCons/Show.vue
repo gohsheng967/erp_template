@@ -1,4 +1,5 @@
-﻿<script setup>
+<script setup>
+import { computed } from "vue";
 import { Link, usePage } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 
@@ -15,6 +16,7 @@ const props = defineProps({
 
 const page = usePage();
 const stats = page.props.taskStats ?? {};
+const bankAccounts = computed(() => props.subCon?.bank_accounts ?? []);
 </script>
 
 <template>
@@ -113,8 +115,20 @@ const stats = page.props.taskStats ?? {};
                             </div>
 
                             <div>
-                                <p class="text-gray-500">Bank</p>
-                                <p class="font-medium text-gray-800">
+                                <p class="text-gray-500">Bank Accounts</p>
+                                <div v-if="bankAccounts.length" class="space-y-1">
+                                    <p
+                                        v-for="(account, index) in bankAccounts"
+                                        :key="account.id ?? index"
+                                        class="font-medium text-gray-800"
+                                    >
+                                        {{ account.bank_name }} - {{ account.account_no }}
+                                        <span v-if="account.account_name" class="text-gray-500">
+                                            ({{ account.account_name }})
+                                        </span>
+                                    </p>
+                                </div>
+                                <p v-else class="font-medium text-gray-800">
                                     {{ subCon.bank || "-" }}
                                 </p>
                             </div>
@@ -134,7 +148,4 @@ const stats = page.props.taskStats ?? {};
         </div>
     </AuthenticatedLayout>
 </template>
-
-
-
 
