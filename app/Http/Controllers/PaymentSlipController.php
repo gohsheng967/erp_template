@@ -7,6 +7,7 @@ use App\Models\PettyCashTopup;
 use App\Models\ApInvoice;
 use App\Models\Claim;
 use App\Models\Project;
+use App\Models\CompanyBankAccount;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use App\Services\AttachmentService;
@@ -18,8 +19,16 @@ class PaymentSlipController extends Controller
     public function index(Request $request)
     {
         $activeBranchId = $this->activeBranchId($request);
+        $tab = in_array($request->tab, ['pending', 'processing', 'paid'], true)
+            ? $request->tab
+            : 'pending';
+        $search = trim((string) $request->input('search', ''));
+        $projectFilter = $request->input('project_id');
+        $voucherFilter = $request->input('voucher');
+        $dateFrom = $request->input('date_from');
+        $dateTo = $request->input('date_to');
 
-        $slipsQuery = PaymentSlip::query()
+        $processingQuery = PaymentSlip::query()
             ->with([
                 'companyBankAccount',
                 'source' => function (MorphTo $morphTo) {
@@ -43,7 +52,7 @@ class PaymentSlipController extends Controller
             ->withCount('attachments');
 
         if ($activeBranchId !== null) {
-            $slipsQuery->where(function ($query) use ($activeBranchId) {
+            $processingQuery->where(function ($query) use ($activeBranchId) {
                 $query->whereHas('companyBankAccount', fn ($bank) => $bank->where('branch_id', $activeBranchId))
                     ->orWhereHasMorph(
                         'source',
@@ -66,25 +75,18 @@ class PaymentSlipController extends Controller
             });
         }
 
-        if ($request->filled('status')) {
-            if ($request->status === 'cancelled') {
-                $slipsQuery->whereNotNull('cancelled_at');
-            }
-            if ($request->status === 'approved') {
-                $slipsQuery->whereNull('cancelled_at');
-            }
-        }
+        $processingQuery->whereNull('cancelled_at');
 
-        if ($request->filled('project_id')) {
-            if ($request->project_id === 'office') {
-                $slipsQuery->whereHasMorph(
+        if ($projectFilter) {
+            if ($projectFilter === 'office') {
+                $processingQuery->whereHasMorph(
                     'source',
                     [PettyCashTopup::class],
                     fn ($q) => $q->whereHas('wallet', fn ($w) => $w->where('context_type', 'office'))
                 );
             } else {
-                $projectId = $request->project_id;
-                $slipsQuery->whereHasMorph(
+                $projectId = $projectFilter;
+                $processingQuery->whereHasMorph(
                     'source',
                     [PettyCashTopup::class, ApInvoice::class, Claim::class],
                     function ($query, $type) use ($projectId) {
@@ -109,53 +111,66 @@ class PaymentSlipController extends Controller
             }
         }
 
-        if ($request->filled('voucher')) {
-            if ($request->voucher === 'yes') {
-                $slipsQuery->whereHas('attachments');
-            }
-            if ($request->voucher === 'no') {
-                $slipsQuery->whereDoesntHave('attachments');
-            }
+        if ($voucherFilter === 'yes') {
+            $processingQuery->whereHas('attachments');
+        }
+        if ($voucherFilter === 'no') {
+            $processingQuery->whereDoesntHave('attachments');
         }
 
-        if ($request->filled('date_from')) {
-            $slipsQuery->whereDate('created_at', '>=', $request->date_from);
+        if ($dateFrom) {
+            $processingQuery->whereDate('created_at', '>=', $dateFrom);
         }
 
-        if ($request->filled('date_to')) {
-            $slipsQuery->whereDate('created_at', '<=', $request->date_to);
+        if ($dateTo) {
+            $processingQuery->whereDate('created_at', '<=', $dateTo);
         }
 
-        if ($request->filled('search')) {
-            $search = '%' . $request->search . '%';
+        if ($search !== '') {
+            $like = '%' . $search . '%';
 
-            $slipsQuery->where(function ($query) use ($search) {
-                $query->where('slip_no', 'like', $search)
-                    ->orWhereHasMorph('source', [PettyCashTopup::class], function ($q) use ($search) {
-                        $q->where('topup_no', 'like', $search)
-                            ->orWhereHas('requester', fn ($user) => $user->where('name', 'like', $search))
-                            ->orWhereHas('wallet.project', fn ($proj) => $proj->where('name', 'like', $search));
+            $processingQuery->where(function ($query) use ($like) {
+                $query->where('slip_no', 'like', $like)
+                    ->orWhereHasMorph('source', [PettyCashTopup::class], function ($q) use ($like) {
+                        $q->where('topup_no', 'like', $like)
+                            ->orWhereHas('requester', fn ($user) => $user->where('name', 'like', $like))
+                            ->orWhereHas('wallet.project', fn ($proj) => $proj->where('name', 'like', $like));
                     })
-                    ->orWhereHasMorph('source', [ApInvoice::class], function ($q) use ($search) {
-                        $q->where('invoice_number', 'like', $search)
-                            ->orWhereHas('supplier', fn ($supp) => $supp->where('company_name', 'like', $search))
-                            ->orWhereHas('purchaseOrder.purchaseRequest.project', fn ($proj) => $proj->where('name', 'like', $search));
+                    ->orWhereHasMorph('source', [ApInvoice::class], function ($q) use ($like) {
+                        $q->where('invoice_number', 'like', $like)
+                            ->orWhereHas('supplier', fn ($supp) => $supp->where('company_name', 'like', $like))
+                            ->orWhereHas('purchaseOrder.purchaseRequest.project', fn ($proj) => $proj->where('name', 'like', $like));
                     })
-                    ->orWhereHasMorph('source', [Claim::class], function ($q) use ($search) {
-                        $q->where('claim_no', 'like', $search)
-                            ->orWhere('title', 'like', $search)
-                            ->orWhereHas('issuer', fn ($user) => $user->where('name', 'like', $search))
-                            ->orWhereHas('project', fn ($proj) => $proj->where('name', 'like', $search));
+                    ->orWhereHasMorph('source', [Claim::class], function ($q) use ($like) {
+                        $q->where('claim_no', 'like', $like)
+                            ->orWhere('title', 'like', $like)
+                            ->orWhereHas('issuer', fn ($user) => $user->where('name', 'like', $like))
+                            ->orWhereHas('project', fn ($proj) => $proj->where('name', 'like', $like));
                     });
             });
         }
 
-        $slips = $slipsQuery
+        $processing = (clone $processingQuery)
+            ->where(function ($query) {
+                $query->whereHasMorph('source', [Claim::class], fn ($q) => $q->where('status', 'ceo_approved'))
+                    ->orWhereHasMorph('source', [PettyCashTopup::class], fn ($q) => $q->where('status', 'approved'))
+                    ->orWhereHasMorph('source', [ApInvoice::class], fn ($q) => $q->whereIn('status', ['confirmed', 'partially_paid']));
+            })
             ->orderByDesc('updated_at')
-            ->paginate(15)
+            ->paginate(15, ['*'], 'processing_page')
             ->withQueryString();
 
-        $slips->getCollection()->transform(function ($slip) {
+        $paid = (clone $processingQuery)
+            ->where(function ($query) {
+                $query->whereHasMorph('source', [Claim::class], fn ($q) => $q->where('status', 'paid'))
+                    ->orWhereHasMorph('source', [PettyCashTopup::class], fn ($q) => $q->where('status', 'paid'))
+                    ->orWhereHasMorph('source', [ApInvoice::class], fn ($q) => $q->where('status', 'paid'));
+            })
+            ->orderByDesc('updated_at')
+            ->paginate(15, ['*'], 'paid_page')
+            ->withQueryString();
+
+        $transformSlip = function ($slip) {
             $isPaid = false;
             $paidDate = null;
             $canCancel = true;
@@ -197,18 +212,153 @@ class PaymentSlipController extends Controller
             $slip->setAttribute('can_cancel', $canCancel);
 
             return $slip;
-        });
+        };
+
+        $processing->setCollection($processing->getCollection()->map($transformSlip));
+        $paid->setCollection($paid->getCollection()->map($transformSlip));
+
+        $pendingClaimsQuery = Claim::query()
+            ->where('status', 'ceo_approved')
+            ->whereDoesntHave('paymentSlip', fn ($q) => $q->whereNull('cancelled_at'))
+            ->with(['project:id,name', 'issuer:id,name'])
+            ->when($activeBranchId !== null, fn ($q) => $q->where('branch_id', $activeBranchId));
+
+        $pendingTopupsQuery = PettyCashTopup::query()
+            ->where('status', 'approved')
+            ->whereDoesntHave('paymentSlip', fn ($q) => $q->whereNull('cancelled_at'))
+            ->with(['wallet.project:id,name', 'requester:id,name'])
+            ->when($activeBranchId !== null, function ($q) use ($activeBranchId) {
+                $q->where(function ($walletScope) use ($activeBranchId) {
+                    $walletScope->whereHas('wallet', fn ($wallet) => $wallet->where('context_type', 'office'))
+                        ->orWhereHas('wallet.project', fn ($project) => $project->where('branch_id', $activeBranchId));
+                });
+            });
+
+        $pendingApInvoicesQuery = ApInvoice::query()
+            ->whereIn('status', ['confirmed', 'partially_paid'])
+            ->whereDoesntHave('paymentSlips', fn ($q) => $q->whereNull('cancelled_at'))
+            ->with(['purchaseOrder.purchaseRequest.project:id,name', 'supplier:id,company_name'])
+            ->when($activeBranchId !== null, fn ($q) => $q->where('branch_id', $activeBranchId));
+
+        if ($dateFrom) {
+            $pendingClaimsQuery->whereDate('created_at', '>=', $dateFrom);
+            $pendingTopupsQuery->whereDate('created_at', '>=', $dateFrom);
+            $pendingApInvoicesQuery->whereDate('created_at', '>=', $dateFrom);
+        }
+        if ($dateTo) {
+            $pendingClaimsQuery->whereDate('created_at', '<=', $dateTo);
+            $pendingTopupsQuery->whereDate('created_at', '<=', $dateTo);
+            $pendingApInvoicesQuery->whereDate('created_at', '<=', $dateTo);
+        }
+        if ($projectFilter) {
+            if ($projectFilter === 'office') {
+                $pendingClaimsQuery->whereRaw('1 = 0');
+                $pendingApInvoicesQuery->whereRaw('1 = 0');
+                $pendingTopupsQuery->whereHas('wallet', fn ($w) => $w->where('context_type', 'office'));
+            } else {
+                $pendingClaimsQuery->where('project_id', $projectFilter);
+                $pendingApInvoicesQuery->whereHas('purchaseOrder.purchaseRequest', fn ($pr) => $pr->where('project_id', $projectFilter));
+                $pendingTopupsQuery->whereHas('wallet', function ($w) use ($projectFilter) {
+                    $w->where('context_type', 'project')->where('context_id', $projectFilter);
+                });
+            }
+        }
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $pendingClaimsQuery->where(function ($q) use ($like) {
+                $q->where('claim_no', 'like', $like)
+                    ->orWhere('title', 'like', $like)
+                    ->orWhereHas('issuer', fn ($u) => $u->where('name', 'like', $like))
+                    ->orWhereHas('project', fn ($p) => $p->where('name', 'like', $like));
+            });
+            $pendingTopupsQuery->where(function ($q) use ($like) {
+                $q->where('topup_no', 'like', $like)
+                    ->orWhereHas('requester', fn ($u) => $u->where('name', 'like', $like))
+                    ->orWhereHas('wallet.project', fn ($p) => $p->where('name', 'like', $like));
+            });
+            $pendingApInvoicesQuery->where(function ($q) use ($like) {
+                $q->where('invoice_number', 'like', $like)
+                    ->orWhereHas('supplier', fn ($s) => $s->where('company_name', 'like', $like))
+                    ->orWhereHas('purchaseOrder.purchaseRequest.project', fn ($p) => $p->where('name', 'like', $like));
+            });
+        }
+
+        $pending = collect()
+            ->merge($pendingClaimsQuery->get()->map(function (Claim $claim) {
+                return [
+                    'module' => 'claim',
+                    'source_id' => $claim->id,
+                    'source_uuid' => $claim->uuid,
+                    'reference_no' => $claim->claim_no,
+                    'title' => $claim->title,
+                    'project' => $claim->project?->name ?? 'Others',
+                    'requester' => $claim->issuer?->name ?? '-',
+                    'amount' => (float) $claim->total_amount,
+                    'date' => optional($claim->approved_at)->toDateString() ?? optional($claim->created_at)->toDateString(),
+                    'created_at' => $claim->created_at?->toDateTimeString(),
+                ];
+            }))
+            ->merge($pendingTopupsQuery->get()->map(function (PettyCashTopup $topup) {
+                $project = $topup->wallet?->context_type === 'office'
+                    ? 'Office'
+                    : ($topup->wallet?->project?->name ?? 'Project');
+
+                return [
+                    'module' => 'topup',
+                    'source_id' => $topup->id,
+                    'source_uuid' => $topup->uuid,
+                    'reference_no' => $topup->topup_no,
+                    'title' => $topup->reason ?? 'Petty Cash Top-up',
+                    'project' => $project,
+                    'requester' => $topup->requester?->name ?? '-',
+                    'amount' => (float) $topup->amount,
+                    'date' => optional($topup->approved_at)->toDateString() ?? optional($topup->created_at)->toDateString(),
+                    'created_at' => $topup->created_at?->toDateTimeString(),
+                ];
+            }))
+            ->merge($pendingApInvoicesQuery->get()->map(function (ApInvoice $invoice) {
+                return [
+                    'module' => 'ap_invoice',
+                    'source_id' => $invoice->id,
+                    'source_uuid' => $invoice->uuid,
+                    'reference_no' => $invoice->invoice_number,
+                    'title' => 'AP Invoice',
+                    'project' => $invoice->purchaseOrder?->purchaseRequest?->project?->name ?? 'Project',
+                    'requester' => $invoice->supplier?->company_name ?? '-',
+                    'amount' => (float) $invoice->balance_amount,
+                    'date' => optional($invoice->invoice_date)->toDateString() ?? optional($invoice->created_at)->toDateString(),
+                    'created_at' => $invoice->created_at?->toDateTimeString(),
+                ];
+            }))
+            ->sortByDesc('created_at')
+            ->values();
 
         return Inertia::render('PaymentSlips/Index', [
-            'slips' => $slips,
+            'pending' => $pending,
+            'slips' => [
+                'processing' => $processing,
+                'paid' => $paid,
+            ],
+            'counts' => [
+                'pending' => $pending->count(),
+                'processing' => $processing->total(),
+                'paid' => $paid->total(),
+            ],
+            'activeTab' => $tab,
             'projects' => Project::query()
                 ->when($activeBranchId !== null, fn ($q) => $q->where('branch_id', $activeBranchId))
                 ->select('id', 'name')
                 ->orderBy('name')
                 ->get(),
+            'companyBankAccounts' => CompanyBankAccount::query()
+                ->when($activeBranchId !== null, fn ($q) => $q->where('branch_id', $activeBranchId))
+                ->where('status', 'active')
+                ->select('id', 'bank_name', 'account_name', 'account_no', 'branch_id')
+                ->orderBy('bank_name')
+                ->get(),
             'filters' => $request->only([
+                'tab',
                 'search',
-                'status',
                 'project_id',
                 'voucher',
                 'date_from',

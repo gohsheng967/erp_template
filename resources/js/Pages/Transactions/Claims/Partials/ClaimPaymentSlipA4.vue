@@ -36,6 +36,11 @@ const lessRetention = computed(() => Number(slip.value.less_retention ?? 0))
 const lessRecoupment = computed(() => Number(slip.value.less_recoupment ?? 0))
 const lessMaterialOb = computed(() => Number(slip.value.less_material_ob ?? 0))
 const lessPaidPreviously = computed(() => Number(slip.value.less_paid_previously ?? 0))
+const lessRetentionLabel = computed(() => slip.value.less_retention_label || 'Less - Retention')
+const lessRecoupmentLabel = computed(() => slip.value.less_recoupment_label || 'Less - Recoupment Advance Payment')
+const lessMaterialObLabel = computed(() => slip.value.less_material_ob_label || 'Less - Payment Material Purchased OB')
+const lessPaidPreviouslyLabel = computed(() => slip.value.less_paid_previously_label || 'Less - Amount Paid Previously')
+const remarkLabel = computed(() => slip.value.remark_label || 'Remarks')
 const lessTotal = computed(() =>
     lessRetention.value +
     lessRecoupment.value +
@@ -147,25 +152,25 @@ function formatLess(value) {
                             </td>
                         </tr>
                         <tr>
-                            <td class="border px-2 py-1">Less - Retention</td>
+                            <td class="border px-2 py-1">{{ lessRetentionLabel }}</td>
                             <td class="border px-2 py-1 text-right">
                                 {{ formatLess(lessRetention) }}
                             </td>
                         </tr>
                         <tr>
-                            <td class="border px-2 py-1">Less - Recoupment Advance Payment</td>
+                            <td class="border px-2 py-1">{{ lessRecoupmentLabel }}</td>
                             <td class="border px-2 py-1 text-right">
                                 {{ formatLess(lessRecoupment) }}
                             </td>
                         </tr>
                         <tr>
-                            <td class="border px-2 py-1">Less - Payment Material Purchased OB</td>
+                            <td class="border px-2 py-1">{{ lessMaterialObLabel }}</td>
                             <td class="border px-2 py-1 text-right">
                                 {{ formatLess(lessMaterialOb) }}
                             </td>
                         </tr>
                         <tr>
-                            <td class="border px-2 py-1">Less - Amount Paid Previously</td>
+                            <td class="border px-2 py-1">{{ lessPaidPreviouslyLabel }}</td>
                             <td class="border px-2 py-1 text-right">
                                 {{ formatLess(lessPaidPreviously) }}
                             </td>
@@ -191,7 +196,7 @@ function formatLess(value) {
 
             <div class="border-t border-gray-400 p-2 text-xs">
                 <div class="flex gap-4">
-                    <div class="w-40">Remarks</div>
+                    <div class="w-40">{{ remarkLabel }}</div>
                     <div class="flex-1">
                         Charge to: <span class="font-semibold">{{ projectName }}</span>
                     </div>

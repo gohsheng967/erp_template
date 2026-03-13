@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { Link, usePage } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import { useFormat } from "@/Composables/useFormat";
+import StandardFilterBar from "@/Components/Filters/StandardFilterBar.vue";
 
 const page = usePage();
 const { formatCurrency } = useFormat();
@@ -112,9 +113,12 @@ function loadMore(statusKey) {
         <div class="p-6 space-y-6">
 
             <!-- FILTERS -->
-            <div class="bg-white p-4 rounded-lg shadow w-full border">
-
-                <div class="flex flex-wrap gap-4 items-end">
+            <StandardFilterBar
+                title="Filters"
+                description="Filter projects by keyword, client, status, and date."
+                @apply="applyFilters"
+                @reset="resetFilters"
+            >
 
                     <!-- SEARCH -->
                     <div class="flex flex-col w-full md:w-1/3">
@@ -134,7 +138,6 @@ function loadMore(statusKey) {
                         <select
                             v-model="clientFilter"
                             class="border rounded-md px-3 py-2 w-full"
-                            @change="applyFilters"
                         >
                             <option value="">All</option>
                             <option v-for="c in clients" :key="c.id" :value="c.id">
@@ -149,7 +152,6 @@ function loadMore(statusKey) {
                         <select
                             v-model="statusFilter"
                             class="border rounded-md px-3 py-2 w-full"
-                            @change="applyFilters"
                         >
                             <option value="">All</option>
                             <option value="incoming">Incoming</option>
@@ -167,7 +169,6 @@ function loadMore(statusKey) {
                             type="date"
                             v-model="dateFrom"
                             class="border rounded-md px-3 py-2"
-                            @change="applyFilters"
                         />
                     </div>
 
@@ -178,27 +179,9 @@ function loadMore(statusKey) {
                             type="date"
                             v-model="dateTo"
                             class="border rounded-md px-3 py-2"
-                            @change="applyFilters"
                         />
                     </div>
-
-                    <!-- APPLY BUTTON -->
-                    <button
-                        class="px-4 py-2 h-10 bg-gray-200 rounded hover:bg-gray-300"
-                        @click="applyFilters"
-                    >
-                        Apply
-                    </button>
-
-                    <!-- RESET BUTTON -->
-                    <button
-                        class="px-4 py-2 h-10 bg-red-200 rounded hover:bg-red-300"
-                        @click="resetFilters"
-                    >
-                        Reset
-                    </button>
-                </div>
-            </div>
+            </StandardFilterBar>
 
             <!-- PROJECTS KANBAN -->
             <div class="overflow-x-auto pb-2">

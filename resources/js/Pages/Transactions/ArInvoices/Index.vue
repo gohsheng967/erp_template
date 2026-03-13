@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { Link, usePage, router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
+import StandardFilterBar from '@/Components/Filters/StandardFilterBar.vue'
 
 import ArInvoicesTable from '@/Pages/Transactions/ArInvoices/Partials/ArInvoicesTable.vue'
 import ArInvoicesPie from '@/Components/Charts/ClaimsPie.vue'
@@ -134,8 +135,12 @@ function switchTab(tab) {
         <div class="p-6 space-y-6">
 
             <!-- FILTERS -->
-            <div class="bg-white p-4 rounded-lg shadow border">
-                <div class="flex flex-wrap gap-4 items-end">
+            <StandardFilterBar
+                title="Filters"
+                description="Filter AR invoices by keyword and date."
+                @apply="applyFilters"
+                @reset="resetFilters"
+            >
 
                     <div class="flex flex-col w-full md:w-1/3">
                         <label class="text-sm font-medium">Search</label>
@@ -165,21 +170,7 @@ function switchTab(tab) {
                         />
                     </div>
 
-                    <button
-                        class="px-4 py-2 h-10 bg-gray-200 rounded"
-                        @click="applyFilters"
-                    >
-                        Apply
-                    </button>
-
-                    <button
-                        class="px-4 py-2 h-10 bg-red-200 rounded"
-                        @click="resetFilters"
-                    >
-                        Reset
-                    </button>
-                </div>
-            </div>
+            </StandardFilterBar>
 
             <!-- TABS -->
             <div class="bg-white rounded shadow border px-4">

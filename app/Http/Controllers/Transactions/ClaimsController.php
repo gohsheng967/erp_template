@@ -18,6 +18,7 @@ use App\Models\ClaimItem;
 use App\Models\ClaimType;
 use App\Models\CompanyProfile;
 use App\Models\PaymentSlip;
+use App\Models\User;
 
 use Inertia\Inertia;
 use Carbon\Carbon;
@@ -40,6 +41,13 @@ class ClaimsController extends Controller
             ?? Carbon::now()->toDateString();
 
         $search = $request->search;
+        $projectId = $request->filled('project_id') ? (int) $request->project_id : null;
+        $issuerId = $request->filled('issuer_id') ? (int) $request->issuer_id : null;
+        $amountMin = $request->filled('amount_min') ? (float) $request->amount_min : null;
+        $amountMax = $request->filled('amount_max') ? (float) $request->amount_max : null;
+        $paymentState = in_array($request->payment_state, ['pending', 'paid'], true)
+            ? $request->payment_state
+            : 'all';
 
         /*
         |--------------------------------------------------------------------------
@@ -59,11 +67,23 @@ class ClaimsController extends Controller
                     });
                 });
             })
+            ->when($projectId, fn ($q) =>
+                $q->where('claims.project_id', $projectId)
+            )
+            ->when($issuerId, fn ($q) =>
+                $q->where('claims.user_id', $issuerId)
+            )
             ->when($from, fn ($q) =>
                 $q->whereDate('claims.created_at', '>=', $from)
             )
             ->when($to, fn ($q) =>
                 $q->whereDate('claims.created_at', '<=', $to)
+            )
+            ->when($amountMin !== null, fn ($q) =>
+                $q->where('claims.total_amount', '>=', $amountMin)
+            )
+            ->when($amountMax !== null, fn ($q) =>
+                $q->where('claims.total_amount', '<=', $amountMax)
             );
 
         /*
@@ -89,6 +109,12 @@ class ClaimsController extends Controller
             ->where(function ($q) {
                 $q->whereIn('status', ['ceo_approved', 'paid']);
             })
+            ->when($paymentState === 'pending', fn ($q) =>
+                $q->where('status', 'ceo_approved')
+            )
+            ->when($paymentState === 'paid', fn ($q) =>
+                $q->where('status', 'paid')
+            )
             ->paginate(15)
             ->withQueryString();
         $rejected    = (clone $listQuery)->where('status', 'rejected')->paginate(15)->withQueryString();
@@ -191,6 +217,17 @@ class ClaimsController extends Controller
             ->orderBy('name')
             ->get();
 
+        $issuerIds = (clone $filterQuery)
+            ->whereNotNull('claims.user_id')
+            ->distinct()
+            ->pluck('claims.user_id');
+
+        $issuers = User::query()
+            ->whereIn('id', $issuerIds)
+            ->select('id', 'name')
+            ->orderBy('name')
+            ->get();
+
         return Inertia::render('Transactions/Claims/Index', [
             'claims' => [
                 'draft'     => $draft,
@@ -206,6 +243,11 @@ class ClaimsController extends Controller
                 'search' => $search,
                 'from'   => $from,
                 'to'     => $to,
+                'project_id' => $projectId,
+                'issuer_id' => $issuerId,
+                'amount_min' => $amountMin,
+                'amount_max' => $amountMax,
+                'payment_state' => $paymentState,
             ],
 
             'counts' => $counts,
@@ -217,6 +259,7 @@ class ClaimsController extends Controller
 
             'activeTab' => $tab,
             'projects'  => $projects,
+            'issuers'   => $issuers,
         ]);
     }
 
@@ -707,10 +750,15 @@ class ClaimsController extends Controller
                 }),
             ],
             'less_retention' => ['nullable', 'numeric', 'min:0'],
+            'less_retention_label' => ['nullable', 'string', 'max:255'],
             'less_recoupment' => ['nullable', 'numeric', 'min:0'],
+            'less_recoupment_label' => ['nullable', 'string', 'max:255'],
             'less_material_ob' => ['nullable', 'numeric', 'min:0'],
+            'less_material_ob_label' => ['nullable', 'string', 'max:255'],
             'less_paid_previously' => ['nullable', 'numeric', 'min:0'],
+            'less_paid_previously_label' => ['nullable', 'string', 'max:255'],
             'payment_slip_remark' => ['nullable', 'string', 'max:255'],
+            'remark_label' => ['nullable', 'string', 'max:255'],
         ]);
 
         $claim = $this->claimByUuidOrFail($request, $uuid);
@@ -734,10 +782,15 @@ class ClaimsController extends Controller
         $slip->amount = $claim->total_amount;
         $slip->payment_date = $claim->approved_at ?? now()->toDateString();
         $slip->less_retention = $request->input('less_retention');
+        $slip->less_retention_label = $request->input('less_retention_label');
         $slip->less_recoupment = $request->input('less_recoupment');
+        $slip->less_recoupment_label = $request->input('less_recoupment_label');
         $slip->less_material_ob = $request->input('less_material_ob');
+        $slip->less_material_ob_label = $request->input('less_material_ob_label');
         $slip->less_paid_previously = $request->input('less_paid_previously');
+        $slip->less_paid_previously_label = $request->input('less_paid_previously_label');
         $slip->payment_slip_remark = $request->input('payment_slip_remark');
+        $slip->remark_label = $request->input('remark_label');
         $slip->created_by = $request->user()->id;
         $slip->save();
 

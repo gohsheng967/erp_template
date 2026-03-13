@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { Link, usePage, router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
+import StandardFilterBar from '@/Components/Filters/StandardFilterBar.vue'
 
 import ClaimsTable from '@/Pages/Transactions/Claims/Partials/ClaimsTable.vue'
 import CreateClaimModal from '@/Pages/Transactions/Claims/Partials/CreateClaimModal.vue'
@@ -13,6 +14,7 @@ const page = usePage()
 ======================== */
 const claims = computed(() => page.props.claims)
 const counts = computed(() => page.props.counts)
+const issuers = computed(() => page.props.issuers ?? [])
 const filters = page.props.filters
 
 const showCreate = ref(false)
@@ -23,6 +25,11 @@ const showCreate = ref(false)
 const search   = ref(filters.search ?? '')
 const dateFrom = ref(filters.from ?? null)
 const dateTo   = ref(filters.to ?? null)
+const projectId = ref(filters.project_id ?? '')
+const issuerId = ref(filters.issuer_id ?? '')
+const amountMin = ref(filters.amount_min ?? '')
+const amountMax = ref(filters.amount_max ?? '')
+const paymentState = ref(filters.payment_state ?? 'all')
 
 /* ========================
    Tabs
@@ -119,6 +126,11 @@ function applyFilters() {
             search: search.value,
             from: dateFrom.value,
             to: dateTo.value,
+            project_id: projectId.value,
+            issuer_id: issuerId.value,
+            amount_min: amountMin.value,
+            amount_max: amountMax.value,
+            payment_state: paymentState.value,
             tab: activeTab.value,
         },
         {
@@ -130,11 +142,14 @@ function applyFilters() {
 
 
 function resetFilters() {
-    const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
-
     search.value = ''
-    dateFrom.value = today
-    dateTo.value = today
+    dateFrom.value = null
+    dateTo.value = null
+    projectId.value = ''
+    issuerId.value = ''
+    amountMin.value = ''
+    amountMax.value = ''
+    paymentState.value = 'all'
 
     applyFilters()
 }
@@ -168,8 +183,12 @@ function switchTab(tab) {
         <div class="p-6 space-y-6">
 
             <!-- FILTERS -->
-            <div class="bg-white p-4 rounded-lg shadow border">
-                <div class="flex flex-wrap gap-4 items-end">
+            <StandardFilterBar
+                title="Filters"
+                description="Narrow claims by requester, project, value, and date."
+                @apply="applyFilters"
+                @reset="resetFilters"
+            >
 
                     <div class="flex flex-col w-full md:w-1/3">
                         <label class="text-sm font-medium">Search</label>
@@ -199,21 +218,79 @@ function switchTab(tab) {
                         />
                     </div>
 
-                    <button
-                        class="px-4 py-2 h-10 bg-gray-200 rounded"
-                        @click="applyFilters"
-                    >
-                        Apply
-                    </button>
+                    <div class="flex flex-col w-full md:w-56">
+                        <label class="text-sm font-medium">Project</label>
+                        <select
+                            v-model="projectId"
+                            class="border rounded px-3 py-2"
+                        >
+                            <option value="">All Projects</option>
+                            <option
+                                v-for="project in page.props.projects"
+                                :key="project.id"
+                                :value="project.id"
+                            >
+                                {{ project.name }}
+                            </option>
+                        </select>
+                    </div>
 
-                    <button
-                        class="px-4 py-2 h-10 bg-red-200 rounded"
-                        @click="resetFilters"
+                    <div class="flex flex-col w-full md:w-56">
+                        <label class="text-sm font-medium">Requester</label>
+                        <select
+                            v-model="issuerId"
+                            class="border rounded px-3 py-2"
+                        >
+                            <option value="">All Requesters</option>
+                            <option
+                                v-for="issuer in issuers"
+                                :key="issuer.id"
+                                :value="issuer.id"
+                            >
+                                {{ issuer.name }}
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="flex flex-col w-40">
+                        <label class="text-sm font-medium">Amount Min</label>
+                        <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            v-model="amountMin"
+                            class="border rounded px-3 py-2"
+                            placeholder="0.00"
+                        />
+                    </div>
+
+                    <div class="flex flex-col w-40">
+                        <label class="text-sm font-medium">Amount Max</label>
+                        <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            v-model="amountMax"
+                            class="border rounded px-3 py-2"
+                            placeholder="0.00"
+                        />
+                    </div>
+
+                    <div
+                        v-if="activeTab === 'payment'"
+                        class="flex flex-col w-44"
                     >
-                        Reset
-                    </button>
-                </div>
-            </div>
+                        <label class="text-sm font-medium">Payment State</label>
+                        <select
+                            v-model="paymentState"
+                            class="border rounded px-3 py-2"
+                        >
+                            <option value="all">All</option>
+                            <option value="pending">Pending Paid</option>
+                            <option value="paid">Paid</option>
+                        </select>
+                    </div>
+            </StandardFilterBar>
 
             <!-- TABS -->
             <div class="bg-white rounded shadow border px-4">
