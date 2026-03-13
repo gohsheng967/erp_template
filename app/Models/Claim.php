@@ -20,6 +20,7 @@ class Claim extends Model
 
     protected $casts = [
         'created_at' => 'datetime:Y-m-d H:i',
+        'remark_log' => 'array',
     ];
 
     public function items()
@@ -40,6 +41,11 @@ class Claim extends Model
     public function approver()
     {
         return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function checker()
+    {
+        return $this->belongsTo(User::class, 'checked_by');
     }
 
     public function payer()

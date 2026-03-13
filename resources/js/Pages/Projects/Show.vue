@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { Head, Link, router, usePage } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 
@@ -17,9 +17,6 @@ const { capitalize, formatCurrency } = useFormat()
 const page = usePage()
 const project = ref(page.props.project)
 
-// Current active tab
-const activeTab = ref("overview");
-
 const tabs = [
     { key: "overview", label: "Overview" },
     { key: "documentation", label: "Documentation" },
@@ -28,6 +25,26 @@ const tabs = [
     { key: "subcons", label: "Sub Con" },
     { key: "subcon_tasks", label: "Sub Con's Task" },
 ];
+
+const tabStorageKey = `project-show-active-tab:${project.value.uuid}`
+const allowedTabs = new Set(tabs.map((tab) => tab.key))
+
+function resolveInitialTab() {
+    const remembered = localStorage.getItem(tabStorageKey)
+    if (remembered && allowedTabs.has(remembered)) {
+        return remembered
+    }
+
+    return "overview"
+}
+
+const activeTab = ref(resolveInitialTab());
+
+watch(activeTab, (tab) => {
+    if (allowedTabs.has(tab)) {
+        localStorage.setItem(tabStorageKey, tab)
+    }
+})
 
 function onBudgetUpdated(newBudget) {
     project.value = {

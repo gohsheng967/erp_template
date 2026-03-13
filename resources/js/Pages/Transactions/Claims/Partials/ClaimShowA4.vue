@@ -208,13 +208,23 @@ function formatCurrency(value) {
         </div>
     </div>
 
-    <!-- =====================
-         REMARKS
-    ====================== -->
     <div class="mb-10 relative z-10">
-        <div class="font-medium mb-1">Remarks</div>
-        <div class="border border-gray-300 px-3 py-2 min-h-[60px] whitespace-pre-wrap">
-            {{ claim.remark ?? '-' }}
+        <div class="font-medium mb-1">Stage Remarks</div>
+        <div class="border border-gray-300 px-3 py-2 space-y-1 text-xs">
+            <div
+                v-for="(log, idx) in (claim.remark_log ?? []).slice().reverse()"
+                :key="`${idx}-${log?.at ?? ''}`"
+                class="border-b last:border-b-0 pb-1 last:pb-0"
+            >
+                <div class="font-medium">
+                    {{ (log?.from ?? '-').toUpperCase() }} -> {{ (log?.to ?? '-').toUpperCase() }}
+                </div>
+                <div>{{ log?.remark || '-' }}</div>
+                <div class="text-[11px] text-gray-500">
+                    {{ log?.user_name ?? 'System' }} • {{ log?.at ?? '-' }}
+                </div>
+            </div>
+            <div v-if="!(claim.remark_log ?? []).length">-</div>
         </div>
     </div>
 
@@ -231,7 +241,7 @@ function formatCurrency(value) {
     <!-- =====================
          APPROVALS
     ====================== -->
-    <div class="grid grid-cols-3 gap-10 mt-16 text-sm relative z-10">
+    <div class="grid grid-cols-4 gap-6 mt-16 text-sm relative z-10">
         <div>
             <div class="mb-8 border-b-2 border-gray-300"></div>
             <div>Prepared By</div>
@@ -240,6 +250,17 @@ function formatCurrency(value) {
             </div>
             <div class="text-xs text-gray-500">
                 {{ formatDate(claim.submitted_at) }}
+            </div>
+        </div>
+
+        <div>
+            <div class="mb-8 border-b-2 border-gray-300"></div>
+            <div>Checked By</div>
+            <div class="text-xs text-gray-500">
+                {{ claim.checker?.name ?? '-' }}
+            </div>
+            <div class="text-xs text-gray-500">
+                {{ formatDate(claim.checked_at) }}
             </div>
         </div>
 

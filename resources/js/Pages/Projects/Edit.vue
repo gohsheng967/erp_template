@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from "vue";
 import { Head, Link, useForm, usePage } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 
@@ -21,6 +22,34 @@ const form = useForm({
     manager_id: project.manager_id ?? "",
     description: project.description,
 });
+
+const currencyFormatter = new Intl.NumberFormat("en-MY", {
+    style: "currency",
+    currency: "MYR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+});
+
+function toAmount(value) {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatAmount(value) {
+    return currencyFormatter.format(toAmount(value));
+}
+
+const budgetAmount = computed(() => toAmount(form.budget));
+const projectValueAmount = computed(() => toAmount(form.project_value));
+const valueVariance = computed(() => projectValueAmount.value - budgetAmount.value);
+const varianceTone = computed(() =>
+    valueVariance.value >= 0
+        ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+        : "text-rose-700 bg-rose-50 border-rose-200"
+);
+const varianceLabel = computed(() =>
+    valueVariance.value >= 0 ? "Projected Surplus" : "Budget Shortfall"
+);
 </script>
 
 <template>
@@ -124,28 +153,79 @@ const form = useForm({
                         />
                     </div>
 
-                    <!-- Budget -->
-                    <div>
-                        <label class="block text-sm font-medium mb-1">
-                            Budget (RM)
-                        </label>
-                        <input
-                            type="number"
-                            v-model="form.budget"
-                            class="w-full border rounded px-3 py-2"
-                        />
-                    </div>
+                    <!-- Accounting Snapshot -->
+                    <div class="md:col-span-2 border border-slate-200 rounded-lg p-4 bg-slate-50 space-y-4">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold text-slate-800 tracking-wide uppercase">
+                                Accounting
+                            </h3>
+                            <span class="text-xs text-slate-500">
+                                Project Value vs Budget
+                            </span>
+                        </div>
 
-                    <!-- Project Value -->
-                    <div>
-                        <label class="block text-sm font-medium mb-1">
-                            Project Value (RM)
-                        </label>
-                        <input
-                            type="number"
-                            v-model="form.project_value"
-                            class="w-full border rounded px-3 py-2"
-                        />
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium mb-1">
+                                    Budget
+                                </label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500 text-sm">
+                                        RM
+                                    </span>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        inputmode="decimal"
+                                        v-model="form.budget"
+                                        class="w-full border rounded pl-12 pr-3 py-2 bg-white"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium mb-1">
+                                    Project Value
+                                </label>
+                                <div class="relative">
+                                    <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500 text-sm">
+                                        RM
+                                    </span>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        inputmode="decimal"
+                                        v-model="form.project_value"
+                                        class="w-full border rounded pl-12 pr-3 py-2 bg-white"
+                                        placeholder="0.00"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                            <div class="border border-slate-200 rounded-md bg-white p-3">
+                                <div class="text-slate-500">Project Value</div>
+                                <div class="font-semibold text-slate-800">
+                                    {{ formatAmount(projectValueAmount) }}
+                                </div>
+                            </div>
+                            <div class="border border-slate-200 rounded-md bg-white p-3">
+                                <div class="text-slate-500">Budget</div>
+                                <div class="font-semibold text-slate-800">
+                                    {{ formatAmount(budgetAmount) }}
+                                </div>
+                            </div>
+                            <div class="border rounded-md p-3" :class="varianceTone">
+                                <div>{{ varianceLabel }}</div>
+                                <div class="font-semibold">
+                                    {{ formatAmount(valueVariance) }}
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Branch Manager -->

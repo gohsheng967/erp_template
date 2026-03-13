@@ -1,9 +1,7 @@
 <script setup>
-import { ref, watch, computed, nextTick } from 'vue'
+import { ref, watch, computed, nextTick, inject } from 'vue'
 import axios from 'axios'
-import { usePage } from '@inertiajs/vue3'
 import ClaimShowA4 from './ClaimShowA4.vue'
-import ClaimPaymentSlipModal from './ClaimPaymentSlipModal.vue'
 
 /* =========================
    PROPS / EMITS
@@ -25,31 +23,54 @@ const emit = defineEmits(['close', 'refresh', 'print'])
 
 const loading = ref(false)
 const submitting = ref(false)
-const slipSubmitting = ref(false)
 
 const fullClaim = ref(null)
 const company = ref(null)
 
 const approvalRemark = ref('')
-const paymentRef = ref('')
-const paymentFiles = ref([])
-const slipForm = ref({
-    company_bank_account_id: '',
-    less_retention: '',
-    less_recoupment: '',
-    less_material_ob: '',
-    less_paid_previously: '',
-    payment_slip_remark: '',
-})
+const toast = inject('toast', null)
 
-const showSlip = ref(false)
-const selectedSlip = ref(null)
+const reviewFlowLabels = {
+    submitted: 'Mark as Checked',
+    checked: 'Mark as Verified',
+    verified: 'Approve',
+    approved: 'CEO Approve',
+}
 
-const page = usePage()
-const companyBankAccounts = computed(() => page.props.companyBankAccounts ?? [])
-const activeCompanyBankAccounts = computed(() =>
-    companyBankAccounts.value.filter(account => account.status === 'active')
+const reviewFlowNextStatus = {
+    submitted: 'checked',
+    checked: 'verified',
+    verified: 'approved',
+    approved: 'ceo_approved',
+}
+
+const canReview = computed(() =>
+    ['submitted', 'checked', 'verified', 'approved'].includes(fullClaim.value?.status)
 )
+
+const rejectAction = computed(() =>
+    fullClaim.value?.status === 'approved' ? 'rejected' : 'draft'
+)
+
+const rejectActionLabel = computed(() =>
+    fullClaim.value?.status === 'approved'
+        ? 'Reject'
+        : 'Return for Further Modification'
+)
+
+const stageRemarks = computed(() => {
+    const logs = fullClaim.value?.remark_log ?? []
+    if (!Array.isArray(logs)) return []
+
+    return logs
+        .map((row, index) => ({
+            key: `${index}-${row?.at ?? ''}`,
+            label: `${(row?.from ?? '-').toUpperCase()} -> ${(row?.to ?? '-').toUpperCase()}`,
+            value: row?.remark || '-',
+            meta: `${row?.user_name ?? 'System'} - ${row?.at ?? '-'}`,
+        }))
+        .reverse()
+})
 
 /* =========================
    COMPUTED
@@ -86,8 +107,6 @@ async function loadClaim() {
     fullClaim.value = null
     company.value = null
     approvalRemark.value = ''
-    paymentRef.value = ''
-    paymentFiles.value = []
 
     try {
         const res = await axios.get(
@@ -96,7 +115,6 @@ async function loadClaim() {
 
         fullClaim.value = res.data.claim
         company.value = res.data.company
-        resetSlipForm(fullClaim.value?.payment_slip)
 
     } catch (e) {
         console.error('Failed to load claim', e)
@@ -133,90 +151,24 @@ async function submitDecision(status) {
             }
         )
 
+        if (status === 'draft' || status === 'rejected') {
+            emit('refresh')
+            emit('close')
+            return
+        }
+
         await loadClaim()
         emit('refresh')
 
     } catch (e) {
         console.error('Approval failed', e)
+        const msg =
+            e?.response?.data?.message
+            ?? e?.response?.data?.errors?.status?.[0]
+            ?? 'Failed to update claim status.'
+        toast?.value?.show(msg, 'error')
     } finally {
         submitting.value = false
-    }
-}
-
-/* =========================
-   MARK AS PAID (ATTACHMENT)
-========================= */
-
-async function markAsPaid() {
-    if (!fullClaim.value) return
-
-    submitting.value = true
-
-    try {
-        const fd = new FormData()
-        fd.append('payment_ref', paymentRef.value)
-        fd.append('payment_slip_id', fullClaim.value?.payment_slip?.id ?? '')
-        paymentFiles.value.forEach(file => {
-            fd.append('attachments[]', file)
-        })
-
-        await axios.post(
-            route('claims.paid', fullClaim.value.uuid),
-            fd
-        )
-
-        await loadClaim()
-        emit('refresh')
-
-    } catch (e) {
-        console.error('Mark paid failed', e)
-    } finally {
-        submitting.value = false
-    }
-}
-
-function handlePaymentFiles(event) {
-    paymentFiles.value = Array.from(event.target.files ?? [])
-}
-
-async function generateSlip() {
-    if (!fullClaim.value) return
-
-    slipSubmitting.value = true
-
-    try {
-        const res = await axios.post(
-            route('claims.payment-slip', fullClaim.value.uuid),
-            slipForm.value
-        )
-
-        fullClaim.value.payment_slip = res.data.slip
-        fullClaim.value.payment_slip_no = res.data.slip?.slip_no ?? null
-        selectedSlip.value = res.data.slip
-        showSlip.value = true
-        emit('refresh')
-    } catch (e) {
-        console.error('Generate slip failed', e)
-    } finally {
-        slipSubmitting.value = false
-    }
-}
-
-function openSlip() {
-    selectedSlip.value = fullClaim.value?.payment_slip ?? null
-    if (selectedSlip.value) {
-        showSlip.value = true
-    }
-}
-
-function resetSlipForm(slip) {
-    slipForm.value = {
-        company_bank_account_id: slip?.company_bank_account_id ?? '',
-        less_retention: slip?.less_retention ?? '',
-        less_recoupment: slip?.less_recoupment ?? '',
-        less_material_ob: slip?.less_material_ob ?? '',
-        less_paid_previously: slip?.less_paid_previously ?? '',
-        payment_slip_remark: slip?.payment_slip_remark ?? '',
     }
 }
 
@@ -311,8 +263,98 @@ function printPage() {
     </div>
 </div>
 
+<!-- ATTACHMENTS -->
+<div class="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-3">
+    <div class="flex items-center justify-between">
+        <div class="text-sm font-semibold text-slate-800">Attachments</div>
+        <div class="text-[11px] text-slate-500">
+            {{ paymentVouchers.length + itemReceipts.length }} file(s)
+        </div>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-lg p-3 space-y-2">
+        <div class="flex items-center justify-between">
+            <div class="text-xs font-semibold text-slate-700 uppercase tracking-wide">Payment Vouchers</div>
+            <span class="text-[11px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                {{ paymentVouchers.length }}
+            </span>
+        </div>
+
+        <div class="text-xs text-slate-500">
+            Ref: {{ fullClaim?.payment_ref_no || '-' }}
+        </div>
+
+        <ul class="space-y-1 text-sm">
+            <li
+                v-for="file in paymentVouchers"
+                :key="`voucher-${file.id}`"
+                class="rounded border border-slate-200 bg-slate-50 px-2 py-1"
+            >
+                <a
+                    :href="`/storage/${file.file_path}`"
+                    target="_blank"
+                    class="text-indigo-600 hover:text-indigo-700 hover:underline break-all"
+                >
+                    {{ file.original_name }}
+                </a>
+            </li>
+
+            <li v-if="!paymentVouchers.length" class="text-xs text-slate-400">
+                <span v-if="fullClaim.status == 'paid' && !fullClaim.paid_by">Petty Cash</span>
+                <span v-else>No payment vouchers uploaded</span>
+            </li>
+        </ul>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-lg p-3 space-y-2">
+        <div class="flex items-center justify-between">
+            <div class="text-xs font-semibold text-slate-700 uppercase tracking-wide">Expense Receipts</div>
+            <span class="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                {{ itemReceipts.length }}
+            </span>
+        </div>
+
+        <ul class="space-y-1 text-sm">
+            <li
+                v-for="file in itemReceipts"
+                :key="`receipt-${file.id}`"
+                class="rounded border border-slate-200 bg-slate-50 px-2 py-1"
+            >
+                <a
+                    :href="`/storage/${file.file_path}`"
+                    target="_blank"
+                    class="text-indigo-600 hover:text-indigo-700 hover:underline break-all"
+                >
+                    {{ file.original_name }}
+                </a>
+                <div class="text-xs text-slate-500">
+                    {{ file.item_title }}
+                </div>
+            </li>
+
+            <li v-if="!itemReceipts.length" class="text-xs text-slate-400">
+                No expense receipts uploaded
+            </li>
+        </ul>
+    </div>
+</div>
+
+<div class="border rounded-lg p-3 space-y-2">
+    <div class="text-sm font-semibold">Stage Remarks</div>
+    <div
+        v-for="row in stageRemarks"
+        :key="row.key"
+        class="text-xs border-b last:border-b-0 pb-2 last:pb-0"
+    >
+        <div class="font-medium text-gray-700">{{ row.label }}</div>
+        <div class="text-gray-900">{{ row.value }}</div>
+        <div class="text-[11px] text-gray-500">{{ row.meta }}</div>
+    </div>
+    <div v-if="!stageRemarks.length" class="text-xs text-gray-400">No stage remarks yet</div>
+</div>
+
 <!-- ACTIONS -->
-<div v-if="fullClaim.status === 'submitted'" class="space-y-3">
+<div v-if="canReview" class="space-y-3">
     <label class="text-sm font-medium">Approval Remark</label>
 
     <textarea
@@ -324,202 +366,24 @@ function printPage() {
 
     <button
         class="w-full py-2 bg-green-600 text-white rounded disabled:opacity-40"
-        @click="submitDecision('approved')"
+        @click="submitDecision(reviewFlowNextStatus[fullClaim.status])"
         :disabled="submitting"
     >
-        Approve
+        {{ reviewFlowLabels[fullClaim.status] }}
     </button>
 
     <button
         class="w-full py-2 bg-red-600 text-white rounded disabled:opacity-40"
-        @click="submitDecision('rejected')"
+        @click="submitDecision(rejectAction)"
         :disabled="submitting"
     >
-        Reject
+        {{ rejectActionLabel }}
     </button>
 </div>
 
-<div v-if="fullClaim.status === 'approved'" class="space-y-3">
-    <div class="space-y-2 border rounded-lg p-3">
-        <div class="text-sm font-semibold">Generate Payment Slip</div>
-
-        <label class="text-xs font-medium text-gray-500">Company Bank Account</label>
-        <select
-            v-model="slipForm.company_bank_account_id"
-            class="w-full border rounded px-3 py-2 text-sm"
-        >
-            <option value="">Select account</option>
-            <option
-                v-for="account in activeCompanyBankAccounts"
-                :key="account.id"
-                :value="account.id"
-            >
-                {{ account.bank_name }} - {{ account.account_no }}
-            </option>
-        </select>
-
-        <div class="grid grid-cols-2 gap-2">
-            <div>
-                <label class="text-xs font-medium text-gray-500">Less - Retention</label>
-                <input v-model="slipForm.less_retention" type="number" step="0.01" min="0" class="w-full border rounded px-3 py-2 text-sm" />
-            </div>
-            <div>
-                <label class="text-xs font-medium text-gray-500">Less - Recoupment</label>
-                <input v-model="slipForm.less_recoupment" type="number" step="0.01" min="0" class="w-full border rounded px-3 py-2 text-sm" />
-            </div>
-            <div>
-                <label class="text-xs font-medium text-gray-500">Less - Material OB</label>
-                <input v-model="slipForm.less_material_ob" type="number" step="0.01" min="0" class="w-full border rounded px-3 py-2 text-sm" />
-            </div>
-            <div>
-                <label class="text-xs font-medium text-gray-500">Less - Paid Previously</label>
-                <input v-model="slipForm.less_paid_previously" type="number" step="0.01" min="0" class="w-full border rounded px-3 py-2 text-sm" />
-            </div>
-        </div>
-
-        <label class="text-xs font-medium text-gray-500">Remark (Optional)</label>
-        <textarea
-            v-model="slipForm.payment_slip_remark"
-            rows="2"
-            class="w-full border rounded px-3 py-2 text-sm"
-            placeholder="Remark"
-        ></textarea>
-
-        <div class="flex items-center gap-2">
-            <button
-                class="flex-1 py-2 bg-indigo-600 text-white rounded disabled:opacity-40"
-                @click="generateSlip"
-                :disabled="slipSubmitting || !slipForm.company_bank_account_id"
-            >
-                Generate Slip
-            </button>
-            <button
-                v-if="fullClaim.payment_slip"
-                class="px-3 py-2 border rounded text-sm"
-                @click="openSlip"
-            >
-                Preview
-            </button>
-        </div>
-        <div v-if="fullClaim.payment_slip?.slip_no" class="text-xs text-gray-500">
-            Slip No: {{ fullClaim.payment_slip.slip_no }}
-        </div>
-    </div>
-
-    <div class="space-y-2 border rounded-lg p-3">
-        <div class="text-sm font-semibold">Upload Slip & Mark Paid</div>
-
-        <label class="text-xs font-medium text-gray-500">Payment Reference</label>
-        <input
-            v-model="paymentRef"
-            class="w-full border rounded px-3 py-2 text-sm"
-            placeholder="Payment reference"
-        />
-
-        <input
-            type="file"
-            class="text-sm"
-            multiple
-            @change="handlePaymentFiles"
-        />
-
-        <button
-            class="w-full py-2 bg-green-600 text-white rounded disabled:opacity-40"
-            @click="markAsPaid"
-            :disabled="submitting || !fullClaim.payment_slip?.id || !paymentRef || !paymentFiles.length"
-        >
-            Mark as Paid
-        </button>
-    </div>
-</div>
-
-<!-- ATTACHMENTS (ALWAYS VISIBLE) -->
-<div class="pt-4 border-t space-y-4">
-
-    <div class="text-sm font-semibold">
-        Attachments
-    </div>
-
-    <!-- Payment Vouchers -->
-    <div>
-        <div class="text-xs font-medium text-gray-500 mb-1">
-            Payment Reference No
-        </div>
-        <ul class="space-y-1 text-sm">
-            <li>{{ fullClaim?.payment_ref_no }}</li>
-        </ul>
-
-        <div class="text-xs font-medium text-gray-500 mb-1">
-            Payment Vouchers
-        </div>
-
-        <ul class="space-y-1 text-sm">
-            <li
-                v-for="file in paymentVouchers"
-                :key="file.id"
-            >
-                <a
-                    :href="`/storage/${file.file_path}`"
-                    target="_blank"
-                    class="text-indigo-600 hover:underline"
-                >
-                    {{ file.original_name }}
-                </a>
-            </li>
-
-            <li
-                v-if="!paymentVouchers.length"
-                class="text-xs text-gray-400"
-            >
-                <span class="text-xs" v-if="fullClaim.status == 'paid' && !fullClaim.paid_by">Petty Cash</span>
-            </li>
-        </ul>
-    </div>
-
-    <hr>
-    <!-- Item Receipts -->
-    <div>
-        <div class="text-xs font-medium text-gray-500 mb-1">
-            Expense Receipts
-        </div>
-
-        <ul class="space-y-1 text-sm">
-            <li
-                v-for="file in itemReceipts"
-                :key="file.id"
-            >
-                <a
-                    :href="`/storage/${file.file_path}`"
-                    target="_blank"
-                    class="text-indigo-600 hover:underline"
-                >
-                    {{ file.original_name }}
-                </a>
-                <span class="text-xs text-gray-400 ml-1">
-                    ({{ file.item_title }})
-                </span>
-            </li>
-
-            <li
-                v-if="!itemReceipts.length"
-                class="text-xs text-gray-400"
-            >
-                No expense receipts uploaded
-            </li>
-        </ul>
-    </div>
-
-</div>
-
 </div>
 </div>
 </div>
 </div>
-
-<ClaimPaymentSlipModal
-    :show="showSlip"
-    :slip="selectedSlip"
-    @close="showSlip = false"
-/>
 </template>
 

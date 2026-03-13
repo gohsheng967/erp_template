@@ -57,7 +57,7 @@ class DashboardAttentionService
             return null;
         }
 
-        $count = \App\Models\Claim::where('status', 'submitted')
+        $count = \App\Models\Claim::whereIn('status', ['submitted', 'checked', 'verified'])
             ->where('submitted_at', '<=', now()->subDays(5))
             ->count();
 
@@ -68,9 +68,9 @@ class DashboardAttentionService
         return [
             'level'   => 'critical',
             'icon'    => 'mdi-clipboard-alert-outline',
-            'message' => "{$count} claims pending approval (over 5 days)",
+            'message' => "{$count} claims pending review (over 5 days)",
             'route'   => 'claims.index',
-            'params'  => ['status' => 'submitted'],
+            'params'  => ['tab' => 'submitted'],
         ];
     }
 

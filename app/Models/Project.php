@@ -56,6 +56,11 @@ class Project extends Model
         return $this->hasMany(ProjectActivityLog::class);
     }
 
+    public function budgetAllocations()
+    {
+        return $this->hasMany(ProjectBudgetAllocation::class);
+    }
+
     public function manager()
     {
         return $this->belongsTo(User::class, 'manager_id');

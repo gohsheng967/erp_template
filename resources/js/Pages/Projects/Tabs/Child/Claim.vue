@@ -245,7 +245,10 @@ function openDraftClaim(claim) {
                             :class="{
                                 'text-gray-600': c.status === 'draft',
                                 'text-yellow-600': c.status === 'submitted',
+                                'text-blue-600': c.status === 'checked',
+                                'text-cyan-600': c.status === 'verified',
                                 'text-orange-600': c.status === 'approved',
+                                'text-amber-700': c.status === 'ceo_approved',
                             }"
                             class="font-semibold"
                         >

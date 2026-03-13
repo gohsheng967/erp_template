@@ -38,7 +38,7 @@ const { formatDate } = useFormat()
 ========================= */
 const loading = ref(true)
 const selectedCategory = ref("")
-const uploadType = ref("media") // media | office | url
+const uploadType = ref("media") // media | office | other | url
 
 const documents = ref([])
 const summary = ref({
@@ -54,6 +54,23 @@ function isExternalLink(path) {
         (path.startsWith("http://") || path.startsWith("https://"))
 }
 
+function uploadAccept() {
+    if (uploadType.value === "media") {
+        return "image/*,application/pdf"
+    }
+
+    if (uploadType.value === "office") {
+        return ".doc,.docx,.xls,.xlsx"
+    }
+
+    if (uploadType.value === "other") {
+        // Common non-office formats (archives, text/data, CAD-like docs).
+        return ".txt,.csv,.zip,.rar,.7z,.xml,.json,.rtf,.ppt,.pptx,.odt,.ods,.dwg,.dxf"
+    }
+
+    return ""
+}
+
 /* =========================
    UPLOAD FORM
 ========================= */
@@ -65,6 +82,12 @@ const uploadForm = useForm({
 
 function onFileChange(e) {
     uploadForm.file = e.target.files[0]
+}
+
+const fileInputRef = ref(null)
+
+function openFilePicker() {
+    fileInputRef.value?.click()
 }
 
 /* =========================
@@ -241,28 +264,75 @@ onMounted(loadDocuments)
 
     <!-- UPLOAD -->
     <div class="bg-white shadow-md rounded-xl p-6 border">
-        <h3 class="text-lg font-semibold mb-4">Add Document</h3>
-
-        <!-- TYPE -->
-        <div class="flex gap-6 mb-4">
-            <label><input type="radio" value="media" v-model="uploadType" /> Image / PDF</label>
-            <label><input type="radio" value="office" v-model="uploadType" /> Word / Excel</label>
-            <label><input type="radio" value="url" v-model="uploadType" /> URL</label>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-5">
+            <div>
+                <h3 class="text-lg font-semibold text-slate-800">Add Document</h3>
+                <p class="text-sm text-slate-500">Upload files or attach external links to this project.</p>
+            </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- TYPE -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
+            <label
+                class="cursor-pointer border rounded-lg px-3 py-2 text-sm text-center transition"
+                :class="uploadType === 'media' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
+            >
+                <input type="radio" value="media" v-model="uploadType" class="sr-only" />
+                Image / PDF
+            </label>
+            <label
+                class="cursor-pointer border rounded-lg px-3 py-2 text-sm text-center transition"
+                :class="uploadType === 'office' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
+            >
+                <input type="radio" value="office" v-model="uploadType" class="sr-only" />
+                Word / Excel
+            </label>
+            <label
+                class="cursor-pointer border rounded-lg px-3 py-2 text-sm text-center transition"
+                :class="uploadType === 'other' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
+            >
+                <input type="radio" value="other" v-model="uploadType" class="sr-only" />
+                Other File
+            </label>
+            <label
+                class="cursor-pointer border rounded-lg px-3 py-2 text-sm text-center transition"
+                :class="uploadType === 'url' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-medium' : 'border-slate-200 text-slate-600 hover:bg-slate-50'"
+            >
+                <input type="radio" value="url" v-model="uploadType" class="sr-only" />
+                URL
+            </label>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-lg border border-slate-200 bg-slate-50/60">
 
             <!-- FILE -->
             <div v-if="uploadType !== 'url'">
                 <label class="block mb-1 text-sm font-medium">File</label>
                 <input
+                    ref="fileInputRef"
                     type="file"
                     @change="onFileChange"
-                    :accept="uploadType === 'media'
-                        ? 'image/*,application/pdf'
-                        : '.doc,.docx,.xls,.xlsx'"
-                    class="border rounded-md px-3 py-2 w-full"
+                    :accept="uploadAccept()"
+                    class="hidden"
                 />
+                <div class="border border-slate-300 bg-white rounded-md p-2.5 flex items-center gap-3">
+                    <button
+                        type="button"
+                        class="px-3 py-1.5 text-sm rounded-md border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 whitespace-nowrap"
+                        @click="openFilePicker"
+                    >
+                        Choose File
+                    </button>
+                    <span class="text-sm text-slate-600 truncate">
+                        {{ uploadForm.file?.name ?? 'No file selected' }}
+                    </span>
+                </div>
+                <p class="text-xs text-slate-500 mt-1">
+                    Max size and extension rules depend on selected category.
+                </p>
+                <p v-if="uploadType === 'other'" class="text-xs text-gray-500 mt-1">
+                    For uncommon formats, choose a category with matching extension rules or use Others category.
+                </p>
                 <p v-if="uploadForm.errors.file" class="text-sm text-red-600 mt-1">
                     {{ uploadForm.errors.file }}
                 </p>
@@ -275,7 +345,7 @@ onMounted(loadDocuments)
                     type="url"
                     v-model="uploadForm.url"
                     placeholder="https://..."
-                    class="border rounded-md px-3 py-2 w-full"
+                    class="border border-slate-300 bg-white rounded-md px-3 py-2 w-full"
                 />
                 <p v-if="uploadForm.errors.url" class="text-sm text-red-600 mt-1">
                     {{ uploadForm.errors.url }}
@@ -287,7 +357,7 @@ onMounted(loadDocuments)
                 <label class="block mb-1 text-sm font-medium">Category</label>
                 <select
                     v-model="uploadForm.category_id"
-                    class="border rounded-md px-3 py-2 w-full"
+                    class="border border-slate-300 bg-white rounded-md px-3 py-2 w-full"
                 >
                     <option value="">Select Category</option>
                     <option value="others">Others</option>
@@ -304,10 +374,10 @@ onMounted(loadDocuments)
             <div class="flex items-end">
                 <button
                     @click="uploadDocument"
-                    class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 w-full"
+                    class="px-4 py-2.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 w-full font-medium shadow-sm"
                     :disabled="uploadForm.processing"
                 >
-                    Add
+                    {{ uploadForm.processing ? 'Adding...' : 'Add Document' }}
                 </button>
             </div>
 
@@ -315,9 +385,9 @@ onMounted(loadDocuments)
     </div>
 
     <!-- FILTER -->
-    <div class="bg-white shadow rounded-xl p-4 border flex items-center gap-4">
-        <label class="font-medium">Category:</label>
-        <select v-model="selectedCategory" class="border px-3 py-2 rounded-md">
+    <div class="bg-white shadow rounded-xl p-4 border flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
+        <label class="font-medium text-slate-700">Filter by Category</label>
+        <select v-model="selectedCategory" class="border border-slate-300 px-3 py-2 rounded-md md:min-w-64">
             <option value="">All</option>
             <option value="others">Others</option>
             <option v-for="c in categories" :key="c.id" :value="c.id">

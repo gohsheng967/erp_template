@@ -1,10 +1,9 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { Link, usePage, router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 
 import ClaimsTable from '@/Pages/Transactions/Claims/Partials/ClaimsTable.vue'
-import ClaimsPie from '@/Components/Charts/ClaimsPie.vue'
 import CreateClaimModal from '@/Pages/Transactions/Claims/Partials/CreateClaimModal.vue'
 
 const page = usePage()
@@ -15,7 +14,6 @@ const page = usePage()
 const claims = computed(() => page.props.claims)
 const counts = computed(() => page.props.counts)
 const filters = page.props.filters
-const donut   = page.props.donut
 
 const showCreate = ref(false)
 
@@ -32,19 +30,54 @@ const dateTo   = ref(filters.to ?? null)
 const tabs = [
     { key: 'draft',     label: 'Draft' },
     { key: 'submitted', label: 'Submitted' },
+    { key: 'checked',   label: 'Checked' },
+    { key: 'verified',  label: 'Verified' },
     { key: 'approved',  label: 'Approved' },
+    { key: 'payment',   label: 'Payment' },
     { key: 'rejected',  label: 'Rejected' },
-    { key: 'paid',      label: 'Paid' },
 ]
 
-const colors = [
-  "#6366f1", "#22c55e", "#f59e0b",
-  "#ef4444", "#0ea5e9", "#a855f7",
-  "#64748b"
-]
+const tabStorageKey = 'claims-index-active-tab'
+const allowedTabs = new Set(tabs.map((tab) => tab.key))
+const serverTab = page.props.activeTab
+const hasTabQuery = (() => {
+    if (typeof window !== 'undefined') {
+        return new URLSearchParams(window.location.search).has('tab')
+    }
 
+    const queryString = String(page.url ?? '').split('?')[1] ?? ''
+    return new URLSearchParams(queryString).has('tab')
+})()
 
-const activeTab = ref(page.props.activeTab ?? 'submitted')
+function resolveInitialTab() {
+    const propTab = serverTab
+
+    if (typeof window !== 'undefined') {
+        const remembered = localStorage.getItem(tabStorageKey)
+        if (!hasTabQuery && remembered && allowedTabs.has(remembered)) {
+            return remembered
+        }
+    }
+
+    if (propTab && allowedTabs.has(propTab)) {
+        return propTab
+    }
+
+    return 'submitted'
+}
+
+const activeTab = ref(resolveInitialTab())
+
+watch(activeTab, (tab) => {
+    if (!allowedTabs.has(tab) || typeof window === 'undefined') return
+    localStorage.setItem(tabStorageKey, tab)
+})
+
+onMounted(() => {
+    if (hasTabQuery) return
+    if (activeTab.value === serverTab) return
+    applyFilters()
+})
 
 /* ========================
    Current tab data
@@ -58,20 +91,23 @@ const currentClaims = computed(() => {
 
 
 /* ========================
-   Donut visibility
-======================== */
-const hasProjectDonut = computed(() =>
-    donut?.by_project?.some(i => Number(i.amount) > 0)
-)
-
-const hasCategoryDonut = computed(() =>
-    donut?.by_category?.some(i => Number(i.amount) > 0)
-)
-
-/* ========================
    Badge tabs
 ======================== */
-const badgeTabs = ['submitted', 'approved']
+const badgeTabs = ['submitted', 'checked', 'verified', 'approved', 'payment']
+
+const tabHints = {
+    draft: 'Draft claims are editable by requester and not yet submitted for review.',
+    submitted: 'Submitted claims are waiting for checker review.',
+    checked: 'Checked claims passed initial review and are waiting for verification.',
+    verified: 'Verified claims are ready for final approval decision.',
+    approved: 'Approved claims are waiting for CEO approval before entering payment stage.',
+    payment: 'Payment tab shows only CEO-approved and paid claim payment status.',
+    rejected: 'Rejected claims were not accepted in review flow and remain for audit trail.',
+}
+
+const activeTabHint = computed(() =>
+    tabHints[activeTab.value] ?? ''
+)
 
 /* ========================
    Actions
@@ -204,94 +240,12 @@ function switchTab(tab) {
                 </nav>
             </div>
 
-            <!-- DONUTS -->
-            <div
-                v-if="hasProjectDonut || hasCategoryDonut"
-                class="grid grid-cols-1 md:grid-cols-2 gap-3"
-            >
-                <div
-                    v-if="hasProjectDonut"
-                    class="bg-white rounded-md border shadow-sm p-2 h-[280px] flex flex-col"
-                >
-                    <h3 class="text-[11px] font-medium text-gray-500 mb-6">
-                        By Project
-                    </h3>
-
-                    <div class="flex justify-center">
-                        <div class="flex items-center gap-4">
-                            <!-- PIE -->
-                            <div class="w-[180px] h-[180px] relative flex-shrink-0">
-                                <ClaimsPie :donut="donut.by_project" />
-                            </div>
-
-                            <!-- LEGEND -->
-                            <div class="flex flex-col gap-1 text-xs text-gray-600">
-                                <div
-                                    v-for="(item, i) in donut.by_project || []"
-                                    :key="i"
-                                    class="flex items-center gap-2"
-                                >
-                                    <span
-                                        class="inline-block w-3 h-3 rounded-full"
-                                        :style="{ backgroundColor: colors[i % colors.length] }"
-                                    ></span>
-
-                                    <span class="truncate max-w-[140px]">
-                                        {{ item.label }}
-                                    </span>
-
-                                    <span class="ml-auto font-medium">
-                                        {{ item.amount.toFixed(2) }}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-
-                <div
-                    v-if="hasCategoryDonut"
-                    class="bg-white rounded-md border shadow-sm p-2 h-[280px] flex flex-col"
-                >
-                    <h3 class="text-[11px] font-medium text-gray-500 mb-6">
-                        By Category
-                    </h3>
-                    <div class="flex justify-center">
-
-                        <div class="flex items-center gap-4">
-                            <!-- PIE -->
-                            <div class="w-[188px] h-[188px] relative flex-shrink-0">
-                                <ClaimsPie :donut="donut.by_category" />
-                            </div>
-
-                            <!-- LEGEND -->
-                            <div class="flex flex-col gap-1 text-xs text-gray-600">
-                                <div
-                                    v-for="(item, i) in donut.by_category"
-                                    :key="i"
-                                    class="flex items-center gap-2"
-                                >
-                                    <span
-                                        class="inline-block w-3 h-3 rounded-full"
-                                        :style="{ backgroundColor: colors[i % colors.length] }"
-                                    ></span>
-
-                                    <span class="truncate max-w-[140px]">
-                                        {{ item.label }}
-                                    </span>
-
-                                    <span class="ml-auto font-medium">
-                                        {{ item.amount.toFixed(2) }}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+            <!-- TABLE -->
+            <div class="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 text-sm text-blue-900">
+                <span class="font-semibold mr-2">{{ tabs.find((t) => t.key === activeTab)?.label }}:</span>
+                <span>{{ activeTabHint }}</span>
             </div>
 
-            <!-- TABLE -->
             <ClaimsTable
                 :claims="currentClaims"
                 :status="activeTab"

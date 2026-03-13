@@ -10,6 +10,7 @@ use App\Models\Department;
 use App\Models\FileCategory;
 use App\Models\Claim;
 use App\Models\ProjectActivityLog;
+use App\Models\ProjectBudgetAllocation;
 use App\Models\ProjectDocument;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequest;
@@ -133,7 +134,14 @@ class ProjectController extends Controller
         $this->scopeToActiveBranch(request(), $projectQuery);
         $project = $projectQuery->firstOrFail();
 
-        $project->load(['client', 'manager']);
+        $project->load([
+            'client',
+            'manager',
+            'budgetAllocations' => fn ($query) => $query
+                ->with('user:id,name')
+                ->latest()
+                ->limit(50),
+        ]);
         $boundSubCons = $project->subCons()
             ->with('bankAccounts')
             ->orderBy('name')
@@ -355,15 +363,15 @@ class ProjectController extends Controller
 
         $summary = [
             'pending_approval' => (clone $baseQuery)
-                ->where('status', 'submitted')
+                ->whereIn('status', ['submitted', 'checked', 'verified'])
                 ->count(),
 
             'pending_payment' => (clone $baseQuery)
-                ->where('status', 'approved')
+                ->whereIn('status', ['ceo_approved'])
                 ->count(),
 
             'total_approved_amount' => (clone $baseQuery)
-                ->where('status', 'approved')
+                ->whereIn('status', ['approved', 'ceo_approved'])
                 ->sum('total_amount'),
 
             'total_paid_amount' => (clone $baseQuery)
@@ -372,7 +380,7 @@ class ProjectController extends Controller
         ];
 
         $pendingClaims = (clone $baseQuery)
-            ->whereIn('status', ['draft', 'submitted', 'approved'])
+            ->whereIn('status', ['draft', 'submitted', 'checked', 'verified', 'approved', 'ceo_approved'])
             ->latest()
             ->get([
                 'id',
@@ -395,13 +403,39 @@ class ProjectController extends Controller
 
         $validated = $request->validate([
             'budget' => ['required', 'numeric', 'min:0'],
+            'add_on' => ['nullable', 'numeric', 'min:0'],
+            'reason' => ['required', 'string', 'max:1000'],
         ]);
+
+        $oldBudget = (float) ($project->budget ?? 0);
+        $newBudget = (float) $validated['budget'];
+
+        if ($newBudget < $oldBudget) {
+            throw ValidationException::withMessages([
+                'budget' => 'Budget cannot be reduced from this section. Use budget add-on only.',
+            ]);
+        }
+
+        if (abs($newBudget - $oldBudget) < 0.00001) {
+            return back()->with('success', 'No budget change detected.');
+        }
+
+        $addOnAmount = $newBudget - $oldBudget;
 
         $project->update([
-            'budget' => $validated['budget'],
+            'budget' => $newBudget,
         ]);
 
-        return back()->with('success', 'Budget updated successfully');
+        ProjectBudgetAllocation::create([
+            'project_id' => $project->id,
+            'user_id' => $request->user()?->id,
+            'previous_budget' => $oldBudget,
+            'add_on_amount' => $addOnAmount,
+            'new_budget' => $newBudget,
+            'reason' => $validated['reason'],
+        ]);
+
+        return back()->with('success', 'Budget add-on recorded successfully');
     }
 
     public function kpi(Project $project)
@@ -416,7 +450,7 @@ class ProjectController extends Controller
         ->sum('total_amount');
 
         $claimUsed = (float) $project->claims()
-            ->whereIn('status', ['approved', 'paid'])
+            ->whereIn('status', ['approved', 'ceo_approved', 'paid'])
             ->sum('total_amount');
 
         $expenseUsed = 0;
@@ -441,7 +475,7 @@ class ProjectController extends Controller
         ]);
 
         $claimCosts  = $project->claims()
-            ->whereIn('status', ['approved', 'paid'])
+            ->whereIn('status', ['approved', 'ceo_approved', 'paid'])
             ->orderByDesc('total_amount')
             ->limit(5)
             ->get()

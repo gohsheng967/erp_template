@@ -16,7 +16,7 @@ const props = defineProps({
         required: true,
     },
     status: {
-        type: String, // draft | submitted | approved | rejected | paid
+        type: String, // draft | submitted | checked | verified | approved | payment | rejected
         required: true,
     },
 })
@@ -43,6 +43,24 @@ const columnsByStatus = {
         'action',
     ],
 
+    checked: [
+        'claim_no',
+        'title',
+        'project',
+        'total_amount',
+        'submitted_at',
+        'action',
+    ],
+
+    verified: [
+        'claim_no',
+        'title',
+        'project',
+        'total_amount',
+        'submitted_at',
+        'action',
+    ],
+
     rejected: [
         'claim_no',
         'title',
@@ -57,18 +75,16 @@ const columnsByStatus = {
         'title',
         'project',
         'total_amount',
-        'approved_by',
-        'approved_at',
+        'submitted_at',
         'action',
     ],
 
-    paid: [
+    payment: [
         'claim_no',
         'title',
         'project',
         'total_amount',
-        'paid_at',
-        'payment_ref',
+        'payment_status',
         'action',
     ],
 }
@@ -82,6 +98,7 @@ const columnLabels = {
     submitted_at: 'Submitted At',
     approved_by: 'Approved By',
     approved_at: 'Approved At',
+    payment_status: 'Payment Status',
     paid_at: 'Paid At',
     payment_ref: 'Payment Ref',
     action: 'Action',
@@ -218,6 +235,9 @@ function renderCell(row, col) {
 
         case 'paid_at':
             return row.paid_at ?? '-'
+
+        case 'payment_status':
+            return row.status === 'paid' ? 'Paid' : 'Pending Payment'
 
         case 'payment_ref':
             return row.payment_ref_no ?? '-'
