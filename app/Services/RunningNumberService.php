@@ -34,6 +34,7 @@ class RunningNumberService
                     'petty_cash_transaction' => 'PCT',
                     'petty_cash_topup' => 'PTP',
                     'payment_slip'    => 'PS',
+                    'sub_con_task'    => 'SCT',
                     'ar_invoice'       => 'ARINV',
                     default            => strtoupper(substr($documentType, 0, 3)),
                 };

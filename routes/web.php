@@ -79,6 +79,8 @@ Route::middleware('auth.subcon')->prefix('sub-con')->name('sub-con.')->group(fun
     Route::get('/portal', [SubConPortalController::class, 'index'])->name('portal');
     Route::post('/tasks/{task}/updates', [SubConPortalController::class, 'storeUpdate'])->name('tasks.updates.store');
     Route::get('/tasks/{task}/updates/{update}/download', [SubConPortalController::class, 'downloadUpdate'])->name('tasks.updates.download');
+    Route::post('/tasks/{task}/invoice', [SubConPortalController::class, 'storeInvoice'])->name('tasks.invoice.store');
+    Route::get('/tasks/{task}/invoice/download', [SubConPortalController::class, 'downloadInvoice'])->name('tasks.invoice.download');
 });
 
 Route::prefix('public')->name('public.')->group(function () {
@@ -244,6 +246,7 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
         Route::post('/{task}/justify-payment', [SubConTaskController::class, 'justify'])->name('justify');
         Route::post('/{task}/payment-cert', [SubConTaskController::class, 'certify'])->name('certify');
         Route::post('/{task}/mark-paid', [SubConTaskController::class, 'paid'])->name('paid');
+        Route::get('/{task}/invoice/download', [SubConTaskController::class, 'downloadInvoice'])->name('invoice.download');
     });
 
     Route::prefix('projects/{project}/sub-cons')->middleware('branch.context')->name('projects.sub-cons.')->group(function () {

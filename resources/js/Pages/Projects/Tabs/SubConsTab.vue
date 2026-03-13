@@ -241,9 +241,9 @@ function formatDate(value) {
                     </div>
                 </div>
                 <div class="rounded-lg bg-slate-50 p-3">
-                    <div class="text-xs text-slate-500">Submitted/Verified</div>
+                    <div class="text-xs text-slate-500">Submitted/Contra Verified</div>
                     <div class="text-lg font-semibold text-slate-800">
-                        {{ selectedSubCon.stats.submitted_tasks }}/{{ selectedSubCon.stats.verified_tasks }}
+                        {{ selectedSubCon.stats.submitted_tasks }}/{{ selectedSubCon.stats.contra_verified_tasks }}
                     </div>
                 </div>
                 <div class="rounded-lg bg-slate-50 p-3">

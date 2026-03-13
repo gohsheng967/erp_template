@@ -515,9 +515,11 @@ class ProjectController extends Controller
             ->values()
             ->all();
 
-        $topCosts = collect($poCosts)
-            ->merge($claimCosts)
-            ->merge($expenseCosts)
+        $topCosts = collect([
+            ...$poCosts,
+            ...$claimCosts,
+            ...$expenseCosts,
+        ])
             ->sortByDesc('amount')
             ->take(10)
             ->values();
@@ -567,8 +569,9 @@ class ProjectController extends Controller
 
             $totalTasks = $tasks->count();
             $submitted = (int) ($statusCounts['submitted'] ?? 0);
-            $verified = (int) ($statusCounts['verified'] ?? 0);
-            $justified = (int) ($statusCounts['justified'] ?? 0);
+            $contraVerified = (int) (($statusCounts['contra_verified'] ?? 0) + ($statusCounts['verified'] ?? 0));
+            $invoiced = (int) ($statusCounts['invoiced'] ?? 0);
+            $approved = (int) (($statusCounts['approved'] ?? 0) + ($statusCounts['justified'] ?? 0));
             $certified = (int) ($statusCounts['certified'] ?? 0);
             $paid = (int) ($statusCounts['paid'] ?? 0);
             $draft = (int) ($statusCounts['draft'] ?? 0);
@@ -578,12 +581,12 @@ class ProjectController extends Controller
                 : 0.0;
 
             $invoicedAmount = (float) $tasks
-                ->whereIn('status', ['certified', 'paid'])
-                ->sum(fn ($task) => (float) $task->amount);
+                ->whereIn('status', ['invoiced', 'approved', 'justified', 'certified', 'paid'])
+                ->sum(fn ($task) => (float) ($task->invoice_amount ?? $task->amount));
 
             $paidAmount = (float) $tasks
                 ->where('status', 'paid')
-                ->sum(fn ($task) => (float) $task->amount);
+                ->sum(fn ($task) => (float) ($task->invoice_amount ?? $task->amount));
 
             $paymentStatus = 'No Task';
             if ($totalTasks > 0 && $paid === $totalTasks) {
@@ -592,7 +595,7 @@ class ProjectController extends Controller
                 $paymentStatus = 'Partially Paid';
             } elseif ($certified > 0) {
                 $paymentStatus = 'Pending Payment';
-            } elseif ($submitted > 0 || $verified > 0 || $justified > 0) {
+            } elseif ($submitted > 0 || $contraVerified > 0 || $invoiced > 0 || $approved > 0) {
                 $paymentStatus = 'In Progress';
             } elseif ($draft > 0) {
                 $paymentStatus = 'Draft';
@@ -617,8 +620,9 @@ class ProjectController extends Controller
                     'total_tasks' => $totalTasks,
                     'draft_tasks' => $draft,
                     'submitted_tasks' => $submitted,
-                    'verified_tasks' => $verified,
-                    'justified_tasks' => $justified,
+                    'contra_verified_tasks' => $contraVerified,
+                    'invoiced_tasks' => $invoiced,
+                    'approved_tasks' => $approved,
                     'certified_tasks' => $certified,
                     'paid_tasks' => $paid,
                     'avg_progress_percent' => $avgProgress,

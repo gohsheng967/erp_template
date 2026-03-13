@@ -43,6 +43,12 @@ class SubConTaskController extends Controller
             'parent_id' => 'nullable|integer|exists:sub_con_tasks,id',
         ]);
 
+        if (empty($validated['parent_id']) && !isset($validated['amount'])) {
+            return back()->withErrors([
+                'amount' => 'Amount is required for main task.',
+            ]);
+        }
+
         $isBound = $project->subCons()
             ->where('sub_cons.id', $validated['sub_con_id'])
             ->exists();
@@ -63,17 +69,28 @@ class SubConTaskController extends Controller
                     'parent_id' => 'Parent task does not belong to this project.',
                 ]);
             }
+
+            if ($parent->parent_id) {
+                return back()->withErrors([
+                    'parent_id' => 'Parent task must be a main task.',
+                ]);
+            }
         }
 
-        SubConTask::create([
+        $createdTask = SubConTask::create([
+            'task_no' => RunningNumberService::next('sub_con_task'),
             'project_id' => $project->id,
             'sub_con_id' => $validated['sub_con_id'],
             'parent_id' => $validated['parent_id'] ?? null,
             'title' => $validated['title'],
-            'amount' => $validated['amount'] ?? 0,
+            'amount' => empty($validated['parent_id'])
+                ? (float) ($validated['amount'] ?? 0)
+                : 0,
             'status' => 'draft',
             'progress_percent' => 0,
         ]);
+
+        SubConTask::refreshParentProgressFor($createdTask->parent_id);
 
         return back()->with('success', 'Sub Con task created successfully.');
     }
@@ -88,9 +105,9 @@ class SubConTaskController extends Controller
 
         $this->ensureSubConOwnsTask($request, $task);
 
-        if (!in_array($task->status, ['draft', 'submitted'], true)) {
+        if ($task->status !== 'draft') {
             return back()->withErrors([
-                'status' => 'Progress can only be submitted while task is Draft or Submitted.',
+                'status' => 'Progress can only be submitted while task is In Progress.',
             ]);
         }
 
@@ -121,6 +138,8 @@ class SubConTaskController extends Controller
             'progress_percent' => $validated['progress_percent'],
             'status' => 'submitted',
         ]);
+
+        SubConTask::refreshParentProgressFor($task->parent_id);
 
         return back()->with('success', 'Progress submitted successfully.');
     }
@@ -156,28 +175,33 @@ class SubConTaskController extends Controller
                 'verified_reject_remark' => $validated['remark'],
             ]);
 
+            SubConTask::refreshParentProgressFor($task->parent_id);
+
             return back()->with('success', 'Progress rejected. Sub Con needs to submit again.');
         }
 
         $task->update([
-            'status' => 'verified',
+            'status' => 'contra_verified',
             'verified_at' => now(),
             'verified_remark' => $validated['remark'] ?? null,
             'verified_reject_remark' => null,
         ]);
 
-        return back()->with('success', 'Progress verified.');
+        SubConTask::refreshParentProgressFor($task->parent_id);
+
+        return back()->with('success', 'Progress contra verified.');
     }
 
     public function justify(Request $request, string $projectUuid, string $taskUuid)
     {
         $this->ensureInternalUser($request);
+        $this->ensureCeoOrGm($request);
 
         $task = $this->getTask($request, $projectUuid, $taskUuid);
 
-        if ($task->status !== 'verified') {
+        if (!in_array($task->status, ['invoiced'], true)) {
             return back()->withErrors([
-                'status' => 'Only verified progress can be justified.',
+                'status' => 'Only invoiced tasks can be approved.',
             ]);
         }
 
@@ -194,23 +218,27 @@ class SubConTaskController extends Controller
             }
 
             $task->update([
-                'status' => 'draft',
+                'status' => 'contra_verified',
                 'justified_at' => null,
                 'justified_remark' => null,
                 'justified_reject_remark' => $validated['remark'],
             ]);
 
-            return back()->with('success', 'Justification rejected. Sub Con needs to submit again.');
+            SubConTask::refreshParentProgressFor($task->parent_id);
+
+            return back()->with('success', 'Approval rejected. Task moved back to Contra Verified.');
         }
 
         $task->update([
-            'status' => 'justified',
+            'status' => 'approved',
             'justified_at' => now(),
             'justified_remark' => $validated['remark'] ?? null,
             'justified_reject_remark' => null,
         ]);
 
-        return back()->with('success', 'Payment justified.');
+        SubConTask::refreshParentProgressFor($task->parent_id);
+
+        return back()->with('success', 'Task approved by CEO/GM.');
     }
 
     public function certify(Request $request, string $projectUuid, string $taskUuid)
@@ -219,9 +247,9 @@ class SubConTaskController extends Controller
 
         $task = $this->getTask($request, $projectUuid, $taskUuid);
 
-        if ($task->status !== 'justified') {
+        if (!in_array($task->status, ['approved', 'justified'], true)) {
             return back()->withErrors([
-                'status' => 'Only justified tasks can issue payment cert.',
+                'status' => 'Only approved tasks can issue payment cert.',
             ]);
         }
 
@@ -253,7 +281,7 @@ class SubConTaskController extends Controller
         }
 
         $slip->company_bank_account_id = $validated['company_bank_account_id'];
-        $slip->amount = $task->amount;
+        $slip->amount = (float) ($task->invoice_amount ?? $task->amount);
         $slip->payment_date = now()->toDateString();
         $slip->less_retention = $request->input('less_retention');
         $slip->less_recoupment = $request->input('less_recoupment');
@@ -269,6 +297,8 @@ class SubConTaskController extends Controller
             'payment_slip_no' => $slip->slip_no,
             'certified_at' => now(),
         ]);
+
+        SubConTask::refreshParentProgressFor($task->parent_id);
 
         $slip->load([
             'companyBankAccount',
@@ -321,6 +351,8 @@ class SubConTaskController extends Controller
             'payment_ref_no' => $request->payment_ref_no,
         ]);
 
+        SubConTask::refreshParentProgressFor($task->parent_id);
+
         return back()->with('success', 'Marked as paid.');
     }
 
@@ -342,6 +374,7 @@ class SubConTaskController extends Controller
         $task = SubConTask::where('uuid', $taskUuid)
             ->where('project_id', $project->id)
             ->firstOrFail();
+        $oldParentId = $task->parent_id;
 
         $validated = $request->validate([
             'sub_con_id' => 'required|integer|exists:sub_cons,id',
@@ -376,14 +409,25 @@ class SubConTaskController extends Controller
                     'parent_id' => 'Task cannot be its own parent.',
                 ]);
             }
+
+            if ($parent->parent_id) {
+                return back()->withErrors([
+                    'parent_id' => 'Parent task must be a main task.',
+                ]);
+            }
         }
 
         $task->update([
             'sub_con_id' => $validated['sub_con_id'],
             'title' => $validated['title'],
-            'amount' => $validated['amount'] ?? 0,
+            'amount' => empty($validated['parent_id'])
+                ? (float) ($validated['amount'] ?? 0)
+                : 0,
             'parent_id' => $validated['parent_id'] ?? null,
         ]);
+
+        SubConTask::refreshParentProgressFor($oldParentId);
+        SubConTask::refreshParentProgressFor($task->parent_id);
 
         return back()->with('success', 'Sub Con task updated successfully.');
     }
@@ -393,14 +437,16 @@ class SubConTaskController extends Controller
         $this->ensureInternalUser($request);
 
         $task = $this->getTask($request, $projectUuid, $taskUuid);
+        $parentId = $task->parent_id;
 
-        if ($task->children()->exists()) {
-            return back()->withErrors([
-                'delete' => 'Cannot delete task that has child tasks.',
-            ]);
+        // If deleting main task, delete all its child tasks together.
+        if (!$task->parent_id) {
+            $task->children()->delete();
         }
 
         $task->delete();
+
+        SubConTask::refreshParentProgressFor($parentId);
 
         return back()->with('success', 'Sub Con task deleted successfully.');
     }
@@ -425,6 +471,25 @@ class SubConTaskController extends Controller
         $name = $update->attachment_name ?? basename($update->attachment_path);
 
         return Storage::disk('public')->download($update->attachment_path, $name);
+    }
+
+    public function downloadInvoice(Request $request, string $projectUuid, string $taskUuid)
+    {
+        $this->ensureInternalUser($request);
+
+        $task = $this->getTask($request, $projectUuid, $taskUuid);
+
+        if (!$task->invoice_attachment_path) {
+            abort(404, 'Invoice attachment not found.');
+        }
+
+        if (!Storage::disk('public')->exists($task->invoice_attachment_path)) {
+            abort(404, 'Invoice attachment not found.');
+        }
+
+        $name = $task->invoice_attachment_name ?? basename($task->invoice_attachment_path);
+
+        return Storage::disk('public')->download($task->invoice_attachment_path, $name);
     }
 
     private function resolveProject(Request $request, string $projectUuid): Project
@@ -453,6 +518,26 @@ class SubConTaskController extends Controller
         if ((int) $subConId !== (int) $task->sub_con_id) {
             abort(403, 'You are not allowed to access this task.');
         }
+    }
+
+    private function ensureCeoOrGm(Request $request): void
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            abort(403, 'Unauthenticated.');
+        }
+
+        if ($user->isSuperAdmin() || (bool) $user->is_general_manager) {
+            return;
+        }
+
+        $activeRoleName = strtolower((string) ($user->activeRole?->name ?? ''));
+        if (in_array($activeRoleName, ['ceo', 'gm', 'general manager'], true)) {
+            return;
+        }
+
+        abort(403, 'Only CEO/GM can approve this task.');
     }
 
     private function scopeToActiveBranch(Request $request, Builder $query, string $column = 'branch_id'): void

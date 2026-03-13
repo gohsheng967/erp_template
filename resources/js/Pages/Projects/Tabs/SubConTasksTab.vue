@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, ref } from "vue";
+import { computed, inject, ref, watch } from "vue";
 import { router, usePage } from "@inertiajs/vue3";
 import { useFormat } from "@/Composables/useFormat";
 import DeleteConfirmation from "@/Components/DeleteConfirmation.vue";
@@ -86,6 +86,25 @@ const paidForm = ref({
 });
 
 const slipData = ref(null);
+const activeStage = ref("all");
+
+const stageTabs = [
+    { key: "all", label: "All" },
+    { key: "draft", label: "In Progress" },
+    { key: "submitted", label: "Submitted" },
+    { key: "contra_verified", label: "Project Verified" },
+    { key: "invoiced", label: "Invoiced" },
+    { key: "payment", label: "Payment" },
+];
+
+const stageHints = {
+    all: "All main tasks across every stage.",
+    draft: "Sub Con is still progressing the task.",
+    submitted: "Task completed by Sub Con and waiting Project Department review.",
+    contra_verified: "Project Department has verified completion (Project Verified).",
+    invoiced: "Invoice submitted by Sub Con and pending approval.",
+    payment: "CEO / GM approved tasks proceed in Payment tab.",
+};
 
 function showError(errors, fallback) {
     const msg =
@@ -106,12 +125,18 @@ function refresh() {
 }
 
 function createTask() {
+    const isMainTask = !newTask.value.parent_id;
+    if (isMainTask && (newTask.value.amount === "" || newTask.value.amount === null)) {
+        toast?.value?.show("Main task amount is required.", "error");
+        return;
+    }
+
     router.post(
         route("projects.sub-con-tasks.store", { project: props.project.uuid }),
         {
             sub_con_id: newTask.value.sub_con_id,
             title: newTask.value.title,
-            amount: newTask.value.amount || 0,
+            amount: isMainTask ? newTask.value.amount : 0,
             parent_id: newTask.value.parent_id || null,
         },
         {
@@ -172,6 +197,12 @@ function openEdit(task) {
 }
 
 function submitEdit() {
+    const isMainTask = !editForm.value.parent_id;
+    if (isMainTask && (editForm.value.amount === "" || editForm.value.amount === null)) {
+        toast?.value?.show("Main task amount is required.", "error");
+        return;
+    }
+
     router.patch(
         route("projects.sub-con-tasks.update", {
             project: props.project.uuid,
@@ -180,7 +211,7 @@ function submitEdit() {
         {
             sub_con_id: editForm.value.sub_con_id,
             title: editForm.value.title,
-            amount: editForm.value.amount || 0,
+            amount: isMainTask ? editForm.value.amount : 0,
             parent_id: editForm.value.parent_id || null,
         },
         {
@@ -281,7 +312,9 @@ function verifyTask(task, action) {
             preserveScroll: true,
             onSuccess: () => {
                 toast?.value?.show(
-                    action === "approve" ? "Progress verified." : "Progress rejected.",
+                    action === "approve"
+                        ? "Task reviewed and moved to Project Verified."
+                        : "Task rejected and moved to In Progress.",
                     action === "approve" ? "success" : "error"
                 );
                 showVerifyModal.value = false;
@@ -310,7 +343,7 @@ function justifyTask(task, action) {
             preserveScroll: true,
             onSuccess: () => {
                 toast?.value?.show(
-                    action === "approve" ? "Payment justified." : "Justification rejected.",
+                    action === "approve" ? "Task approved." : "Approval rejected.",
                     action === "approve" ? "success" : "error"
                 );
                 showJustifyModal.value = false;
@@ -336,6 +369,23 @@ function openVerify(task) {
     selectedTask.value = task;
     verifyForm.value.remark = "";
     showVerifyModal.value = true;
+}
+
+function allChildrenOf(parentId) {
+    return tasks.value.filter((t) => t.parent_id === parentId);
+}
+
+function latestUpdateOf(task) {
+    const updates = task?.updates ?? [];
+    if (!updates.length) return null;
+
+    return updates
+        .slice()
+        .sort((a, b) => new Date(b?.created_at || 0) - new Date(a?.created_at || 0))[0];
+}
+
+function attachmentUpdatesOf(task) {
+    return (task?.updates ?? []).filter((update) => update?.attachment_path);
 }
 
 function openJustify(task) {
@@ -390,12 +440,33 @@ function openSlip(task) {
     showSlipModal.value = true;
 }
 
+function downloadInvoice(task) {
+    if (!task?.invoice_attachment_path) {
+        toast?.value?.show("Invoice attachment not found.", "error");
+        return;
+    }
+
+    window.open(
+        route("projects.sub-con-tasks.invoice.download", {
+            project: props.project.uuid,
+            task: task.uuid,
+        }),
+        "_blank"
+    );
+}
+
 function statusClass(status) {
     switch ((status || "").toLowerCase()) {
         case "submitted":
             return "bg-amber-100 text-amber-700";
+        case "contra_verified":
+            return "bg-indigo-100 text-indigo-700";
         case "verified":
             return "bg-indigo-100 text-indigo-700";
+        case "invoiced":
+            return "bg-purple-100 text-purple-700";
+        case "approved":
+            return "bg-emerald-100 text-emerald-700";
         case "justified":
             return "bg-emerald-100 text-emerald-700";
         case "certified":
@@ -407,12 +478,57 @@ function statusClass(status) {
     }
 }
 
+function statusLabel(status) {
+    const value = (status || "").toLowerCase();
+    if (value === "draft") return "In Progress";
+    if (value === "contra_verified" || value === "verified") return "Project Verified";
+    if (value === "justified") return "Approved";
+    return capitalize(value || "draft");
+}
+
+function isChildChecked(task) {
+    return (task?.status || "").toLowerCase() !== "draft";
+}
+
+function normalizedStatus(task) {
+    const status = (task?.status || "").toLowerCase();
+    if (status === "verified") return "contra_verified";
+    if (["approved", "justified", "certified", "paid"].includes(status)) return "payment";
+    return status;
+}
+
+const taskStageCounts = computed(() => {
+    const mainTasks = tasks.value.filter((task) => !task.parent_id);
+    const counts = { all: mainTasks.length };
+
+    stageTabs.forEach((tab) => {
+        if (tab.key !== "all") counts[tab.key] = 0;
+    });
+
+    mainTasks.forEach((task) => {
+        const key = normalizedStatus(task);
+        if (counts[key] === undefined) counts[key] = 0;
+        counts[key] += 1;
+    });
+
+    return counts;
+});
+
+const filteredTasks = computed(() => {
+    if (activeStage.value === "all") return tasks.value;
+    return tasks.value.filter((task) => normalizedStatus(task) === activeStage.value);
+});
+
 const parentTasks = computed(() =>
-    tasks.value.filter((t) => !t.parent_id)
+    filteredTasks.value.filter((t) => !t.parent_id)
 );
 
 const childTasks = computed(() =>
-    tasks.value.filter((t) => t.parent_id)
+    filteredTasks.value.filter((t) => t.parent_id)
+);
+
+const mainTaskOptions = computed(() =>
+    tasks.value.filter((t) => !t.parent_id)
 );
 
 function childrenOf(parentId) {
@@ -431,6 +547,12 @@ function toggleChildren(task) {
     }
     expandedParents.value = new Set(expandedParents.value);
 }
+
+watch(activeStage, () => {
+    expandedParents.value = new Set();
+});
+
+const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
 </script>
 
 <template>
@@ -462,15 +584,22 @@ function toggleChildren(task) {
                 </div>
 
                 <div>
-                    <label class="block text-sm text-gray-600">Amount</label>
+                    <label class="block text-sm text-gray-600">
+                        Amount
+                        <span v-if="!newTask.parent_id" class="text-red-500">*</span>
+                    </label>
                     <input
                         v-model="newTask.amount"
                         type="number"
                         min="0"
                         step="0.01"
-                        class="mt-1 w-full border rounded-md px-3 py-2"
-                        placeholder="0.00"
+                        :disabled="!!newTask.parent_id"
+                        class="mt-1 w-full border rounded-md px-3 py-2 disabled:bg-gray-100 disabled:text-gray-400"
+                        :placeholder="newTask.parent_id ? 'Auto 0 for sub task' : '0.00'"
                     />
+                    <p class="mt-1 text-xs text-gray-500">
+                        {{ newTask.parent_id ? "Sub task amount is fixed to 0." : "Required for main task." }}
+                    </p>
                 </div>
 
                 <div class="md:col-span-2">
@@ -480,7 +609,7 @@ function toggleChildren(task) {
                         class="mt-1 w-full border rounded-md px-3 py-2"
                     >
                         <option value="">No parent</option>
-                        <option v-for="task in tasks" :key="task.uuid" :value="task.id">
+                        <option v-for="task in mainTaskOptions" :key="task.uuid" :value="task.id">
                             {{ task.title }}
                         </option>
                     </select>
@@ -498,6 +627,30 @@ function toggleChildren(task) {
         </div>
 
         <div class="bg-white border rounded-lg overflow-hidden">
+            <div class="border-b bg-gray-50 px-4 py-3">
+                <div class="flex flex-wrap gap-2">
+                    <button
+                        v-for="tab in stageTabs"
+                        :key="tab.key"
+                        class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+                        :class="
+                            activeStage === tab.key
+                                ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'
+                        "
+                        @click="activeStage = tab.key"
+                    >
+                        <span>{{ tab.label }}</span>
+                        <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-700">
+                            {{ taskStageCounts[tab.key] ?? 0 }}
+                        </span>
+                    </button>
+                </div>
+                <p class="mt-2 text-xs text-gray-500">
+                    {{ activeStageHint }}
+                </p>
+            </div>
+
             <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                     <tr>
@@ -557,24 +710,23 @@ function toggleChildren(task) {
                                 <div v-if="task.updates?.length" class="text-xs text-gray-500">
                                     Last: {{ task.updates[0]?.note || "Update submitted" }}
                                 </div>
+                                <div v-if="task.invoice_no" class="text-xs text-gray-500">
+                                    Invoice: {{ task.invoice_no }} ({{ formatCurrency(task.invoice_amount ?? 0) }})
+                                </div>
                             </td>
                             <td class="px-4 py-3 text-sm">
                                 <span
                                     class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
                                     :class="statusClass(task.status)"
                                 >
-                                    {{ capitalize(task.status || "draft") }}
+                                    {{ statusLabel(task.status) }}
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-center">
-                                <div class="flex flex-wrap justify-center gap-2">
-                                    <button
-                                        v-if="['draft', 'submitted'].includes(task.status)"
-                                        class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
-                                        @click="openProgress(task)"
-                                    >
-                                        Update Progress
-                                    </button>
+                                <div v-if="activeStage === 'payment'" class="text-xs text-gray-400">
+                                    Status only
+                                </div>
+                                <div v-else class="flex flex-wrap justify-center gap-2">
                                     <button
                                         class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
                                         @click="openHistory(task)"
@@ -582,12 +734,14 @@ function toggleChildren(task) {
                                         History
                                     </button>
                                     <button
+                                        v-if="!['submitted', 'contra_verified', 'invoiced'].includes((task.status || '').toLowerCase())"
                                         class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
                                         @click="openEdit(task)"
                                     >
                                         Edit
                                     </button>
                                     <button
+                                        v-if="!['submitted', 'contra_verified', 'invoiced'].includes((task.status || '').toLowerCase())"
                                         class="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
                                         @click="openDelete(task)"
                                     >
@@ -598,28 +752,21 @@ function toggleChildren(task) {
                                         v-if="task.status === 'submitted'"
                                         @click="openVerify(task)"
                                     >
-                                        Verify
+                                        Review
+                                    </button>
+                                    <button
+                                        class="px-2 py-1 text-xs rounded bg-violet-100 text-violet-700 hover:bg-violet-200"
+                                        v-if="task.status === 'invoiced'"
+                                        @click="downloadInvoice(task)"
+                                    >
+                                        Invoice
                                     </button>
                                     <button
                                         class="px-2 py-1 text-xs rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                                        v-if="task.status === 'verified'"
+                                        v-if="task.status === 'invoiced'"
                                         @click="openJustify(task)"
                                     >
-                                        Justify
-                                    </button>
-                                    <button
-                                        class="px-2 py-1 text-xs rounded bg-sky-100 text-sky-700 hover:bg-sky-200"
-                                        v-if="task.status === 'justified'"
-                                        @click="openCert(task)"
-                                    >
-                                        Cert
-                                    </button>
-                                    <button
-                                        class="px-2 py-1 text-xs rounded bg-emerald-200 text-emerald-800 hover:bg-emerald-300"
-                                        v-if="task.status === 'certified'"
-                                        @click="openPaid(task)"
-                                    >
-                                        Paid
+                                        Review
                                     </button>
                                 </div>
                             </td>
@@ -657,24 +804,23 @@ function toggleChildren(task) {
                                 <div v-if="child.updates?.length" class="text-xs text-gray-500">
                                     Last: {{ child.updates[0]?.note || "Update submitted" }}
                                 </div>
+                                <div v-if="child.invoice_no" class="text-xs text-gray-500">
+                                    Invoice: {{ child.invoice_no }} ({{ formatCurrency(child.invoice_amount ?? 0) }})
+                                </div>
                             </td>
                             <td class="px-4 py-3 text-sm">
                                 <span
                                     class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
-                                    :class="statusClass(child.status)"
+                                    :class="isChildChecked(child) ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'"
                                 >
-                                    {{ capitalize(child.status || "draft") }}
+                                    {{ isChildChecked(child) ? "Checked" : "Unchecked" }}
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-center">
-                                <div class="flex flex-wrap justify-center gap-2">
-                                    <button
-                                        v-if="['draft', 'submitted'].includes(child.status)"
-                                        class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
-                                        @click="openProgress(child)"
-                                    >
-                                        Update Progress
-                                    </button>
+                                <div v-if="activeStage === 'payment'" class="text-xs text-gray-400">
+                                    Status only
+                                </div>
+                                <div v-else class="flex flex-wrap justify-center gap-2">
                                     <button
                                         class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
                                         @click="openHistory(child)"
@@ -682,52 +828,19 @@ function toggleChildren(task) {
                                         History
                                     </button>
                                     <button
+                                        v-if="!['submitted', 'contra_verified', 'invoiced'].includes((child.status || '').toLowerCase())"
                                         class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
                                         @click="openEdit(child)"
                                     >
                                         Edit
                                     </button>
-                                    <button
-                                        class="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
-                                        @click="openDelete(child)"
-                                    >
-                                        Delete
-                                    </button>
-                                    <button
-                                        class="px-2 py-1 text-xs rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
-                                        v-if="child.status === 'submitted'"
-                                        @click="openVerify(child)"
-                                    >
-                                        Verify
-                                    </button>
-                                    <button
-                                        class="px-2 py-1 text-xs rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                                        v-if="child.status === 'verified'"
-                                        @click="openJustify(child)"
-                                    >
-                                        Justify
-                                    </button>
-                                    <button
-                                        class="px-2 py-1 text-xs rounded bg-sky-100 text-sky-700 hover:bg-sky-200"
-                                        v-if="child.status === 'justified'"
-                                        @click="openCert(child)"
-                                    >
-                                        Cert
-                                    </button>
-                                    <button
-                                        class="px-2 py-1 text-xs rounded bg-emerald-200 text-emerald-800 hover:bg-emerald-300"
-                                        v-if="child.status === 'certified'"
-                                        @click="openPaid(child)"
-                                    >
-                                        Paid
-                                    </button>
                                 </div>
                             </td>
                         </tr>
                     </template>
-                    <tr v-if="tasks.length === 0">
+                    <tr v-if="parentTasks.length === 0">
                         <td colspan="6" class="px-4 py-6 text-center text-gray-500">
-                            No Sub Con tasks yet.
+                            No Sub Con tasks for this stage.
                         </td>
                     </tr>
                 </tbody>
@@ -844,14 +957,22 @@ function toggleChildren(task) {
                     />
                 </div>
                 <div>
-                    <label class="block text-sm text-gray-600">Amount</label>
+                    <label class="block text-sm text-gray-600">
+                        Amount
+                        <span v-if="!editForm.parent_id" class="text-red-500">*</span>
+                    </label>
                     <input
                         v-model="editForm.amount"
                         type="number"
                         min="0"
                         step="0.01"
-                        class="mt-1 w-full border rounded-md px-3 py-2"
+                        :disabled="!!editForm.parent_id"
+                        class="mt-1 w-full border rounded-md px-3 py-2 disabled:bg-gray-100 disabled:text-gray-400"
+                        :placeholder="editForm.parent_id ? 'Auto 0 for sub task' : '0.00'"
                     />
+                    <p class="mt-1 text-xs text-gray-500">
+                        {{ editForm.parent_id ? "Sub task amount is fixed to 0." : "Required for main task." }}
+                    </p>
                 </div>
                 <div>
                     <label class="block text-sm text-gray-600">Parent Task (optional)</label>
@@ -860,7 +981,7 @@ function toggleChildren(task) {
                         class="mt-1 w-full border rounded-md px-3 py-2"
                     >
                         <option value="">No parent</option>
-                        <option v-for="task in tasks" :key="task.uuid" :value="task.id">
+                        <option v-for="task in mainTaskOptions" :key="task.uuid" :value="task.id">
                             {{ task.title }}
                         </option>
                     </select>
@@ -1055,9 +1176,9 @@ function toggleChildren(task) {
 
     <!-- Verify Modal -->
     <div v-if="showVerifyModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl">
             <div class="flex justify-between items-center px-6 py-4 border-b">
-                <h3 class="text-lg font-semibold text-gray-800">Verify Progress</h3>
+                <h3 class="text-lg font-semibold text-gray-800">Review Submission</h3>
                 <button
                     class="text-gray-400 hover:text-gray-600"
                     @click="showVerifyModal = false"
@@ -1066,13 +1187,68 @@ function toggleChildren(task) {
                 </button>
             </div>
 
-            <div class="px-6 py-4">
-                <label class="block text-sm text-gray-600">Remark (required for reject)</label>
+            <div class="px-6 py-4 space-y-4">
+                <div class="rounded-lg border bg-gray-50 p-4">
+                    <div class="text-sm text-gray-500">Submitted Main Task</div>
+                    <div class="mt-1 font-semibold text-gray-900">
+                        {{ selectedTask?.title || "-" }}
+                    </div>
+                    <div class="mt-1 text-sm text-gray-600">
+                        Sub Con: {{ selectedTask?.sub_con?.name || "-" }}
+                    </div>
+                    <div class="mt-1 text-sm text-gray-600">
+                        Progress: {{ selectedTask?.progress_percent ?? 0 }}%
+                    </div>
+                    <div class="mt-2 text-sm text-gray-600">
+                        Latest Note:
+                        <span class="text-gray-800">
+                            {{ latestUpdateOf(selectedTask)?.note || "No note" }}
+                        </span>
+                    </div>
+                </div>
+
+                <div v-if="allChildrenOf(selectedTask?.id).length" class="rounded-lg border p-4">
+                    <div class="text-sm font-medium text-gray-700 mb-2">Submitted Items</div>
+                    <div class="space-y-2">
+                        <div
+                            v-for="child in allChildrenOf(selectedTask?.id)"
+                            :key="child.uuid"
+                            class="flex items-center justify-between rounded border px-3 py-2"
+                        >
+                            <span class="text-sm text-gray-800">{{ child.title }}</span>
+                            <span
+                                class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+                                :class="isChildChecked(child) ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'"
+                            >
+                                {{ isChildChecked(child) ? "Checked" : "Unchecked" }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="attachmentUpdatesOf(selectedTask).length" class="rounded-lg border p-4">
+                    <div class="text-sm font-medium text-gray-700 mb-2">Submitted Attachments</div>
+                    <div class="space-y-2 max-h-44 overflow-auto">
+                        <a
+                            v-for="update in attachmentUpdatesOf(selectedTask)"
+                            :key="update.uuid"
+                            :href="route('projects.sub-con-tasks.updates.download', { project: project.uuid, task: selectedTask.uuid, update: update.uuid })"
+                            class="flex items-center justify-between rounded bg-gray-50 px-3 py-2 text-xs text-indigo-700 hover:bg-indigo-50 border"
+                            target="_blank"
+                            rel="noopener"
+                        >
+                            <span class="truncate max-w-[250px]">{{ update.attachment_name || "Attachment" }}</span>
+                            <span class="text-gray-500">{{ formatDateTime(update.created_at) }}</span>
+                        </a>
+                    </div>
+                </div>
+
+                <label class="block text-sm text-gray-600">Review Remark (required for reject)</label>
                 <textarea
                     v-model="verifyForm.remark"
                     rows="3"
                     class="mt-1 w-full border rounded-md px-3 py-2"
-                    placeholder="Add remark"
+                    placeholder="Add review remark"
                 ></textarea>
             </div>
 
@@ -1103,7 +1279,7 @@ function toggleChildren(task) {
     <div v-if="showJustifyModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
         <div class="bg-white rounded-lg shadow-xl w-full max-w-md">
             <div class="flex justify-between items-center px-6 py-4 border-b">
-                <h3 class="text-lg font-semibold text-gray-800">Justify Payment</h3>
+                <h3 class="text-lg font-semibold text-gray-800">Review Invoice</h3>
                 <button
                     class="text-gray-400 hover:text-gray-600"
                     @click="showJustifyModal = false"

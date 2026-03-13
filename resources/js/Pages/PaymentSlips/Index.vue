@@ -11,6 +11,7 @@ import ApPaymentSlipModal from '@/Pages/Transactions/ApInvoices/Partials/ApPayme
 import ApPaymentSlipA4 from '@/Pages/Transactions/ApInvoices/Partials/ApPaymentSlipA4.vue'
 import ClaimPaymentSlipModal from '@/Pages/Transactions/Claims/Partials/ClaimPaymentSlipModal.vue'
 import ClaimPaymentSlipA4 from '@/Pages/Transactions/Claims/Partials/ClaimPaymentSlipA4.vue'
+import SubConPaymentSlipA4 from '@/Pages/Projects/Tabs/Partials/SubConPaymentSlipA4.vue'
 import Modal from '@/Components/Modal.vue'
 
 const page = usePage()
@@ -50,6 +51,7 @@ const selectedSlip = ref(null)
 const showSlip = ref(false)
 const showApSlip = ref(false)
 const showClaimSlip = ref(false)
+const showSubConSlip = ref(false)
 
 const showUpload = ref(false)
 const uploadForm = useForm({ attachments: [] })
@@ -146,6 +148,11 @@ function openSlip(slip) {
         return
     }
 
+    if (slip.source_type?.includes('SubConTask')) {
+        showSubConSlip.value = true
+        return
+    }
+
     showSlip.value = true
 }
 
@@ -153,7 +160,23 @@ function closeSlip() {
     showSlip.value = false
     showApSlip.value = false
     showClaimSlip.value = false
+    showSubConSlip.value = false
     selectedSlip.value = null
+}
+
+function moduleLabel(value) {
+    if (value === 'sub_con_task') return 'Sub Con Task'
+    if (value === 'ap_invoice') return 'AP Invoice'
+    if (value === 'topup') return 'Top-up'
+    if (value === 'claim') return 'Claim'
+    return (value || '').replaceAll('_', ' ')
+}
+
+function slipModuleLabel(slip) {
+    if (slip.source_type?.includes('SubConTask')) return 'Sub Con Task'
+    if (slip.source_type?.includes('Claim')) return 'Claim'
+    if (slip.source_type?.includes('ApInvoice')) return 'AP Invoice'
+    return 'Top-up'
 }
 
 function slipProject(slip) {
@@ -162,6 +185,10 @@ function slipProject(slip) {
             return 'Office'
         }
         return slip.source?.wallet?.project?.name ?? 'Project'
+    }
+
+    if (slip.source_type?.includes('SubConTask')) {
+        return slip.source?.project?.name ?? 'Project'
     }
 
     if (slip.source_type?.includes('Claim')) {
@@ -176,6 +203,10 @@ function slipProject(slip) {
 function slipRequester(slip) {
     if (slip.source_type?.includes('PettyCashTopup')) {
         return slip.source?.requester?.name ?? '-'
+    }
+
+    if (slip.source_type?.includes('SubConTask')) {
+        return slip.source?.sub_con?.name ?? slip.source?.sub_con?.company_name ?? '-'
     }
 
     if (slip.source_type?.includes('Claim')) {
@@ -204,8 +235,16 @@ function rowRefNo(row) {
     if (row.source_type?.includes('PettyCashTopup')) {
         return row.source?.topup_no ?? '-'
     }
+    if (row.source_type?.includes('SubConTask')) {
+        return row.source?.task_no ?? row.source?.title ?? '-'
+    }
 
     return '-'
+}
+
+function selectedPendingRefNo() {
+    if (!selectedPending.value) return '-'
+    return selectedPending.value.reference_no || '-'
 }
 
 function rowExternalDocRefNo(row) {
@@ -215,6 +254,9 @@ function rowExternalDocRefNo(row) {
 
     if (row.source_type?.includes('ApInvoice')) {
         return row.source?.invoice_number ?? '-'
+    }
+    if (row.source_type?.includes('SubConTask')) {
+        return row.source?.invoice_no ?? '-'
     }
 
     return '-'
@@ -336,6 +378,15 @@ async function arrangementMarkPaid() {
                 fd.append('attachments[]', file)
             }
             await axios.post(route('petty-cash.topups.pay', slip.source.id), fd)
+        } else if (slip.source_type?.includes('SubConTask')) {
+            fd.append('payment_ref_no', arrangementForm.value.payment_ref)
+            for (const file of arrangementForm.value.attachments) {
+                fd.append('attachments[]', file)
+            }
+            await axios.post(route('projects.sub-con-tasks.paid', {
+                project: slip.source?.project?.uuid,
+                task: slip.source?.uuid,
+            }), fd)
         } else {
             fd.append('amount', String(slip.amount ?? 0))
             fd.append('payment_date', String(slip.payment_date ?? new Date().toISOString().slice(0, 10)).slice(0, 10))
@@ -484,6 +535,18 @@ async function submitGenerate() {
                 amount_due_label: generateForm.value.amount_due_label || null,
                 payment_slip_remark: generateForm.value.payment_slip_remark || null,
             })
+        } else if (row.module === 'sub_con_task') {
+            response = await axios.post(route('projects.sub-con-tasks.certify', {
+                project: row.project_uuid,
+                task: row.source_uuid,
+            }), {
+                company_bank_account_id: generateForm.value.company_bank_account_id,
+                less_retention: generateForm.value.less_retention || null,
+                less_recoupment: generateForm.value.less_recoupment || null,
+                less_material_ob: generateForm.value.less_material_ob || null,
+                less_paid_previously: generateForm.value.less_paid_previously || null,
+                payment_slip_remark: generateForm.value.payment_slip_remark || null,
+            })
         } else {
             response = await axios.post(route('ap-invoices.payments.slip', row.source_uuid), {
                 amount: Number(generateForm.value.amount || 0),
@@ -506,6 +569,8 @@ async function submitGenerate() {
                 showApSlip.value = true
             } else if (row.module === 'claim') {
                 showClaimSlip.value = true
+            } else if (row.module === 'sub_con_task') {
+                showSubConSlip.value = true
             } else {
                 showSlip.value = true
             }
@@ -562,6 +627,15 @@ async function submitMarkPaid() {
                 fd.append('attachments[]', file)
             }
             await axios.post(route('petty-cash.topups.pay', slip.source.id), fd)
+        } else if (slip.source_type?.includes('SubConTask')) {
+            fd.append('payment_ref_no', markPaidForm.value.payment_ref)
+            for (const file of markPaidForm.value.attachments) {
+                fd.append('attachments[]', file)
+            }
+            await axios.post(route('projects.sub-con-tasks.paid', {
+                project: slip.source?.project?.uuid,
+                task: slip.source?.uuid,
+            }), fd)
         } else {
             fd.append('amount', String(slip.amount ?? 0))
             fd.append('payment_date', String(slip.payment_date ?? new Date().toISOString().slice(0, 10)).slice(0, 10))
@@ -602,7 +676,7 @@ async function submitMarkPaid() {
                     <input
                         v-model="filterForm.search"
                         class="border rounded px-3 py-2"
-                        placeholder="Slip No / PO No / Invoice No / Claim No / Top-up No / Requester"
+                        placeholder="Slip No / PO No / Invoice No / Claim No / Top-up No / Sub Con / Requester"
                         @keyup.enter="applyFilters"
                     />
                 </div>
@@ -625,6 +699,7 @@ async function submitMarkPaid() {
                         <option value="claim">Claim</option>
                         <option value="topup">Top-up</option>
                         <option value="ap_invoice">AP Invoice</option>
+                        <option value="sub_con_task">Sub Con Task</option>
                     </select>
                 </div>
 
@@ -715,10 +790,10 @@ async function submitMarkPaid() {
                             </td>
                             <td class="px-4 py-3 text-gray-700 capitalize">
                                 <template v-if="activeTab === 'pending'">
-                                    {{ row.module.replace('_', ' ') }}
+                                    {{ moduleLabel(row.module) }}
                                 </template>
                                 <template v-else>
-                                    {{ row.source_type?.includes('Claim') ? 'Claim' : (row.source_type?.includes('ApInvoice') ? 'AP Invoice' : 'Topup') }}
+                                    {{ slipModuleLabel(row) }}
                                 </template>
                             </td>
                             <td class="px-4 py-3 text-gray-700">
@@ -816,11 +891,24 @@ async function submitMarkPaid() {
         @close="closeSlip"
     />
 
+    <Modal :show="showSubConSlip" max-width="7xl" @close="closeSlip">
+        <div class="space-y-3">
+            <div class="flex items-center justify-between">
+                <div class="text-sm text-gray-500">Payment Slip - {{ selectedSlip?.slip_no ?? '-' }}</div>
+                <button class="text-sm text-indigo-600 hover:text-indigo-700" @click="window.print()">Print / Save PDF</button>
+            </div>
+            <div class="max-h-[75vh] overflow-auto border rounded bg-gray-50 p-3">
+                <SubConPaymentSlipA4 v-if="selectedSlip" :slip="selectedSlip" />
+            </div>
+        </div>
+    </Modal>
+
     <Modal :show="showGenerate" max-width="lg" @close="closeGenerate">
         <div class="space-y-4">
             <div>
                 <div class="text-lg font-semibold">Generate Payment Slip</div>
                 <p class="text-sm text-gray-500">Module: {{ selectedPending?.module?.replace('_', ' ') }}</p>
+                <p class="text-sm text-gray-500">Ref No: {{ selectedPendingRefNo() }}</p>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1055,6 +1143,10 @@ async function submitMarkPaid() {
                         :invoice="selectedSlip.source"
                         :slip="selectedSlip"
                     />
+                    <SubConPaymentSlipA4
+                        v-else-if="selectedSlip.source_type?.includes('SubConTask')"
+                        :slip="selectedSlip"
+                    />
                     <ClaimPaymentSlipA4
                         v-else-if="selectedSlip.source_type?.includes('Claim')"
                         :slip="selectedSlip"
@@ -1075,7 +1167,7 @@ async function submitMarkPaid() {
                         <div class="flex justify-between">
                             <span class="text-gray-500">Module</span>
                             <span class="font-medium">
-                                {{ selectedSlip.source_type?.includes('Claim') ? 'Claim' : (selectedSlip.source_type?.includes('ApInvoice') ? 'AP Invoice' : 'Topup') }}
+                                {{ slipModuleLabel(selectedSlip) }}
                             </span>
                         </div>
                         <div class="flex justify-between">
@@ -1145,6 +1237,10 @@ async function submitMarkPaid() {
                     <ApPaymentSlipA4
                         v-if="selectedSlip.source_type?.includes('ApInvoice')"
                         :invoice="selectedSlip.source"
+                        :slip="selectedSlip"
+                    />
+                    <SubConPaymentSlipA4
+                        v-else-if="selectedSlip.source_type?.includes('SubConTask')"
                         :slip="selectedSlip"
                     />
                     <ClaimPaymentSlipA4
