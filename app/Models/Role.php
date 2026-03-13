@@ -7,6 +7,27 @@ use Illuminate\Database\Eloquent\Model;
 class Role extends Model
 {
     protected $guarded = [];
+
+    public const FIXED_ROLE_NAMES = [
+        'General Manager',
+        'Department Head',
+        'Staff',
+    ];
+
+    public static function fixedRoleNames(): array
+    {
+        return self::FIXED_ROLE_NAMES;
+    }
+
+    public const DEPARTMENT_ROLE_NAMES = [
+        'Department Head',
+        'Staff',
+    ];
+
+    public static function departmentRoleNames(): array
+    {
+        return self::DEPARTMENT_ROLE_NAMES;
+    }
     
     public function users()
     {

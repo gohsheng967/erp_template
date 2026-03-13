@@ -29,6 +29,8 @@ class User extends Authenticatable
         'active_branch_id',
         'status',
         'is_superadmin',
+        'is_general_manager',
+        'must_change_password',
         'contact_channels',
         'identity_no'
     ];
@@ -55,6 +57,8 @@ class User extends Authenticatable
             'password' => 'hashed',
             'contact_channels' => 'array',
             'is_superadmin' => 'boolean',
+            'is_general_manager' => 'boolean',
+            'must_change_password' => 'boolean',
         ];
     }
 

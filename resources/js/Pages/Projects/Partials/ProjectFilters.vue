@@ -66,11 +66,11 @@ const emit = defineEmits([
                     @change="$emit('update:status', $event.target.value)"
                 >
                     <option value="">All Status</option>
-                    <option value="draft">Draft</option>
-                    <option value="active">Active</option>
-                    <option value="on_hold">On Hold</option>
-                    <option value="completed">Completed</option>
-                    <option value="cancelled">Cancelled</option>
+                    <option value="incoming">Incoming</option>
+                    <option value="on_going">On Going</option>
+                    <option value="late">Late</option>
+                    <option value="extended">Extended</option>
+                    <option value="finished">Finished</option>
                 </select>
             </div>
 

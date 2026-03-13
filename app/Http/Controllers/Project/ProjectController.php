@@ -22,6 +22,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
+use Carbon\Carbon;
 use DB;
 
 class ProjectController extends Controller
@@ -65,8 +66,7 @@ class ProjectController extends Controller
 
         $projects = $query
             ->orderBy('id', 'desc')
-            ->paginate(10)
-            ->withQueryString();
+            ->get();
 
         return Inertia::render('Projects/Index', [
             'projects' => $projects,
@@ -78,11 +78,16 @@ class ProjectController extends Controller
     /**
      * SHOW CREATE FORM
      */
-    public function create()
+    public function create(Request $request)
     {
+        $branchManager = $this->branchGeneralManager($request);
+
         return Inertia::render('Projects/Create', [
             'clients'  => Client::select('id','name')->orderBy('name')->get(),
-            'managers' => User::select('id','name')->orderBy('name')->get(),
+            'managers' => $this->branchProjectManagers($request),
+            'branchManager' => $branchManager
+                ? ['id' => $branchManager->id, 'name' => $branchManager->name]
+                : null,
         ]);
     }
 
@@ -111,6 +116,7 @@ class ProjectController extends Controller
 
         $validated['department_id'] = $this->resolveProjectDepartmentId();
         $validated['branch_id'] = $this->activeBranchId($request);
+        $validated['status'] = $this->resolveProjectStatus($validated, null);
 
         Project::create($validated);
 
@@ -193,16 +199,20 @@ class ProjectController extends Controller
     /**
      * SHOW EDIT FORM
      */
-    public function edit($uuid)
+    public function edit(Request $request, $uuid)
     {
         $projectQuery = Project::where('uuid', $uuid);
-        $this->scopeToActiveBranch(request(), $projectQuery);
+        $this->scopeToActiveBranch($request, $projectQuery);
         $project = $projectQuery->firstOrFail();
+        $branchManager = $this->branchGeneralManager($request, (int) $project->branch_id);
 
         return Inertia::render('Projects/Edit', [
             'project'  => $project,
             'clients'  => Client::select('id','name')->orderBy('name')->get(),
-            'managers' => User::select('id','name')->orderBy('name')->get(),
+            'managers' => $this->branchProjectManagers($request, (int) $project->branch_id),
+            'branchManager' => $branchManager
+                ? ['id' => $branchManager->id, 'name' => $branchManager->name]
+                : null,
         ]);
     }
 
@@ -228,6 +238,7 @@ class ProjectController extends Controller
 
         $validated['department_id'] = $this->resolveProjectDepartmentId();
         $validated['branch_id'] = $project->branch_id ?: $this->activeBranchId($request);
+        $validated['status'] = $this->resolveProjectStatus($validated, $project);
 
         $project->update($validated);
 
@@ -248,6 +259,7 @@ class ProjectController extends Controller
         $project->update([
             'is_finished' => $isFinished,
             'finished_at' => $isFinished ? now() : null,
+            'status' => $this->resolveProjectStatus(['is_finished' => $isFinished], $project),
         ]);
 
         return back()->with('success', $isFinished
@@ -744,6 +756,47 @@ class ProjectController extends Controller
         ]);
     }
 
+    private function resolveProjectStatus(array $validated, ?Project $project): string
+    {
+        $isFinished = (bool) ($validated['is_finished'] ?? $project?->is_finished ?? false);
+        if ($isFinished) {
+            return 'finished';
+        }
+
+        $today = Carbon::today();
+        $startDate = !empty($validated['start_date'] ?? null)
+            ? Carbon::parse($validated['start_date'])
+            : ($project?->start_date ? Carbon::parse($project->start_date) : null);
+        $endDate = !empty($validated['end_date'] ?? null)
+            ? Carbon::parse($validated['end_date'])
+            : ($project?->end_date ? Carbon::parse($project->end_date) : null);
+        $extensionDate = !empty($validated['extension_date'] ?? null)
+            ? Carbon::parse($validated['extension_date'])
+            : ($project?->extension_date ? Carbon::parse($project->extension_date) : null);
+
+        if ($startDate && $today->lt($startDate)) {
+            return 'incoming';
+        }
+
+        if ($endDate) {
+            if ($today->gt($endDate)) {
+                if ($extensionDate && $today->lte($extensionDate)) {
+                    return 'extended';
+                }
+
+                return 'late';
+            }
+
+            return 'on_going';
+        }
+
+        if ($startDate && $today->gte($startDate)) {
+            return 'on_going';
+        }
+
+        return 'incoming';
+    }
+
     private function resolveProjectDepartmentId(): int
     {
         $projectDepartmentId = Department::query()
@@ -757,6 +810,39 @@ class ProjectController extends Controller
         }
 
         return (int) $projectDepartmentId;
+    }
+
+    private function branchGeneralManager(Request $request, ?int $branchId = null): ?User
+    {
+        $resolvedBranchId = $branchId ?: (int) ($request->user()?->active_branch_id ?? 0);
+
+        return User::query()
+            ->select('users.id', 'users.name')
+            ->where('users.is_general_manager', true)
+            ->when($resolvedBranchId > 0, function ($query) use ($resolvedBranchId) {
+                $query->where(function ($q) use ($resolvedBranchId) {
+                    $q->where('active_branch_id', $resolvedBranchId)
+                        ->orWhereHas('branches', fn ($branch) => $branch->where('branches.id', $resolvedBranchId));
+                });
+            })
+            ->orderBy('name')
+            ->first();
+    }
+
+    private function branchProjectManagers(Request $request, ?int $branchId = null)
+    {
+        $resolvedBranchId = $branchId ?: (int) ($request->user()?->active_branch_id ?? 0);
+
+        return User::query()
+            ->select('users.id', 'users.name')
+            ->when($resolvedBranchId > 0, function ($query) use ($resolvedBranchId) {
+                $query->where(function ($q) use ($resolvedBranchId) {
+                    $q->where('active_branch_id', $resolvedBranchId)
+                        ->orWhereHas('branches', fn ($branch) => $branch->where('branches.id', $resolvedBranchId));
+                });
+            })
+            ->orderBy('users.name')
+            ->get();
     }
 
     private function activeBranchId(Request $request): int

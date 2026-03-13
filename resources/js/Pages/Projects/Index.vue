@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { Link, usePage } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import { useFormat } from "@/Composables/useFormat";
@@ -17,6 +17,31 @@ const statusFilter = ref(filters.status ?? "");
 const clientFilter = ref(filters.client ?? "");
 const dateFrom = ref(filters.date_from ?? "");
 const dateTo = ref(filters.date_to ?? "");
+
+const kanbanColumns = [
+    { key: "incoming", label: "Incoming", headerClass: "bg-slate-100 text-slate-700" },
+    { key: "on_going", label: "On Going", headerClass: "bg-blue-100 text-blue-700" },
+    { key: "late", label: "Late", headerClass: "bg-amber-100 text-amber-800" },
+    { key: "extended", label: "Extended", headerClass: "bg-violet-100 text-violet-700" },
+    { key: "finished", label: "Finished", headerClass: "bg-green-100 text-green-700" },
+];
+
+const initialColumnLimit = 20;
+const visibleCounts = ref(
+    Object.fromEntries(kanbanColumns.map((column) => [column.key, initialColumnLimit]))
+);
+
+const groupedProjects = computed(() => {
+    const groups = Object.fromEntries(kanbanColumns.map((column) => [column.key, []]));
+
+    for (const project of projects ?? []) {
+        if (groups[project.status]) {
+            groups[project.status].push(project);
+        }
+    }
+
+    return groups;
+});
 
 // Apply Filters
 function applyFilters() {
@@ -37,6 +62,32 @@ function resetFilters() {
     dateTo.value = "";
 
     applyFilters();
+}
+
+function formatStatus(value) {
+    return String(value ?? "")
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function statusClass(status) {
+    if (status === "incoming") return "bg-slate-100 text-slate-700";
+    if (status === "on_going") return "bg-blue-100 text-blue-700";
+    if (status === "late") return "bg-amber-100 text-amber-800";
+    if (status === "extended") return "bg-violet-100 text-violet-700";
+    return "bg-green-100 text-green-700";
+}
+
+function visibleProjects(statusKey) {
+    return (groupedProjects.value[statusKey] ?? []).slice(0, visibleCounts.value[statusKey] ?? initialColumnLimit);
+}
+
+function canLoadMore(statusKey) {
+    return (groupedProjects.value[statusKey] ?? []).length > (visibleCounts.value[statusKey] ?? initialColumnLimit);
+}
+
+function loadMore(statusKey) {
+    visibleCounts.value[statusKey] = (visibleCounts.value[statusKey] ?? initialColumnLimit) + initialColumnLimit;
 }
 </script>
 
@@ -101,11 +152,11 @@ function resetFilters() {
                             @change="applyFilters"
                         >
                             <option value="">All</option>
-                            <option value="draft">Draft</option>
-                            <option value="active">Active</option>
-                            <option value="on_hold">On Hold</option>
-                            <option value="completed">Completed</option>
-                            <option value="cancelled">Cancelled</option>
+                            <option value="incoming">Incoming</option>
+                            <option value="on_going">On Going</option>
+                            <option value="late">Late</option>
+                            <option value="extended">Extended</option>
+                            <option value="finished">Finished</option>
                         </select>
                     </div>
 
@@ -149,69 +200,57 @@ function resetFilters() {
                 </div>
             </div>
 
-            <!-- PROJECTS TABLE -->
-            <div class="bg-white shadow rounded-lg overflow-hidden">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Start</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">End</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project Value</th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Actions</th>
-                        </tr>
-                    </thead>
+            <!-- PROJECTS KANBAN -->
+            <div class="overflow-x-auto pb-2">
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 min-w-[1120px] xl:min-w-0">
+                    <div
+                        v-for="column in kanbanColumns"
+                        :key="column.key"
+                        class="bg-gray-50 border rounded-lg p-3 space-y-3"
+                    >
+                        <div class="flex items-center justify-between">
+                            <span
+                                class="px-2 py-1 rounded text-xs font-semibold"
+                                :class="column.headerClass"
+                            >
+                                {{ column.label }}
+                            </span>
+                            <span class="text-xs text-gray-500">
+                                {{ groupedProjects[column.key]?.length ?? 0 }}
+                            </span>
+                        </div>
 
-                    <tbody class="divide-y divide-gray-200 bg-white">
-                        <tr v-for="prj in projects.data" :key="prj.id">
+                        <div
+                            v-if="!(groupedProjects[column.key]?.length)"
+                            class="text-xs text-gray-400 py-4 text-center border border-dashed rounded-md bg-white"
+                        >
+                            No project
+                        </div>
 
-                            <td class="px-4 py-3 text-sm">
-                                {{ prj.code }}
-                            </td>
+                        <div v-else class="space-y-3">
+                            <div
+                                v-for="prj in visibleProjects(column.key)"
+                                :key="prj.id"
+                                class="bg-white border rounded-lg p-3 shadow-sm space-y-2"
+                            >
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="min-w-0">
+                                        <p class="text-xs text-gray-500 truncate">{{ prj.code || "-" }}</p>
+                                        <p class="text-sm font-semibold text-gray-900 truncate">{{ prj.name }}</p>
+                                    </div>
+                                    <span class="px-2 py-1 rounded text-[10px] font-medium whitespace-nowrap" :class="statusClass(prj.status)">
+                                        {{ formatStatus(prj.status) }}
+                                    </span>
+                                </div>
 
-                            <td class="px-4 py-3 text-sm font-medium text-gray-900">
-                                {{ prj.name }}
-                            </td>
+                                <p class="text-xs text-gray-600 truncate">Client: {{ prj.client?.name ?? "-" }}</p>
+                                <p class="text-xs text-gray-600">Start: {{ prj.start_date ?? "-" }}</p>
+                                <p class="text-xs text-gray-600">End: {{ prj.end_date ?? "-" }}</p>
+                                <p class="text-xs font-medium text-gray-800">
+                                    Value: {{ formatCurrency(prj.project_value ?? 0) }}
+                                </p>
 
-                            <td class="px-4 py-3 text-sm">
-                                {{ prj.client?.name ?? '-' }}
-                            </td>
-
-                            <td class="px-4 py-3 text-sm">
-                                {{ prj.start_date ?? '-' }}
-                            </td>
-
-                            <td class="px-4 py-3 text-sm">
-                                {{ prj.end_date ?? '-' }}
-                            </td>
-
-                            <td class="px-4 py-3 text-sm">
-                                {{ formatCurrency(prj.project_value ?? 0) }}
-                            </td>
-
-                            <td class="px-4 py-3 text-sm">
-                                <span
-                                    class="px-2 py-1 rounded text-xs"
-                                    :class="{
-                                        'bg-gray-200 text-gray-700': prj.status === 'draft',
-                                        'bg-blue-100 text-blue-700': prj.status === 'active',
-                                        'bg-yellow-100 text-yellow-800': prj.status === 'on_hold',
-                                        'bg-green-100 text-green-700': prj.status === 'completed',
-                                        'bg-red-100 text-red-700': prj.status === 'cancelled'
-                                    }"
-                                >
-                                    {{ $capitalize(prj.status) }}
-                                </span>
-                            </td>
-
-                            <!-- ACTIONS -->
-                            <td class="px-4 py-3 text-center">
-                                <div class="flex justify-center gap-3">
-
-                                    <!-- VIEW -->
+                                <div class="flex items-center justify-end gap-3 pt-1">
                                     <Link
                                         :href="route('projects.show', prj.uuid)"
                                         class="text-indigo-600 hover:text-indigo-800"
@@ -219,8 +258,6 @@ function resetFilters() {
                                     >
                                         <i class="mdi mdi-eye text-[18px] leading-none"></i>
                                     </Link>
-
-                                    <!-- EDIT (PENCIL) -->
                                     <Link
                                         :href="route('projects.edit', prj.uuid)"
                                         class="text-blue-600 hover:text-blue-800"
@@ -228,28 +265,20 @@ function resetFilters() {
                                     >
                                         <i class="mdi mdi-pencil text-[18px] leading-none"></i>
                                     </Link>
-
                                 </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+                            </div>
 
-            <!-- PAGINATION -->
-            <div class="mt-4 flex gap-1">
-                <Link
-                    v-for="link in projects.links"
-                    :key="link.label"
-                    :href="link.url ?? ''"
-                    v-html="link.label"
-                    class="px-3 py-1 rounded border text-sm"
-                    :class="{
-                        'bg-indigo-600 text-white': link.active,
-                        'text-gray-500 cursor-not-allowed': !link.url
-                    }"
-                    :disabled="!link.url"
-                />
+                            <button
+                                v-if="canLoadMore(column.key)"
+                                type="button"
+                                class="w-full text-xs px-3 py-2 border border-dashed rounded-md text-gray-600 hover:bg-gray-100"
+                                @click="loadMore(column.key)"
+                            >
+                                Load more
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
 
         </div>

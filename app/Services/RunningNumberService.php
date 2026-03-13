@@ -83,26 +83,6 @@ class RunningNumberService
             $branchId = $user?->active_branch_id;
         }
 
-        if (!$branchId && $user) {
-            if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
-                $branchId = DB::table('branches')
-                    ->where('is_active', true)
-                    ->orderBy('id')
-                    ->value('id');
-            } else {
-                $branchId = DB::table('pivot_user_branches')
-                    ->where('user_id', $user->id)
-                    ->orderBy('id')
-                    ->value('branch_id');
-            }
-
-            if ($branchId && !$user->active_branch_id) {
-                DB::table('users')
-                    ->where('id', $user->id)
-                    ->update(['active_branch_id' => $branchId]);
-            }
-        }
-
         if (!$branchId) {
             throw new RuntimeException('Active branch is required to generate running number.');
         }

@@ -34,6 +34,7 @@ class UpdateUserRequest extends FormRequest
             ],
             'status' => 'required|in:0,1',
             'is_superadmin' => ['nullable', 'boolean'],
+            'is_general_manager' => ['nullable', 'boolean'],
         ];
 
         /**
@@ -46,7 +47,7 @@ class UpdateUserRequest extends FormRequest
         /**
          * Normal user (future-ready)
          */
-        $rules['department_roles'] = ['required', 'array', 'min:1'];
+        $rules['department_roles'] = ['nullable', 'array'];
         $rules['department_roles.*.department_id'] = ['required', 'exists:departments,id'];
         $rules['department_roles.*.role_id'] = [
             'required',
@@ -67,5 +68,34 @@ class UpdateUserRequest extends FormRequest
         ];
 
         return $rules;
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            $user = $this->route('user');
+            if ($user && $user->isSuperAdmin()) {
+                return;
+            }
+
+            $isGeneralManager = filter_var($this->input('is_general_manager', false), FILTER_VALIDATE_BOOLEAN);
+            $isSuperAdmin = filter_var($this->input('is_superadmin', false), FILTER_VALIDATE_BOOLEAN);
+            $rows = collect($this->input('department_roles', []))
+                ->filter(fn ($row) => !empty($row['department_id']) || !empty($row['role_id']));
+
+            if ($isSuperAdmin && $isGeneralManager) {
+                $validator->errors()->add(
+                    'is_general_manager',
+                    'Superadmin cannot also be marked as General Manager.'
+                );
+            }
+
+            if (!$isGeneralManager && $rows->isEmpty()) {
+                $validator->errors()->add(
+                    'department_roles',
+                    'At least one department & role is required for normal users.'
+                );
+            }
+        });
     }
 }

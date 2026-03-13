@@ -7,6 +7,19 @@ use Illuminate\Database\Eloquent\Model;
 class Department extends Model
 {
     protected $guarded = [];
+
+    public const FIXED_DEPARTMENT_NAMES = [
+        'Contract',
+        'Account',
+        'Purchasing',
+        'Project',
+        'Admin',
+    ];
+
+    public static function fixedDepartmentNames(): array
+    {
+        return self::FIXED_DEPARTMENT_NAMES;
+    }
     
     public function users()
     {

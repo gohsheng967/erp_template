@@ -4,6 +4,12 @@ import { Link } from "@inertiajs/vue3";
 const props = defineProps({
     projects: Array
 });
+
+function formatStatus(value) {
+    return String(value ?? "")
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+}
 </script>
 
 <template>
@@ -45,14 +51,14 @@ const props = defineProps({
                     <span
                         class="px-2 py-1 rounded text-xs"
                         :class="{
-                            'bg-gray-200 text-gray-700': project.status === 'draft',
-                            'bg-blue-100 text-blue-700': project.status === 'active',
-                            'bg-yellow-100 text-yellow-800': project.status === 'on_hold',
-                            'bg-green-100 text-green-700': project.status === 'completed',
-                            'bg-red-100 text-red-700': project.status === 'cancelled',
+                            'bg-slate-100 text-slate-700': project.status === 'incoming',
+                            'bg-blue-100 text-blue-700': project.status === 'on_going',
+                            'bg-amber-100 text-amber-800': project.status === 'late',
+                            'bg-violet-100 text-violet-700': project.status === 'extended',
+                            'bg-green-100 text-green-700': project.status === 'finished',
                         }"
                     >
-                        {{ project.status }}
+                        {{ formatStatus(project.status) }}
                     </span>
                 </td>
 

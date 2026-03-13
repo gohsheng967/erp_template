@@ -7,7 +7,6 @@ use Inertia\Middleware;
 use App\Http\Resources\UserResource;
 use App\Models\CompanyProfile;
 use App\Models\CompanyBankAccount;
-use App\Models\Branch;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -34,17 +33,6 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         $user = $request->user();
-
-        if ($user && !$user->active_branch_id) {
-            $fallbackBranchId = $user->isSuperAdmin()
-                ? Branch::query()->where('is_active', true)->orderBy('id')->value('id')
-                : $user->branches()->where('branches.is_active', true)->orderBy('branches.id')->value('branches.id');
-
-            if ($fallbackBranchId) {
-                $user->active_branch_id = $fallbackBranchId;
-                $user->save();
-            }
-        }
 
         return [
             ...parent::share($request),

@@ -50,6 +50,7 @@ use App\Http\Controllers\Pdf\ClaimPdfController;
 
 use App\Http\Controllers\Auth\MFASetupController;
 use App\Http\Controllers\Auth\MFAVerifyController;
+use App\Http\Controllers\Auth\ForcePasswordChangeController;
 use App\Http\Controllers\Auth\SubConAuthenticatedSessionController;
 
 use Illuminate\Support\Facades\Route;
@@ -94,7 +95,7 @@ Route::prefix('public')->name('public.')->group(function () {
 // ===============================
 // Protected Pages AFTER MFA
 // ===============================
-Route::middleware(['auth', 'auth.mfa'])->group(function () {
+Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function () {
 
     Route::get('action-task-count', [WidgetController::class, 'actionTask'])->name('priority-summary');
     Route::get('action-task-list',  [WidgetController::class, 'actionTaskList'])->name('priority-list');
@@ -696,6 +697,13 @@ Route::middleware('auth')->group(function () {
 
     // Submit MFA code during login
     Route::post('/mfa/verify', [MFAVerifyController::class, 'verify']);
+});
+
+Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function () {
+    Route::get('/force-password/change', [ForcePasswordChangeController::class, 'show'])
+        ->name('force-password.change');
+    Route::post('/force-password/change', [ForcePasswordChangeController::class, 'update'])
+        ->name('force-password.update');
 });
 
 require __DIR__ . '/auth.php';

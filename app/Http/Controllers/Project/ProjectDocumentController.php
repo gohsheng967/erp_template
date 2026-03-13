@@ -7,6 +7,7 @@ use App\Models\FileCategory;
 use App\Models\Project;
 use App\Models\ProjectDocument;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -21,34 +22,24 @@ class ProjectDocumentController extends Controller
     {
         $project = $this->resolveProject($request, $projectUuid);
 
-        /* ==========================
-           Documents list
-        ========================== */
         $documents = ProjectDocument::with(['category', 'user'])
             ->where('project_id', $project->id)
             ->whereNull('deleted_at')
             ->latest()
             ->get()
             ->map(fn ($doc) => [
-                'id' => $doc->uuid, // expose UUID only
+                'id' => $doc->uuid,
                 'filename' => $doc->filename,
                 'filepath' => $doc->filepath,
                 'filesize' => $doc->filesize,
-
                 'category_id' => $doc->category_id,
-                'category_name' => $doc->category?->name ?? 'Uncategorized',
-
+                'category_name' => $doc->category?->name ?? 'Others',
                 'user_name' => $doc->user?->name ?? 'System',
-
                 'type' => $doc->type,
                 'version' => $doc->version,
-
                 'created_at' => $doc->created_at->format('Y-m-d H:i'),
             ]);
 
-        /* ==========================
-           Summary by category (pie)
-        ========================== */
         $byCategory = ProjectDocument::query()
             ->select('category_id', DB::raw('COUNT(*) as count'))
             ->where('project_id', $project->id)
@@ -58,7 +49,7 @@ class ProjectDocumentController extends Controller
             ->get()
             ->map(fn ($row) => [
                 'id' => $row->category_id,
-                'name' => $row->category?->name ?? 'Uncategorized',
+                'name' => $row->category?->name ?? 'Others',
                 'count' => (int) $row->count,
             ])
             ->values();
@@ -81,48 +72,48 @@ class ProjectDocumentController extends Controller
 
         $request->validate([
             'file' => 'required|file',
-            'category_id' => 'required|exists:file_categories,id',
+            'category_id' => ['required', 'string'],
         ]);
 
-        $category = FileCategory::findOrFail($request->category_id);
+        $isOthers = (string) $request->category_id === 'others';
+        if (!$isOthers) {
+            $request->validate([
+                'category_id' => ['required', Rule::exists('file_categories', 'id')],
+            ]);
+        }
+
+        $category = $isOthers
+            ? null
+            : FileCategory::findOrFail((int) $request->category_id);
+
         $file = $request->file('file');
 
-        /* ==========================
-           Validate extension
-        ========================== */
-        $ext = strtolower($file->getClientOriginalExtension());
-        if (!empty($category->allowed_extensions)
-            && !in_array($ext, $category->allowed_extensions)) {
-            return back()->withErrors([
-                'file' => "File type .$ext not allowed for category '{$category->name}'."
-            ]);
+        if ($category) {
+            $ext = strtolower($file->getClientOriginalExtension());
+            if (!empty($category->allowed_extensions)
+                && !in_array($ext, $category->allowed_extensions)) {
+                return back()->withErrors([
+                    'file' => "File type .$ext not allowed for category '{$category->name}'."
+                ]);
+            }
+
+            $maxBytes = ($category->max_size ?? 2048) * 1024;
+            if ($file->getSize() > $maxBytes) {
+                return back()->withErrors([
+                    'file' => "File exceeds maximum size of {$category->max_size} KB."
+                ]);
+            }
         }
 
-        /* ==========================
-           Validate max size (KB → bytes)
-        ========================== */
-        $maxBytes = ($category->max_size ?? 2048) * 1024;
-        if ($file->getSize() > $maxBytes) {
-            return back()->withErrors([
-                'file' => "File exceeds maximum size of {$category->max_size} KB."
-            ]);
-        }
-
-        /* ==========================
-           Store file (by project UUID)
-        ========================== */
         $path = $file->store("project_documents/{$project->uuid}");
 
         ProjectDocument::create([
             'project_id' => $project->id,
             'user_id' => Auth::id(),
-
-            'category_id' => $category->id,
-
+            'category_id' => $category?->id,
             'filename' => $file->getClientOriginalName(),
             'filepath' => $path,
             'filesize' => $file->getSize(),
-
             'type' => 'file',
             'version' => 1,
         ]);
@@ -139,21 +130,27 @@ class ProjectDocumentController extends Controller
 
         $request->validate([
             'url' => 'required|url|max:2048',
-            'category_id' => 'required|exists:file_categories,id',
+            'category_id' => ['required', 'string'],
         ]);
 
-        $category = FileCategory::findOrFail($request->category_id);
+        $isOthers = (string) $request->category_id === 'others';
+        if (!$isOthers) {
+            $request->validate([
+                'category_id' => ['required', Rule::exists('file_categories', 'id')],
+            ]);
+        }
+
+        $category = $isOthers
+            ? null
+            : FileCategory::findOrFail((int) $request->category_id);
 
         ProjectDocument::create([
             'project_id' => $project->id,
             'user_id' => Auth::id(),
-
-            'category_id' => $category->id,
-
+            'category_id' => $category?->id,
             'filename' => parse_url($request->url, PHP_URL_HOST) ?? 'External Link',
             'filepath' => $request->url,
             'filesize' => null,
-
             'type' => 'url',
             'version' => 1,
         ]);
@@ -168,13 +165,11 @@ class ProjectDocumentController extends Controller
     {
         $document = $this->resolveDocument($request, $documentUuid);
 
-        // 🔗 External link
         if (is_string($document->filepath)
             && str_starts_with($document->filepath, 'http')) {
             return redirect()->away($document->filepath);
         }
 
-        // 📎 Internal file
         if (!Storage::exists($document->filepath)) {
             abort(404, 'File not found.');
         }
@@ -196,10 +191,6 @@ class ProjectDocumentController extends Controller
 
         return back()->with('success', 'Document deleted.');
     }
-
-    /* =====================================================
-       UUID resolvers (explicit, auditable, secure)
-    ===================================================== */
 
     private function resolveProject(Request $request, string $uuid): Project
     {

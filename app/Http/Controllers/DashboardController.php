@@ -36,7 +36,7 @@ class DashboardController extends Controller
         $cashOnHand = (float) PettyCashWallet::where('is_active', true)
             ->sum('current_balance');
 
-        $activeProjects = Project::where('status', 'active')->count();
+        $activeProjects = Project::whereIn('status', ['on_going', 'late', 'extended'])->count();
 
         $startOfMonth = Carbon::now()->startOfMonth();
         $endOfMonth = Carbon::now()->endOfMonth();

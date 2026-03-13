@@ -5,6 +5,7 @@ import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 const page = usePage();
 const clients = page.props.clients;
 const managers = page.props.managers;
+const branchManager = page.props.branchManager;
 
 const form = useForm({
     name: "",
@@ -146,7 +147,20 @@ const form = useForm({
                         />
                     </div>
 
-                    <!-- Manager -->
+                    <!-- Branch Manager -->
+                    <div>
+                        <label class="block text-sm font-medium mb-1">
+                            Branch Manager (GM)
+                        </label>
+                        <input
+                            type="text"
+                            :value="branchManager?.name ?? 'No General Manager configured for this branch'"
+                            disabled
+                            class="w-full border rounded px-3 py-2"
+                        />
+                    </div>
+
+                    <!-- Project Manager -->
                     <div>
                         <label class="block text-sm font-medium mb-1">
                             Project Manager
@@ -155,7 +169,7 @@ const form = useForm({
                             v-model="form.manager_id"
                             class="w-full border rounded px-3 py-2"
                         >
-                            <option value="">Select Manager</option>
+                            <option value="">Select Project Manager</option>
                             <option v-for="m in managers" :key="m.id" :value="m.id">
                                 {{ m.name }}
                             </option>

@@ -13,14 +13,7 @@ class DepartmentSeeder extends Seeder
      */
     public function run(): void
     {
-        $departments = [
-            'IT',
-            'Finance',
-            'HR',
-            'Marketing',
-            'Project',
-            'Operations',
-        ];
+        $departments = Department::fixedDepartmentNames();
 
         foreach ($departments as $name) {
             Department::firstOrCreate(['name' => $name]);

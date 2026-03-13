@@ -208,7 +208,7 @@ class PurchaseRequestController extends Controller
             ->limit(20)
             ->get(['id', 'code', 'title']);
 
-        $projects = Project::where('status', 'active')
+        $projects = Project::whereIn('status', ['on_going', 'late', 'extended'])
             ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
                 $q->where('branch_id', $this->activeBranchId($request))
             )

@@ -51,6 +51,7 @@ class StoreUserRequest extends FormRequest
             'email'       => 'required|email|unique:users,email',
             'status'      => 'required|in:0,1',
             'is_superadmin' => ['nullable', 'boolean'],
+            'is_general_manager' => ['nullable', 'boolean'],
             'department_roles' => ['nullable', 'array'],
             'department_roles.*.department_id' => ['required_with:department_roles', 'exists:departments,id'],
             'department_roles.*.role_id' => [
@@ -82,10 +83,18 @@ class StoreUserRequest extends FormRequest
     {
         $validator->after(function ($validator) {
             $isSuperAdmin = filter_var($this->input('is_superadmin', false), FILTER_VALIDATE_BOOLEAN);
+            $isGeneralManager = filter_var($this->input('is_general_manager', false), FILTER_VALIDATE_BOOLEAN);
             $rows = collect($this->input('department_roles', []))
                 ->filter(fn ($row) => !empty($row['department_id']) || !empty($row['role_id']));
 
-            if (!$isSuperAdmin && $rows->isEmpty()) {
+            if ($isSuperAdmin && $isGeneralManager) {
+                $validator->errors()->add(
+                    'is_general_manager',
+                    'Superadmin cannot also be marked as General Manager.'
+                );
+            }
+
+            if (!$isSuperAdmin && !$isGeneralManager && $rows->isEmpty()) {
                 $validator->errors()->add(
                     'department_roles',
                     'At least one department & role is required for normal users.'

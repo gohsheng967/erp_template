@@ -48,8 +48,11 @@ const form = useForm({
     name: "",
     email: "",
     status: 1,
+    is_general_manager: false,
     department_roles: [],
 });
+
+const showAssignment = computed(() => !isProtected.value && !form.is_general_manager);
 
 watch(
     () => props.user,
@@ -60,6 +63,7 @@ watch(
         form.name = u.name;
         form.email = u.email;
         form.status = u.status;
+        form.is_general_manager = !!u.is_general_manager;
     },
     { immediate: true }
 );
@@ -86,6 +90,10 @@ function submit() {
     form.department_roles = rows.value.filter(
         (row) => row?.department_id || row?.role_id
     );
+
+    if (form.is_general_manager) {
+        form.department_roles = [];
+    }
 
     form.patch(route("users.update", props.user.id), {
         preserveScroll: true,
@@ -183,6 +191,19 @@ function submit() {
             </div>
 
             <!-- DEPARTMENT / ROLE -->
+            <div class="mb-4">
+                <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                    <input
+                        v-model="form.is_general_manager"
+                        type="checkbox"
+                        class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        :disabled="isProtected"
+                    />
+                    Is general manager account
+                </label>
+            </div>
+
+            <template v-if="showAssignment">
             <h3 class="text-sm font-semibold mt-2 mb-2">
                 Department & Role
             </h3>
@@ -239,6 +260,7 @@ function submit() {
             >
                 + Add Department & Role
             </button>
+            </template>
 
             <!-- ACTION -->
             <div class="mt-6 text-right">

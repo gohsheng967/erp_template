@@ -176,9 +176,16 @@ function renderPie() {
    FILTER
 ========================= */
 function filteredDocuments() {
-    return documents.value.filter(d =>
-        !selectedCategory.value ||
-        Number(d.category_id) === Number(selectedCategory.value)
+    if (!selectedCategory.value) {
+        return documents.value
+    }
+
+    if (selectedCategory.value === "others") {
+        return documents.value.filter((d) => !d.category_id)
+    }
+
+    return documents.value.filter((d) =>
+        String(d.category_id) === String(selectedCategory.value)
     )
 }
 
@@ -283,6 +290,7 @@ onMounted(loadDocuments)
                     class="border rounded-md px-3 py-2 w-full"
                 >
                     <option value="">Select Category</option>
+                    <option value="others">Others</option>
                     <option v-for="c in categories" :key="c.id" :value="c.id">
                         {{ c.name }}
                     </option>
@@ -311,6 +319,7 @@ onMounted(loadDocuments)
         <label class="font-medium">Category:</label>
         <select v-model="selectedCategory" class="border px-3 py-2 rounded-md">
             <option value="">All</option>
+            <option value="others">Others</option>
             <option v-for="c in categories" :key="c.id" :value="c.id">
                 {{ c.name }}
             </option>

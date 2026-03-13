@@ -6,6 +6,7 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use App\Models\User;
 use App\Models\Branch;
+use RuntimeException;
 
 class UserSeeder extends Seeder
 {
@@ -20,6 +21,10 @@ class UserSeeder extends Seeder
             $activeBranchId = Branch::query()
                 ->orderBy('id')
                 ->value('id');
+        }
+
+        if (!$activeBranchId) {
+            throw new RuntimeException('Please create at least one branch before seeding users.');
         }
 
         $superUser = User::firstOrCreate(

@@ -44,6 +44,7 @@ class UserController extends Controller
                     'email'        => $u->email,
                     'status'       => $u->status,
                     'is_superadmin' => (bool) $u->is_superadmin,
+                    'is_general_manager' => (bool) $u->is_general_manager,
 
                     'is_protected' => $u->isSuperAdmin(),
 
@@ -54,6 +55,13 @@ class UserController extends Controller
                             'role_id' => null,
                             'role' => 'Superadmin',
                         ]])
+                        : ($u->is_general_manager
+                            ? collect([[
+                                'department_id' => null,
+                                'department' => 'Branch',
+                                'role_id' => null,
+                                'role' => 'General Manager',
+                            ]])
                         : $u->departments->map(function ($d) use ($u) {
                             return [
                                 'department_id' => $d->id,
@@ -61,7 +69,7 @@ class UserController extends Controller
                                 'role_id'       => $d->pivot->role_id,
                                 'role'          => $u->roles->firstWhere('id', $d->pivot->role_id)?->name
                             ];
-                        }),
+                        })),
                     'branches' => $u->branches->map(fn ($b) => [
                         'id' => $b->id,
                         'name' => $b->name,
@@ -74,12 +82,18 @@ class UserController extends Controller
         return Inertia::render('Users/Index', [
             'users'       => $users,
             'filters'     => $filters,
-            'departments' => Department::select('id','name')->get(),
+            'departments' => Department::query()
+                ->whereIn('name', Department::fixedDepartmentNames())
+                ->select('id','name')
+                ->orderBy('name')
+                ->get(),
             'branches'    => Branch::query()
                 ->where('is_active', true)
                 ->orderBy('name')
                 ->get(['id', 'name', 'slug']),
-            'rolesByDept' => Department::with('roles:id,name')
+            'rolesByDept' => Department::query()
+                ->whereIn('name', Department::fixedDepartmentNames())
+                ->with('roles:id,name')
                 ->get()
                 ->mapWithKeys(fn($d) => [$d->id => $d->roles]),
         ]);
@@ -92,7 +106,9 @@ class UserController extends Controller
     */
     public function store(StoreUserRequest $request)
     {
-        DB::transaction(function () use ($request) {
+        $temporaryPassword = Str::random(10);
+
+        DB::transaction(function () use ($request, $temporaryPassword) {
             $activeBranchId = Branch::query()
                 ->where('is_active', true)
                 ->orderBy('id')
@@ -106,13 +122,15 @@ class UserController extends Controller
                 'identity_no' => $request->identity_no,
                 'name'        => $request->name,
                 'email'       => $request->email,
-                'password'    => bcrypt('123456'),
+                'password'    => bcrypt($temporaryPassword),
                 'status'      => $request->status,
                 'is_superadmin' => (bool) $request->boolean('is_superadmin'),
+                'is_general_manager' => (bool) $request->boolean('is_general_manager'),
+                'must_change_password' => true,
                 'active_branch_id' => $activeBranchId,
             ]);
 
-            if (!$user->is_superadmin) {
+            if (!$user->is_superadmin && !$user->is_general_manager) {
                 foreach ($request->input('department_roles', []) as $dr) {
                     DB::table('pivot_user_departments')->insert([
                         'user_id'       => $user->id,
@@ -132,7 +150,10 @@ class UserController extends Controller
             ]);
         });
 
-        return back()->with('success', 'User created successfully.');
+        return back()->with(
+            'success',
+            "User created successfully. Temporary password: {$temporaryPassword}"
+        );
     }
 
 
@@ -155,6 +176,7 @@ class UserController extends Controller
                 'name'        => $request->name,
                 'email'       => $request->email,
                 'status'      => $request->status,
+                'is_general_manager' => (bool) $request->boolean('is_general_manager'),
             ]);
 
             // Reset assignments
@@ -162,14 +184,16 @@ class UserController extends Controller
                 ->where('user_id', $user->id)
                 ->delete();
 
-            foreach ($request->department_roles as $dr) {
-                DB::table('pivot_user_departments')->insert([
-                    'user_id'       => $user->id,
-                    'department_id' => $dr['department_id'],
-                    'role_id'       => $dr['role_id'],
-                    'created_at'    => now(),
-                    'updated_at'    => now(),
-                ]);
+            if (!$user->is_general_manager) {
+                foreach ($request->department_roles as $dr) {
+                    DB::table('pivot_user_departments')->insert([
+                        'user_id'       => $user->id,
+                        'department_id' => $dr['department_id'],
+                        'role_id'       => $dr['role_id'],
+                        'created_at'    => now(),
+                        'updated_at'    => now(),
+                    ]);
+                }
             }
         });
 
@@ -217,7 +241,10 @@ class UserController extends Controller
 
         $newPass = Str::random(10);
 
-        $user->update(['password' => bcrypt($newPass)]);
+        $user->update([
+            'password' => bcrypt($newPass),
+            'must_change_password' => true,
+        ]);
 
         return back()->with('success', "Password reset. Temporary password: {$newPass}");
     }

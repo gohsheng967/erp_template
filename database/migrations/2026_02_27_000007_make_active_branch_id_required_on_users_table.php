@@ -19,15 +19,8 @@ return new class extends Migration
                 ->value('id');
         }
 
-        if (!$defaultBranchId) {
-            $now = now();
-            $defaultBranchId = DB::table('branches')->insertGetId([
-                'name' => 'Default Branch',
-                'slug' => 'default',
-                'is_active' => true,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ]);
+        if (!$defaultBranchId && DB::table('users')->whereNull('active_branch_id')->exists()) {
+            throw new \RuntimeException('At least one branch is required before enforcing active_branch_id.');
         }
 
         DB::table('users')

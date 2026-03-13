@@ -21,8 +21,8 @@ return new class extends Migration {
             $table->unsignedBigInteger('manager_id')->nullable();
 
             $table->enum('status', [
-                'draft', 'active', 'on_hold', 'completed', 'cancelled'
-            ])->default('draft');
+                'incoming', 'on_going', 'late', 'extended', 'finished'
+            ])->default('incoming');
 
             $table->text('description')->nullable();
 

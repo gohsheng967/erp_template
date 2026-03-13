@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject } from "vue";
+import { computed, inject, watch } from "vue";
 import { useForm } from "@inertiajs/vue3";
 
 const toast = inject("toast", null);
@@ -27,6 +27,7 @@ const form = useForm({
     email: "",
     status: 1,
     is_superadmin: false,
+    is_general_manager: false,
     department_roles: [
         {
             department_id: "",
@@ -35,7 +36,25 @@ const form = useForm({
     ],
 });
 
-const showAssignment = computed(() => !form.is_superadmin);
+const showAssignment = computed(() => !form.is_superadmin && !form.is_general_manager);
+
+watch(
+    () => form.is_superadmin,
+    (value) => {
+        if (value) {
+            form.is_general_manager = false;
+        }
+    }
+);
+
+watch(
+    () => form.is_general_manager,
+    (value) => {
+        if (value) {
+            form.is_superadmin = false;
+        }
+    }
+);
 
 function addRow() {
     form.department_roles.push({
@@ -52,7 +71,7 @@ function submit() {
     form
         .transform((data) => ({
             ...data,
-            department_roles: data.is_superadmin
+            department_roles: (data.is_superadmin || data.is_general_manager)
                 ? []
                 : (data.department_roles ?? []).filter(
                     (row) => row?.department_id || row?.role_id
@@ -61,14 +80,17 @@ function submit() {
         .post(route("users.store"), {
             preserveScroll: true,
 
-            onSuccess: () => {
-                toast?.value?.show("User created successfully.", "success");
+            onSuccess: (page) => {
+                const successMessage = page?.props?.flash?.success
+                    ?? "User created successfully.";
+                toast?.value?.show(successMessage, "success");
 
                 emit("update:modelValue", false);
                 emit("created");
                 form.reset();
                 form.status = 1;
                 form.is_superadmin = false;
+                form.is_general_manager = false;
                 form.department_roles = [{ department_id: "", role_id: "" }];
             },
 
@@ -149,8 +171,22 @@ function submit() {
                             v-model="form.is_superadmin"
                             type="checkbox"
                             class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                            :disabled="form.is_general_manager"
                         />
                         Is superadmin account
+                    </label>
+                </div>
+
+                <!-- GENERAL MANAGER TOGGLE -->
+                <div class="mb-6">
+                    <label class="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                        <input
+                            v-model="form.is_general_manager"
+                            type="checkbox"
+                            class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                            :disabled="form.is_superadmin"
+                        />
+                        Is general manager account
                     </label>
                 </div>
 

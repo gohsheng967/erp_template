@@ -18,7 +18,7 @@ class Project extends Model
     ];
 
     protected $casts = [
-        'extension_date' => 'date',
+        'extension_date' => 'date:Y-m-d',
         'is_finished' => 'boolean',
         'finished_at' => 'datetime',
     ];

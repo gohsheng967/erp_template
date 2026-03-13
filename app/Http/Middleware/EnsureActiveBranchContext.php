@@ -26,17 +26,7 @@ class EnsureActiveBranchContext
             ->exists();
 
         if (!$isAllowedBranch) {
-            $fallbackBranchId = $user->branches()
-                ->where('branches.is_active', true)
-                ->orderBy('branches.id')
-                ->value('branches.id');
-
-            if (!$fallbackBranchId) {
-                abort(403, 'No active branch is assigned to your account.');
-            }
-
-            $user->active_branch_id = $fallbackBranchId;
-            $user->save();
+            abort(403, 'Active branch is invalid or not assigned to your account.');
         }
 
         return $next($request);
