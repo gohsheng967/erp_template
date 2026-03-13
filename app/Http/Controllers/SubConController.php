@@ -136,20 +136,125 @@ class SubConController extends Controller
         $taskBase = SubConTask::query()
             ->where('sub_con_id', $subCon->id);
 
+        $amountExpression = 'COALESCE(invoice_amount, amount)';
+
         $taskStats = [
             'total'     => (clone $taskBase)->count(),
             'draft'     => (clone $taskBase)->where('status', 'draft')->count(),
             'submitted' => (clone $taskBase)->where('status', 'submitted')->count(),
+            'contra_verified' => (clone $taskBase)->whereIn('status', ['contra_verified', 'verified'])->count(),
+            'invoiced' => (clone $taskBase)->where('status', 'invoiced')->count(),
+            'approved' => (clone $taskBase)->where('status', 'approved')->count(),
             'verified'  => (clone $taskBase)->where('status', 'verified')->count(),
             'justified' => (clone $taskBase)->where('status', 'justified')->count(),
             'certified' => (clone $taskBase)->where('status', 'certified')->count(),
             'paid'      => (clone $taskBase)->where('status', 'paid')->count(),
             'total_amount' => (float) (clone $taskBase)->sum('amount'),
+            'invoiced_amount' => (float) (clone $taskBase)
+                ->whereIn('status', ['invoiced', 'approved', 'justified', 'certified', 'paid'])
+                ->sum(DB::raw($amountExpression)),
+            'paid_amount' => (float) (clone $taskBase)
+                ->where('status', 'paid')
+                ->sum(DB::raw($amountExpression)),
+            'project_count' => (clone $taskBase)->distinct('project_id')->count('project_id'),
+            'latest_task_update_at' => (clone $taskBase)->max('updated_at'),
         ];
+
+        $taskStats['outstanding_amount'] = max(
+            (float) $taskStats['invoiced_amount'] - (float) $taskStats['paid_amount'],
+            0
+        );
+
+        $projectSummaries = SubConTask::query()
+            ->where('sub_con_id', $subCon->id)
+            ->select('project_id')
+            ->selectRaw('COUNT(*) as total_tasks')
+            ->selectRaw("SUM(CASE WHEN status = 'paid' THEN {$amountExpression} ELSE 0 END) as paid_amount")
+            ->selectRaw("SUM(CASE WHEN status IN ('invoiced', 'approved', 'justified', 'certified', 'paid') THEN {$amountExpression} ELSE 0 END) as invoiced_amount")
+            ->selectRaw("SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft_tasks")
+            ->selectRaw("SUM(CASE WHEN status IN ('submitted', 'contra_verified', 'verified', 'invoiced') THEN 1 ELSE 0 END) as progress_tasks")
+            ->selectRaw("MAX(updated_at) as latest_task_update_at")
+            ->groupBy('project_id')
+            ->with('project:id,uuid,name,code,status')
+            ->orderByDesc('latest_task_update_at')
+            ->get()
+            ->map(function (SubConTask $row) {
+                $invoicedAmount = (float) ($row->invoiced_amount ?? 0);
+                $paidAmount = (float) ($row->paid_amount ?? 0);
+
+                return [
+                    'project' => $row->project ? [
+                        'uuid' => $row->project->uuid,
+                        'name' => $row->project->name,
+                        'code' => $row->project->code,
+                        'status' => $row->project->status,
+                    ] : null,
+                    'total_tasks' => (int) ($row->total_tasks ?? 0),
+                    'draft_tasks' => (int) ($row->draft_tasks ?? 0),
+                    'progress_tasks' => (int) ($row->progress_tasks ?? 0),
+                    'invoiced_amount' => $invoicedAmount,
+                    'paid_amount' => $paidAmount,
+                    'outstanding_amount' => max($invoicedAmount - $paidAmount, 0),
+                    'latest_task_update_at' => $row->latest_task_update_at,
+                ];
+            })
+            ->filter(fn ($row) => !empty($row['project']))
+            ->values();
+
+        $recentTasks = SubConTask::query()
+            ->where('sub_con_id', $subCon->id)
+            ->with([
+                'project:id,uuid,name,code',
+                'parent:id,title',
+            ])
+            ->latest()
+            ->limit(8)
+            ->get([
+                'id',
+                'uuid',
+                'task_no',
+                'project_id',
+                'parent_id',
+                'title',
+                'status',
+                'progress_percent',
+                'amount',
+                'invoice_amount',
+                'updated_at',
+            ])
+            ->map(function (SubConTask $task) {
+                return [
+                    'uuid' => $task->uuid,
+                    'task_no' => $task->task_no,
+                    'title' => $task->title,
+                    'status' => $task->status,
+                    'progress_percent' => (int) ($task->progress_percent ?? 0),
+                    'amount' => (float) ($task->amount ?? 0),
+                    'invoice_amount' => $task->invoice_amount !== null ? (float) $task->invoice_amount : null,
+                    'updated_at' => optional($task->updated_at)?->toDateTimeString(),
+                    'project' => $task->project ? [
+                        'uuid' => $task->project->uuid,
+                        'name' => $task->project->name,
+                        'code' => $task->project->code,
+                    ] : null,
+                    'parent' => $task->parent ? [
+                        'title' => $task->parent->title,
+                    ] : null,
+                ];
+            })
+            ->values();
 
         return Inertia::render('SubCons/Show', [
             'subCon' => $subCon->load('bankAccounts'),
             'taskStats' => $taskStats,
+            'portalUser' => $subCon->login_identity_no ? [
+                'identity_no' => $subCon->login_identity_no,
+                'email' => $subCon->login_email,
+                'status' => (int) $subCon->login_status,
+                'must_change_password' => (bool) $subCon->login_must_change_password,
+            ] : null,
+            'projectSummaries' => $projectSummaries,
+            'recentTasks' => $recentTasks,
         ]);
     }
 
