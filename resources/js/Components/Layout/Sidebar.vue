@@ -34,10 +34,10 @@ const menuInventory = [
 // ---------------- TRANSACTIONS SUBMENU ----------------
 const menuTransactions = [
     { name: "Claims", route: "claims.index", active: () => route().current("claims.*") },
-    { name: "AP Invoice", route: "ap-invoices.index", active: () => route().current("ap-invoices.*") },
+    { name: "Petty Cash", route: "petty-cash.index", active: () => route().current("petty-cash.*") },
     { name: "AR Invoice", route: "ar-invoices.index", active: () => route().current("ar-invoices.*") },
     { name: "Purchase Request", route: "purchase-request.index", active: () => route().current("purchase-request.*") },
-    { name: "Purchase Order", route: "purchase-orders.index", active: () => route().current("purchase-orders.*") },
+    { name: "Delivery", route: "deliveries.index", active: () => route().current("deliveries.*") },
     { name: "Payment Slips", route: "payment-slips.index", active: () => route().current("payment-slips.*") },
 ]
 
@@ -88,17 +88,11 @@ const menu = reactive([
             route().current("purchase-request.*") ||
             route().current("purchase.*") ||
             route().current("claims.*") ||
-            route().current("invoice.*"),
+            route().current("petty-cash.*") ||
+            route().current("invoice.*") ||
+            route().current("deliveries.*"),
         icon: `<i class="mdi mdi-swap-horizontal"></i>`,
         children: menuTransactions,
-    },
-    {
-        name: "Petty Cash",
-        route: "petty-cash.index",
-        type: "link",
-        active: () => route().current("petty-cash.*"),
-        icon: `<i class="mdi mdi-cash-multiple"></i>
-`,
     },
     // INVENTORY
     {

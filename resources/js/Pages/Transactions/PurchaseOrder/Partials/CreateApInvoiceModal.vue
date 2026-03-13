@@ -102,8 +102,9 @@ function submit() {
         },
 
         onError: () => {
+            const firstError = Object.values(form.errors ?? {})[0]
             toast?.value?.show(
-                'Please correct the highlighted fields.',
+                firstError || 'Please correct the highlighted fields.',
                 'error'
             )
         },
@@ -168,6 +169,7 @@ function submit() {
                         <input
                             v-model="form.invoice_number"
                             class="input w-full"
+                            :class="{ 'border-red-500 ring-1 ring-red-300': form.errors.invoice_number }"
                             autofocus
                         />
                         <div
@@ -187,6 +189,7 @@ function submit() {
                             type="date"
                             v-model="form.invoice_date"
                             class="input w-full"
+                            :class="{ 'border-red-500 ring-1 ring-red-300': form.errors.invoice_date }"
                         />
                         <div
                             v-if="form.errors.invoice_date"
@@ -205,6 +208,7 @@ function submit() {
                             type="date"
                             v-model="form.due_date"
                             class="input w-full"
+                            :class="{ 'border-red-500 ring-1 ring-red-300': form.errors.due_date }"
                         />
                         <div
                             v-if="form.errors.due_date"
@@ -251,6 +255,7 @@ function submit() {
                             class="mt-2 w-full h-24 border-2 border-dashed rounded-lg
                                 flex flex-col items-center justify-center cursor-pointer
                                 transition hover:border-indigo-400 hover:bg-indigo-50"
+                            :class="{ 'border-red-400 bg-red-50': form.errors.document }"
                         >
                             <input
                                 type="file"

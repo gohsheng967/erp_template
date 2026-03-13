@@ -6,7 +6,7 @@ import SupplierForm from './Partials/SupplierForm.vue'
 import DeleteConfirmation from '@/Components/DeleteConfirmation.vue'
 import { useFormat } from '@/Composables/useFormat'
 
-const { capitalize } = useFormat()
+const { capitalize, formatCurrency } = useFormat()
 
 /* =========================
    PAGE DATA
@@ -261,13 +261,13 @@ function refresh() {
                         </td>
 
                         <td class="px-4 py-3 text-center">
-                            0
+                            {{ supplier.ongoing_order_count ?? 0 }}
                         </td>
                         <td class="px-4 py-3 text-center">
-                            0
+                            {{ supplier.unpaid_invoice_count ?? 0 }}
                         </td>
                         <td class="px-4 py-3 text-center">
-                            0.00
+                            {{ formatCurrency(supplier.unpaid_invoice_amount ?? 0) }}
                         </td>
                         <td class="px-4 py-3 text-center space-x-3">
                             <!-- VIEW -->

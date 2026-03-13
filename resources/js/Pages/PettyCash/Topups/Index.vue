@@ -45,12 +45,13 @@ const deletingTopup = ref(null)
 ========================= */
 const tabs = [
     { key: 'requested', label: 'Requested', badge: true },
-    { key: 'approved',  label: 'Approved',  badge: true },
+    { key: 'verified_own_department', label: 'Own Dept Verified', badge: true },
+    { key: 'verified_project_department', label: 'Project Dept Verified', badge: true },
+    { key: 'payment',   label: 'Payment',   badge: false },
     { key: 'rejected',  label: 'Rejected',  badge: true },
-    { key: 'paid',      label: 'Paid',       badge: false },
 ]
 
-const activeTab = ref(page.props.activeTab ?? 'requested')
+const activeTab = ref((page.props.activeTab === 'paid' ? 'payment' : page.props.activeTab) ?? 'requested')
 
 /* =========================
    FILTERS
@@ -193,7 +194,7 @@ function closeDelete() {
                         <input
                             v-model="search"
                             class="border rounded px-3 py-2"
-                            placeholder="Top-Up No / Wallet / User"
+                            placeholder="Top-Up No / Wallet / User / Payment Ref"
                             @keyup.enter="applyFilters"
                         />
                     </div>

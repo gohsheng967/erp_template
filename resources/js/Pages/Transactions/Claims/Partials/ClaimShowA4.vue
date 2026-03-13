@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from 'vue'
 import { amountToWords } from '@/helpers/string'
-import SignatureSection from '@/Components/Document/SignatureSection.vue'
 
 const props = defineProps({
     claim: {
@@ -44,6 +43,14 @@ function formatCurrency(value) {
         currency: 'MYR',
         minimumFractionDigits: 2,
     }).format(value ?? 0)
+}
+
+function signatureUrl(user) {
+    if (!user) return null
+    if (user.signature) return user.signature
+    if (user.signature_url) return user.signature_url
+    if (user.signature_path) return `/storage/${String(user.signature_path).replace(/^\/+/, '')}`
+    return null
 }
 </script>
 
@@ -243,7 +250,16 @@ function formatCurrency(value) {
     ====================== -->
     <div class="grid grid-cols-4 gap-6 mt-16 text-sm relative z-10">
         <div>
-            <div class="mb-8 border-b-2 border-gray-300"></div>
+            <div class="h-10 mb-1 flex items-end">
+                <img
+                    v-if="signatureUrl(claim.issuer)"
+                    :src="signatureUrl(claim.issuer)"
+                    alt="Prepared by signature"
+                    class="h-8 max-w-[120px] object-contain"
+                >
+                <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
+            </div>
+            <div class="mb-3 border-b-2 border-gray-300"></div>
             <div>Prepared By</div>
             <div class="text-xs text-gray-500">
                 {{ claim.issuer?.name ?? '-' }}
@@ -254,7 +270,16 @@ function formatCurrency(value) {
         </div>
 
         <div>
-            <div class="mb-8 border-b-2 border-gray-300"></div>
+            <div class="h-10 mb-1 flex items-end">
+                <img
+                    v-if="signatureUrl(claim.checker)"
+                    :src="signatureUrl(claim.checker)"
+                    alt="Checked by signature"
+                    class="h-8 max-w-[120px] object-contain"
+                >
+                <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
+            </div>
+            <div class="mb-3 border-b-2 border-gray-300"></div>
             <div>Checked By</div>
             <div class="text-xs text-gray-500">
                 {{ claim.checker?.name ?? '-' }}
@@ -265,7 +290,16 @@ function formatCurrency(value) {
         </div>
 
         <div>
-            <div class="mb-8 border-b-2 border-gray-300"></div>
+            <div class="h-10 mb-1 flex items-end">
+                <img
+                    v-if="signatureUrl(claim.approver)"
+                    :src="signatureUrl(claim.approver)"
+                    alt="Approved by signature"
+                    class="h-8 max-w-[120px] object-contain"
+                >
+                <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
+            </div>
+            <div class="mb-3 border-b-2 border-gray-300"></div>
             <div>Approved By</div>
             <div class="text-xs text-gray-500">
                 {{ claim.approver?.name ?? '-' }}
@@ -276,7 +310,16 @@ function formatCurrency(value) {
         </div>
 
         <div>
-            <div class="mb-8 border-b-2 border-gray-300"></div>
+            <div class="h-10 mb-1 flex items-end">
+                <img
+                    v-if="signatureUrl(claim.payer)"
+                    :src="signatureUrl(claim.payer)"
+                    alt="Paid by signature"
+                    class="h-8 max-w-[120px] object-contain"
+                >
+                <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
+            </div>
+            <div class="mb-3 border-b-2 border-gray-300"></div>
             <div>Paid By</div>
             <div class="text-xs text-gray-500">
                 {{ claim.payer?.name ?? '-' }}
@@ -286,11 +329,6 @@ function formatCurrency(value) {
             </div>
         </div>
     </div>
-
-    <SignatureSection
-        class="relative z-10"
-        title="Prepared Signature"
-    />
 
     <!-- =====================
          FOOTER

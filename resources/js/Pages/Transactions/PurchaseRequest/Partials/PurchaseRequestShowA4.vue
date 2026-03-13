@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from 'vue'
 import { useFormat } from '@/Composables/useFormat'
-import SignatureSection from '@/Components/Document/SignatureSection.vue'
 
 const { capitalize, formatCurrency, formatDate } = useFormat()
 const props = defineProps({
@@ -21,6 +20,9 @@ const props = defineProps({
 const watermark = computed(() => {
   switch (props.request.status) {
     case 'approved':
+    case 'ceo_approved':
+    case 'po':
+    case 'payment':
       return { text: 'APPROVED', color: 'rgba(34,197,94,0.15)' }
     case 'rejected':
       return { text: 'REJECTED', color: 'rgba(239,68,68,0.15)' }
@@ -29,6 +31,78 @@ const watermark = computed(() => {
     default:
       return null
   }
+})
+
+const stageMap = computed(() => {
+  const logs = Array.isArray(props.request.remark_log) ? props.request.remark_log : []
+  const map = {}
+  for (const row of logs) {
+    if (row?.to) map[row.to] = row
+  }
+  return map
+})
+
+function signatureUrl(user) {
+  if (!user) return null
+  if (user.signature) return user.signature
+  if (user.signature_url) return user.signature_url
+  if (user.signature_path) return `/storage/${String(user.signature_path).replace(/^\/+/, '')}`
+  return null
+}
+
+function signerFromLog(toStatus) {
+  const row = stageMap.value[toStatus]
+  if (!row) return null
+  const key = String(row.user_id ?? '')
+  return props.request.remark_signers?.[key] ?? null
+}
+
+const signatureStages = computed(() => {
+  const stages = [
+    {
+      key: 'requested',
+      label: 'Requested By',
+      name: props.request.requester?.name ?? '-',
+      at: props.request.submitted_at ?? '-',
+      signature_url: signatureUrl(props.request.requester),
+    },
+    {
+      key: 'verified_own_department',
+      label: 'Own Dept Verified By',
+      name: stageMap.value.verified_own_department?.user_name ?? '-',
+      at: stageMap.value.verified_own_department?.at ?? '-',
+      signature_url: signatureUrl(signerFromLog('verified_own_department')),
+    },
+  ]
+
+  if (props.request.project_id) {
+    stages.push({
+      key: 'verified_project_department',
+      label: 'Project Verified By',
+      name: stageMap.value.verified_project_department?.user_name ?? '-',
+      at: stageMap.value.verified_project_department?.at ?? '-',
+      signature_url: signatureUrl(signerFromLog('verified_project_department')),
+    })
+  }
+
+    stages.push(
+        {
+            key: 'verified_purchasing_department',
+            label: 'Purchasing Verified By',
+            name: stageMap.value.verified_purchasing_department?.user_name ?? '-',
+            at: stageMap.value.verified_purchasing_department?.at ?? '-',
+            signature_url: signatureUrl(signerFromLog('verified_purchasing_department')),
+        },
+        {
+            key: 'po',
+            label: 'CEO Approved By',
+            name: stageMap.value.po?.user_name ?? props.request.approver?.name ?? '-',
+            at: stageMap.value.po?.at ?? props.request.approved_at ?? '-',
+            signature_url: signatureUrl(signerFromLog('po')) || signatureUrl(props.request.approver),
+        }
+    )
+
+  return stages
 })
 
 </script>
@@ -208,7 +282,7 @@ const watermark = computed(() => {
   <div class="mb-4 relative z-10">
     <div class="font-medium text-xs mb-1">Remark</div>
     <div class="border border-gray-300 px-2 py-1 min-h-[40px] text-xs whitespace-pre-wrap">
-      {{ request.requester_remark ?? '-' }}
+      {{ request.reviewer_remark ?? '-' }}
     </div>
   </div>
 
@@ -217,34 +291,29 @@ const watermark = computed(() => {
        APPROVAL SIGNATURES
   ====================== -->
   <div class="grid grid-cols-2 gap-x-12 gap-y-2 mb-6 relative z-10">
-
-    <div>
-      <div class="mb-8 border-b-2 border-gray-300"></div>
-      <div>Requested By</div>
+    <div
+      v-for="stage in signatureStages"
+      :key="stage.key"
+    >
+      <div class="h-12 mb-2 flex items-end">
+        <img
+          v-if="stage.signature_url"
+          :src="stage.signature_url"
+          alt="Signature"
+          class="h-10 max-w-[160px] object-contain"
+        >
+        <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
+      </div>
+      <div class="mb-2 border-b-2 border-gray-300"></div>
+      <div>{{ stage.label }}</div>
       <div class="text-xs text-gray-500">
-        {{ request.requester?.name ?? '-' }}
+        {{ stage.name }}
       </div>
       <div class="text-xs text-gray-500">
-        {{ formatDate(request.submitted_at) }}
-      </div>
-    </div>
-
-    <div>
-      <div class="mb-8 border-b-2 border-gray-300"></div>
-      <div>Approved By</div>
-      <div class="text-xs text-gray-500">
-        {{ request.approver?.name ?? '-' }}
-      </div>
-      <div class="text-xs text-gray-500">
-        {{ formatDate(request.approved_at) }}
+        {{ stage.at && stage.at !== '-' ? formatDate(stage.at) : '-' }}
       </div>
     </div>
   </div>
-
-  <SignatureSection
-    class="relative z-10"
-    title="Prepared Signature"
-  />
 
   <!-- =====================
        FOOTER

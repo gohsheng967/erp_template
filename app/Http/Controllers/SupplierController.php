@@ -31,6 +31,17 @@ class SupplierController extends Controller
         }
 
         $suppliers = $query
+            ->withCount([
+                'quotations as quotation_count',
+                'purchaseOrders as ongoing_order_count' => fn ($q) =>
+                    $q->whereIn('status', ['issued', 'confirmed']),
+                'invoices as unpaid_invoice_count' => fn ($q) =>
+                    $q->whereIn('status', ['confirmed', 'partially_paid']),
+            ])
+            ->withSum([
+                'invoices as unpaid_invoice_amount' => fn ($q) =>
+                    $q->whereIn('status', ['confirmed', 'partially_paid']),
+            ], 'balance_amount')
             ->latest()
             ->paginate(20)
             ->withQueryString();
@@ -77,7 +88,7 @@ class SupplierController extends Controller
         $supplier = Supplier::where('uuid', $uuid)->firstOrFail();
 
         $quotations = $supplier->quotations()
-            ->with(['attachment', 'purchaseRequests:id,code'])
+            ->with(['attachment', 'purchaseRequests:id,uuid,code'])
             ->withCount('purchaseRequests as pr_count')
             ->latest()
             ->paginate(10)
@@ -96,6 +107,7 @@ class SupplierController extends Controller
         ========================= */
         $purchaseOrders = PurchaseOrder::with(['items'])
             ->where('supplier_id', $supplier->id)
+            ->whereIn('status', ['issued', 'confirmed'])
             ->latest('order_date')
             ->take(20)
             ->get()
@@ -127,7 +139,7 @@ class SupplierController extends Controller
             'orders' => $supplier->purchaseOrders()->count(),
 
             'open_orders' => $supplier->purchaseOrders()
-                ->whereIn('status', ['confirmed'])
+                ->whereIn('status', ['issued', 'confirmed'])
                 ->count(),
 
             'invoices' => $supplier->invoices()->count(),

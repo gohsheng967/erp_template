@@ -19,9 +19,9 @@ class PurchaseRequestToPurchaseOrderService
         array $meta = []
     ): PurchaseOrder {
         return DB::transaction(function () use ($pr, $supplierId, $items, $meta) {
-            if ($pr->status !== 'approved') {
+            if (!in_array($pr->status, ['approved', 'ceo_approved', 'verified_purchasing_department'], true)) {
                 throw ValidationException::withMessages([
-                    'purchase_request' => 'Purchase Request is not approved'
+                    'purchase_request' => 'Purchase Request is not eligible for PO creation'
                 ]);
             }
 
@@ -46,6 +46,10 @@ class PurchaseRequestToPurchaseOrderService
                 'total_amount' => $total,
                 'order_date' => now(),
                 'expected_delivery_date' => $meta['expected_delivery_date'] ?? null,
+                'delivery_period' => $meta['delivery_period'] ?? null,
+                'payment_terms' => $meta['payment_terms'] ?? null,
+                'site_contact_user_id' => $meta['site_contact_user_id'] ?? null,
+                'terms' => $meta['terms'] ?? null,
                 'status' => 'issued',
                 'remark' => $meta['remark'] ?? null,
             ]);

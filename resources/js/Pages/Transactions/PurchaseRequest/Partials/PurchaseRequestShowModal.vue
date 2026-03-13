@@ -24,14 +24,26 @@ const approvalRemark = ref('')
 const selectedQuotationId = ref(null)
 
 const canSelectQuotation = computed(() => {
-  return fullRequest.value?.status === 'submitted'
+  return fullRequest.value?.status === 'verified_purchasing_department'
+})
+const stageRemarks = computed(() => {
+  const logs = fullRequest.value?.remark_log ?? []
+  if (!Array.isArray(logs)) return []
+
+  return logs
+    .map((row, index) => ({
+      key: `${index}-${row?.at ?? ''}`,
+      label: `${(row?.from ?? '-').toUpperCase()} -> ${(row?.to ?? '-').toUpperCase()}`,
+      value: row?.remark || '-',
+      meta: `${row?.user_name ?? 'System'} - ${row?.at ?? '-'}`,
+    }))
+    .reverse()
 })
 
 watch(
   () => fullRequest.value,
   (val) => {
     if (
-      val?.status === 'approved' &&
       val?.approved_quotation_id
     ) {
       selectedQuotationId.value = val.approved_quotation_id
@@ -59,9 +71,9 @@ async function loadRequest() {
     )
     fullRequest.value = res.data.request
     companyProfile.value = res.data.company
+    fullRequest.value.remark_signers = res.data.remark_signers ?? {}
 
     if (
-      fullRequest.value.status === 'approved' &&
       fullRequest.value.approved_quotation_id
     ) {
       selectedQuotationId.value =
@@ -88,32 +100,32 @@ async function submitDecision(status) {
   if (!fullRequest.value) return
 
   // ✅ Enforce selection only for approve
-  if (status === 'approved' && !selectedQuotationId.value) {
-    toast?.show?.('Please select a quotation before approving', 'error')
+  if ((status === 'create_po' || status === 'approved') && !selectedQuotationId.value) {
+    toast?.show?.('Please select a quotation first', 'error')
     return
   }
 
   submitting.value = true
 
   try {
-    await axios.post(
+    const response = await axios.post(
       route('purchase-request.approval', fullRequest.value.uuid),
       {
         status,
         remark: approvalRemark.value,
-        quotation_id:
-          status === 'approved'
-            ? selectedQuotationId.value
-            : null,
+        quotation_id: selectedQuotationId.value,
       }
     )
 
-    toast?.show?.(
-      status === 'approved'
-        ? 'Purchase Request approved'
-        : 'Purchase Request rejected',
-      'success'
-    )
+    const successMessage = {
+      verify: 'Purchase Request verified',
+      draft: 'Purchase Request returned to draft',
+      approved: 'Purchase Request CEO approved and PO created',
+      rejected: 'Purchase Request rejected',
+      create_po: 'Purchase Order created',
+    }[status] ?? 'Action successful'
+
+    toast?.show?.(response?.data?.message ?? successMessage, 'success')
 
     emit('refresh')
     closeModal()
@@ -272,31 +284,87 @@ function closeModal() {
 
         <hr class="my-4">
 
+        <div class="border rounded-lg p-3 space-y-2">
+          <div class="text-sm font-semibold">Stage Remarks</div>
+          <div
+            v-for="row in stageRemarks"
+            :key="row.key"
+            class="text-xs border-b last:border-b-0 pb-2 last:pb-0"
+          >
+            <div class="font-medium text-gray-700">{{ row.label }}</div>
+            <div class="text-gray-900">{{ row.value }}</div>
+            <div class="text-[11px] text-gray-500">{{ row.meta }}</div>
+          </div>
+          <div v-if="!stageRemarks.length" class="text-xs text-gray-400">No stage remarks yet</div>
+        </div>
+
         <!-- ACTIONS -->
-        <div v-if="fullRequest.status === 'submitted'" class="space-y-3">
-          <label class="text-sm font-medium">Approval Remark</label>
+        <div
+          v-if="[
+            'submitted',
+            'verified_own_department',
+            'verified_project_department',
+            'verified_purchasing_department'
+          ].includes(fullRequest.status)"
+          class="space-y-3"
+        >
+          <label class="text-sm font-medium">Stage Remark</label>
 
           <textarea
             v-model="approvalRemark"
             rows="4"
             class="w-full border rounded px-3 py-2 text-sm"
+            placeholder="Stage remark (optional)"
           />
 
           <button
-            class="w-full py-2 bg-green-600 text-white rounded disabled:opacity-40"
-            :disabled="submitting || !selectedQuotationId"
-            @click="submitDecision('approved')"
+            v-if="fullRequest.status === 'submitted'"
+            class="w-full py-2 bg-blue-600 text-white rounded"
+            :disabled="submitting"
+            @click="submitDecision('verify')"
           >
-            Approve
+            Verify & Next Stage
           </button>
+
+          <a
+            v-if="['verified_own_department', 'verified_project_department'].includes(fullRequest.status)"
+            :href="route('purchase-request.edit', fullRequest.uuid)"
+            class="block w-full py-2 bg-blue-600 text-white text-center rounded"
+          >
+            Open Edit Form to Verify
+          </a>
+
+          <div
+            v-if="['verified_own_department', 'verified_project_department'].includes(fullRequest.status)"
+            class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700"
+          >
+            PIC must fill Delivery Period, Terms & Condition, and Site Contact Person in Edit form before proceeding to Purchasing Verify.
+          </div>
+
+          <template v-if="fullRequest.status === 'verified_purchasing_department'">
+            <div class="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 space-y-1">
+              <div><span class="font-semibold">Delivery Period:</span> {{ fullRequest.delivery_period || '-' }}</div>
+              <div><span class="font-semibold">Terms & Condition:</span> {{ fullRequest.payment_terms || '-' }}</div>
+              <div><span class="font-semibold">Site Contact:</span> {{ fullRequest.site_contact?.name || '-' }}</div>
+            </div>
+
+            <button
+              class="w-full py-2 bg-green-600 text-white rounded disabled:opacity-40"
+              :disabled="submitting || !selectedQuotationId"
+              @click="submitDecision('approved')"
+            >
+              CEO Approve & Create PO
+            </button>
+          </template>
 
 
           <button
+            v-if="fullRequest.status !== 'po'"
             class="w-full py-2 bg-red-600 text-white rounded"
             :disabled="submitting"
-            @click="submitDecision('rejected')"
+            @click="submitDecision(['submitted', 'verified_own_department'].includes(fullRequest.status) ? 'draft' : 'rejected')"
           >
-            Reject
+            {{ ['submitted', 'verified_own_department'].includes(fullRequest.status) ? 'Return to Draft' : 'Reject' }}
           </button>
         </div>
       </div>

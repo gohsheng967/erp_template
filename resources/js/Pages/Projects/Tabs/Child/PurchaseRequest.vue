@@ -37,7 +37,7 @@ const summary = ref({
     total_po_amount: 0,
 })
 
-const pendingRequests = ref([])
+const purchaseOrders = ref([])
 
 /* ===============================
    LOAD SUMMARY
@@ -53,7 +53,7 @@ async function loadSummary() {
         )
 
         summary.value = res.data.summary
-        pendingRequests.value = res.data.pending_requests
+        purchaseOrders.value = res.data.purchase_orders ?? []
 
     } catch (e) {
         console.error(e)
@@ -124,47 +124,45 @@ watch(() => props.projectId, loadSummary)
     </div>
 
     <!-- ===============================
-         PENDING PR TABLE
+         PO TABLE
     =============================== -->
     <div v-if="!loading">
         <h3 class="font-semibold text-gray-700 mb-2">
-            Pending Purchase Requests
+            Recent Purchase Orders
         </h3>
 
         <table class="min-w-full text-sm divide-y divide-gray-200 bg-white rounded-lg shadow">
             <thead class="bg-gray-50">
                 <tr>
-                    <th class="px-3 py-2 text-left">Title</th>
+                    <th class="px-3 py-2 text-left">PO No</th>
                     <th class="px-3 py-2 text-left">Status</th>
+                    <th class="px-3 py-2 text-left">Amount</th>
                     <th class="px-3 py-2 text-left">Date</th>
                 </tr>
             </thead>
 
             <tbody class="divide-y divide-gray-200">
                 <tr
-                    v-for="pr in pendingRequests"
-                    :key="pr.id"
-                    @click="openDraftPR(pr)"
-                    :class="[
-                        'hover:bg-gray-50',
-                        pr.status === 'draft'
-                            ? 'cursor-pointer'
-                            : 'cursor-default opacity-75'
-                    ]"
+                    v-for="po in purchaseOrders"
+                    :key="po.id"
+                    class="hover:bg-gray-50"
                 >
-                    <td class="px-3 py-2">{{ pr.title }}</td>
+                    <td class="px-3 py-2 font-medium">{{ po.code }}</td>
                     <td class="px-3 py-2 capitalize font-semibold">
-                        {{ pr.status }}
+                        {{ po.status }}
                     </td>
                     <td class="px-3 py-2">
-                        {{ pr.created_at }}
+                        {{ formatCurrency(po.total_amount) }}
+                    </td>
+                    <td class="px-3 py-2">
+                        {{ po.created_at }}
                     </td>
                 </tr>
 
-                <tr v-if="!pendingRequests.length">
-                    <td colspan="3"
+                <tr v-if="!purchaseOrders.length">
+                    <td colspan="4"
                         class="px-3 py-6 text-center text-gray-400">
-                        No pending purchase requests
+                        No purchase orders yet
                     </td>
                 </tr>
             </tbody>

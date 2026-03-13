@@ -20,7 +20,11 @@ class PettyCashTopupController extends Controller
 {
     public function index(Request $request)
     {
-        $tab = $request->get('tab', 'requested');
+        $requestedTab = (string) $request->get('tab', 'requested');
+        $tab = $requestedTab === 'paid' ? 'payment' : $requestedTab;
+        if (!in_array($tab, ['requested', 'verified_own_department', 'verified_project_department', 'payment', 'rejected'], true)) {
+            $tab = 'requested';
+        }
         $branchId = $this->activeBranchId($request);
 
         /* =========================
@@ -33,6 +37,7 @@ class PettyCashTopupController extends Controller
                 'companyBankAccount',
                 'paymentSlip',
                 'requester:id,name',
+                'verifier:id,name',
                 'approver:id,name',
                 'rejector:id,name',
                 'payer:id,name',
@@ -42,7 +47,10 @@ class PettyCashTopupController extends Controller
 
         if ($branchId !== null) {
             $baseQuery->where(function ($q) use ($branchId) {
-                $q->whereHas('wallet.project', fn ($project) => $project->where('branch_id', $branchId))
+                $q->whereHas('wallet', function ($wallet) use ($branchId) {
+                    $wallet->where('context_type', 'office')
+                        ->orWhereHas('project', fn ($project) => $project->where('branch_id', $branchId));
+                })
                     ->orWhereHas('companyBankAccount', fn ($bank) => $bank->where('branch_id', $branchId))
                     ->orWhereHas(
                         'paymentSlip.companyBankAccount',
@@ -55,8 +63,9 @@ class PettyCashTopupController extends Controller
         STATUS QUERIES
         ========================= */
         $requestedQuery = (clone $baseQuery)->where('status', 'requested');
-        $approvedQuery  = (clone $baseQuery)->where('status', 'approved');
-        $paidQuery      = (clone $baseQuery)->where('status', 'paid');
+        $verifiedQuery  = (clone $baseQuery)->where('status', 'verified_own_department');
+        $verifiedProjectQuery = (clone $baseQuery)->where('status', 'verified_project_department');
+        $paymentQuery   = (clone $baseQuery)->whereIn('status', ['approved', 'paid']);
         $rejectedQuery  = (clone $baseQuery)->where('status', 'rejected');
 
         /* =========================
@@ -66,7 +75,11 @@ class PettyCashTopupController extends Controller
             ->paginate(15)
             ->withQueryString();
 
-        $approved = $approvedQuery
+        $verified = $verifiedQuery
+            ->paginate(15)
+            ->withQueryString();
+
+        $verifiedProject = $verifiedProjectQuery
             ->paginate(15)
             ->withQueryString();
 
@@ -74,7 +87,7 @@ class PettyCashTopupController extends Controller
             ->paginate(15)
             ->withQueryString();
 
-        $paid = $paidQuery
+        $payment = $paymentQuery
             ->paginate(15)
             ->withQueryString();
 
@@ -83,9 +96,10 @@ class PettyCashTopupController extends Controller
         ========================= */
         $tabCounts = [
             'requested' => (clone $requestedQuery)->count(),
-            'approved'  => (clone $approvedQuery)->count(),
+            'verified_own_department' => (clone $verifiedQuery)->count(),
+            'verified_project_department' => (clone $verifiedProjectQuery)->count(),
             'rejected'  => (clone $rejectedQuery)->count(),
-            // paid intentionally excluded (history tab)
+            // payment tab intentionally has no badge
         ];
 
         /* =========================
@@ -94,9 +108,10 @@ class PettyCashTopupController extends Controller
         return inertia('PettyCash/Topups/Index', [
             'topups' => [
                 'requested' => $requested,
-                'approved'  => $approved,
+                'verified_own_department' => $verified,
+                'verified_project_department' => $verifiedProject,
+                'payment'   => $payment,
                 'rejected'  => $rejected,
-                'paid'      => $paid,
             ],
 
             // 🔔 Badge numbers for tabs
@@ -209,7 +224,7 @@ class PettyCashTopupController extends Controller
     {
         $this->ensureTopupBranchAccess($request, $topup);
 
-        if ($topup->status !== 'requested') {
+        if (!in_array($topup->status, ['verified_own_department', 'verified_project_department'], true)) {
             abort(422, 'Invalid top-up state.');
         }
 
@@ -222,11 +237,37 @@ class PettyCashTopupController extends Controller
         return back()->with('success', 'Top-up approved.');
     }
 
-    public function reject(Request $request, PettyCashTopup $topup)
+    public function verify(Request $request, PettyCashTopup $topup)
     {
         $this->ensureTopupBranchAccess($request, $topup);
 
         if ($topup->status !== 'requested') {
+            abort(422, 'Invalid top-up state.');
+        }
+
+        $nextStatus = $topup->wallet?->context_type === 'project'
+            ? 'verified_project_department'
+            : 'verified_own_department';
+
+        $topup->update([
+            'status'      => $nextStatus,
+            'verified_by' => auth()->id(),
+            'verified_at' => now(),
+        ]);
+
+        return back()->with(
+            'success',
+            $nextStatus === 'verified_project_department'
+                ? 'Top-up verified by project department.'
+                : 'Top-up verified by own department.'
+        );
+    }
+
+    public function reject(Request $request, PettyCashTopup $topup)
+    {
+        $this->ensureTopupBranchAccess($request, $topup);
+
+        if (!in_array($topup->status, ['requested', 'verified_own_department', 'verified_project_department'], true)) {
             abort(422, 'Invalid top-up state.');
         }
 
@@ -285,6 +326,9 @@ class PettyCashTopupController extends Controller
             Carbon::now(),
             $request->file('attachments')
         );
+
+        $slip->workflow_status = 'paid';
+        $slip->save();
 
         return back()->with('success', 'Top-up paid and balance updated.');
     }
@@ -359,6 +403,12 @@ class PettyCashTopupController extends Controller
         $slip->less_recoupment = $request->input('less_recoupment');
         $slip->less_material_ob = $request->input('less_material_ob');
         $slip->less_paid_previously = $request->input('less_paid_previously');
+        $slip->workflow_status = 'processing';
+        $slip->approved_at = null;
+        $slip->approved_by = null;
+        $slip->rejected_at = null;
+        $slip->rejected_by = null;
+        $slip->rejected_reason = null;
         $slip->payment_slip_remark = $request->input('payment_slip_remark');
         $slip->created_by = $request->user()->id;
         $slip->save();
@@ -425,7 +475,8 @@ class PettyCashTopupController extends Controller
             'paymentSlip.companyBankAccount:id,branch_id',
         ]);
 
-        $isAllowed = (int) ($topup->wallet?->project?->branch_id ?? 0) === $branchId
+        $isAllowed = ($topup->wallet?->context_type === 'office')
+            || (int) ($topup->wallet?->project?->branch_id ?? 0) === $branchId
             || (int) ($topup->companyBankAccount?->branch_id ?? 0) === $branchId
             || (int) ($topup->paymentSlip?->companyBankAccount?->branch_id ?? 0) === $branchId;
 

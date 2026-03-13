@@ -19,32 +19,43 @@ class PaymentSlipController extends Controller
     public function index(Request $request)
     {
         $activeBranchId = $this->activeBranchId($request);
-        $tab = in_array($request->tab, ['pending', 'processing', 'paid'], true)
+        $tab = in_array($request->tab, ['pending', 'processing', 'payment_arrangement', 'paid'], true)
             ? $request->tab
             : 'pending';
         $search = trim((string) $request->input('search', ''));
         $projectFilter = $request->input('project_id');
+        $moduleFilter = $request->input('module');
+        $requesterFilter = trim((string) $request->input('requester', ''));
         $voucherFilter = $request->input('voucher');
+        $amountMin = $request->input('amount_min');
+        $amountMax = $request->input('amount_max');
         $dateFrom = $request->input('date_from');
         $dateTo = $request->input('date_to');
 
         $processingQuery = PaymentSlip::query()
             ->with([
                 'companyBankAccount',
+                'approvedBy:id,name,signature_path',
+                'creator:id,name,signature_path',
                 'source' => function (MorphTo $morphTo) {
                     $morphTo->morphWith([
                         PettyCashTopup::class => [
                             'wallet.project',
                             'requester:id,name',
+                            'approver:id,name,signature_path',
+                            'payer:id,name,signature_path',
                         ],
                         ApInvoice::class => [
                             'purchaseOrder.purchaseRequest.project',
                             'supplier',
-                            'payments',
+                            'creator:id,name,signature_path',
+                            'payments.createdBy:id,name,signature_path',
                         ],
                         Claim::class => [
                             'project',
                             'issuer:id,name',
+                            'approver:id,name,signature_path',
+                            'payer:id,name,signature_path',
                         ],
                     ]);
                 },
@@ -111,11 +122,47 @@ class PaymentSlipController extends Controller
             }
         }
 
+        if (in_array($moduleFilter, ['claim', 'topup', 'ap_invoice'], true)) {
+            $moduleMorphMap = [
+                'claim' => Claim::class,
+                'topup' => PettyCashTopup::class,
+                'ap_invoice' => ApInvoice::class,
+            ];
+
+            $processingQuery->whereHasMorph('source', [$moduleMorphMap[$moduleFilter]]);
+        }
+
         if ($voucherFilter === 'yes') {
             $processingQuery->whereHas('attachments');
         }
         if ($voucherFilter === 'no') {
             $processingQuery->whereDoesntHave('attachments');
+        }
+
+        if ($requesterFilter !== '') {
+            $likeRequester = '%' . $requesterFilter . '%';
+            $processingQuery->where(function ($query) use ($likeRequester) {
+                $query->whereHasMorph(
+                    'source',
+                    [PettyCashTopup::class],
+                    fn ($q) => $q->whereHas('requester', fn ($u) => $u->where('name', 'like', $likeRequester))
+                )->orWhereHasMorph(
+                    'source',
+                    [Claim::class],
+                    fn ($q) => $q->whereHas('issuer', fn ($u) => $u->where('name', 'like', $likeRequester))
+                )->orWhereHasMorph(
+                    'source',
+                    [ApInvoice::class],
+                    fn ($q) => $q->whereHas('supplier', fn ($s) => $s->where('company_name', 'like', $likeRequester))
+                );
+            });
+        }
+
+        if ($amountMin !== null && $amountMin !== '') {
+            $processingQuery->where('amount', '>=', (float) $amountMin);
+        }
+        if ($amountMax !== null && $amountMax !== '') {
+            $processingQuery->where('amount', '<=', (float) $amountMax);
         }
 
         if ($dateFrom) {
@@ -138,6 +185,7 @@ class PaymentSlipController extends Controller
                     })
                     ->orWhereHasMorph('source', [ApInvoice::class], function ($q) use ($like) {
                         $q->where('invoice_number', 'like', $like)
+                            ->orWhereHas('purchaseOrder', fn ($po) => $po->where('code', 'like', $like))
                             ->orWhereHas('supplier', fn ($supp) => $supp->where('company_name', 'like', $like))
                             ->orWhereHas('purchaseOrder.purchaseRequest.project', fn ($proj) => $proj->where('name', 'like', $like));
                     })
@@ -150,21 +198,69 @@ class PaymentSlipController extends Controller
             });
         }
 
+        if (in_array($moduleFilter, ['claim', 'topup', 'ap_invoice'], true)) {
+            if ($moduleFilter !== 'claim') {
+                $pendingClaimsQuery->whereRaw('1 = 0');
+            }
+            if ($moduleFilter !== 'topup') {
+                $pendingTopupsQuery->whereRaw('1 = 0');
+            }
+            if ($moduleFilter !== 'ap_invoice') {
+                $pendingApInvoicesQuery->whereRaw('1 = 0');
+            }
+        }
+
+        if ($requesterFilter !== '') {
+            $likeRequester = '%' . $requesterFilter . '%';
+            $pendingClaimsQuery->whereHas('issuer', fn ($u) => $u->where('name', 'like', $likeRequester));
+            $pendingTopupsQuery->whereHas('requester', fn ($u) => $u->where('name', 'like', $likeRequester));
+            $pendingApInvoicesQuery->whereHas('supplier', fn ($s) => $s->where('company_name', 'like', $likeRequester));
+        }
+
+        if ($amountMin !== null && $amountMin !== '') {
+            $pendingClaimsQuery->where('total_amount', '>=', (float) $amountMin);
+            $pendingTopupsQuery->where('amount', '>=', (float) $amountMin);
+            $pendingApInvoicesQuery->where('balance_amount', '>=', (float) $amountMin);
+        }
+        if ($amountMax !== null && $amountMax !== '') {
+            $pendingClaimsQuery->where('total_amount', '<=', (float) $amountMax);
+            $pendingTopupsQuery->where('amount', '<=', (float) $amountMax);
+            $pendingApInvoicesQuery->where('balance_amount', '<=', (float) $amountMax);
+        }
+
         $processing = (clone $processingQuery)
-            ->where(function ($query) {
-                $query->whereHasMorph('source', [Claim::class], fn ($q) => $q->where('status', 'ceo_approved'))
-                    ->orWhereHasMorph('source', [PettyCashTopup::class], fn ($q) => $q->where('status', 'approved'))
-                    ->orWhereHasMorph('source', [ApInvoice::class], fn ($q) => $q->whereIn('status', ['confirmed', 'partially_paid']));
-            })
+            ->where('workflow_status', 'processing')
             ->orderByDesc('updated_at')
             ->paginate(15, ['*'], 'processing_page')
             ->withQueryString();
 
+        $paymentArrangement = (clone $processingQuery)
+            ->where(function ($query) {
+                $query->where('workflow_status', 'payment_arrangement')
+                    ->orWhere(function ($legacy) {
+                        $legacy->whereNull('workflow_status')
+                            ->where(function ($sourceQuery) {
+                                $sourceQuery->whereHasMorph('source', [Claim::class], fn ($q) => $q->where('status', 'ceo_approved'))
+                                    ->orWhereHasMorph('source', [PettyCashTopup::class], fn ($q) => $q->where('status', 'approved'))
+                                    ->orWhereHasMorph('source', [ApInvoice::class], fn ($q) => $q->whereIn('status', ['confirmed', 'partially_paid']));
+                            });
+                    });
+            })
+            ->orderByDesc('updated_at')
+            ->paginate(15, ['*'], 'arrangement_page')
+            ->withQueryString();
+
         $paid = (clone $processingQuery)
             ->where(function ($query) {
-                $query->whereHasMorph('source', [Claim::class], fn ($q) => $q->where('status', 'paid'))
-                    ->orWhereHasMorph('source', [PettyCashTopup::class], fn ($q) => $q->where('status', 'paid'))
-                    ->orWhereHasMorph('source', [ApInvoice::class], fn ($q) => $q->where('status', 'paid'));
+                $query->where('workflow_status', 'paid')
+                    ->orWhere(function ($legacy) {
+                        $legacy->whereNull('workflow_status')
+                            ->where(function ($sourceQuery) {
+                                $sourceQuery->whereHasMorph('source', [Claim::class], fn ($q) => $q->where('status', 'paid'))
+                                    ->orWhereHasMorph('source', [PettyCashTopup::class], fn ($q) => $q->where('status', 'paid'))
+                                    ->orWhereHasMorph('source', [ApInvoice::class], fn ($q) => $q->where('status', 'paid'));
+                            });
+                    });
             })
             ->orderByDesc('updated_at')
             ->paginate(15, ['*'], 'paid_page')
@@ -215,17 +311,30 @@ class PaymentSlipController extends Controller
         };
 
         $processing->setCollection($processing->getCollection()->map($transformSlip));
+        $paymentArrangement->setCollection($paymentArrangement->getCollection()->map($transformSlip));
         $paid->setCollection($paid->getCollection()->map($transformSlip));
 
         $pendingClaimsQuery = Claim::query()
             ->where('status', 'ceo_approved')
-            ->whereDoesntHave('paymentSlip', fn ($q) => $q->whereNull('cancelled_at'))
+            ->whereDoesntHave('paymentSlip', function ($q) {
+                $q->whereNull('cancelled_at')
+                    ->where(function ($workflow) {
+                        $workflow->whereIn('workflow_status', ['processing', 'payment_arrangement', 'paid'])
+                            ->orWhereNull('workflow_status');
+                    });
+            })
             ->with(['project:id,name', 'issuer:id,name'])
             ->when($activeBranchId !== null, fn ($q) => $q->where('branch_id', $activeBranchId));
 
         $pendingTopupsQuery = PettyCashTopup::query()
             ->where('status', 'approved')
-            ->whereDoesntHave('paymentSlip', fn ($q) => $q->whereNull('cancelled_at'))
+            ->whereDoesntHave('paymentSlip', function ($q) {
+                $q->whereNull('cancelled_at')
+                    ->where(function ($workflow) {
+                        $workflow->whereIn('workflow_status', ['processing', 'payment_arrangement', 'paid'])
+                            ->orWhereNull('workflow_status');
+                    });
+            })
             ->with(['wallet.project:id,name', 'requester:id,name'])
             ->when($activeBranchId !== null, function ($q) use ($activeBranchId) {
                 $q->where(function ($walletScope) use ($activeBranchId) {
@@ -236,7 +345,13 @@ class PaymentSlipController extends Controller
 
         $pendingApInvoicesQuery = ApInvoice::query()
             ->whereIn('status', ['confirmed', 'partially_paid'])
-            ->whereDoesntHave('paymentSlips', fn ($q) => $q->whereNull('cancelled_at'))
+            ->whereDoesntHave('paymentSlips', function ($q) {
+                $q->whereNull('cancelled_at')
+                    ->where(function ($workflow) {
+                        $workflow->whereIn('workflow_status', ['processing', 'payment_arrangement', 'paid'])
+                            ->orWhereNull('workflow_status');
+                    });
+            })
             ->with(['purchaseOrder.purchaseRequest.project:id,name', 'supplier:id,company_name'])
             ->when($activeBranchId !== null, fn ($q) => $q->where('branch_id', $activeBranchId));
 
@@ -278,6 +393,7 @@ class PaymentSlipController extends Controller
             });
             $pendingApInvoicesQuery->where(function ($q) use ($like) {
                 $q->where('invoice_number', 'like', $like)
+                    ->orWhereHas('purchaseOrder', fn ($po) => $po->where('code', 'like', $like))
                     ->orWhereHas('supplier', fn ($s) => $s->where('company_name', 'like', $like))
                     ->orWhereHas('purchaseOrder.purchaseRequest.project', fn ($p) => $p->where('name', 'like', $like));
             });
@@ -290,6 +406,7 @@ class PaymentSlipController extends Controller
                     'source_id' => $claim->id,
                     'source_uuid' => $claim->uuid,
                     'reference_no' => $claim->claim_no,
+                    'external_doc_ref_no' => null,
                     'title' => $claim->title,
                     'project' => $claim->project?->name ?? 'Others',
                     'requester' => $claim->issuer?->name ?? '-',
@@ -308,6 +425,7 @@ class PaymentSlipController extends Controller
                     'source_id' => $topup->id,
                     'source_uuid' => $topup->uuid,
                     'reference_no' => $topup->topup_no,
+                    'external_doc_ref_no' => null,
                     'title' => $topup->reason ?? 'Petty Cash Top-up',
                     'project' => $project,
                     'requester' => $topup->requester?->name ?? '-',
@@ -321,7 +439,8 @@ class PaymentSlipController extends Controller
                     'module' => 'ap_invoice',
                     'source_id' => $invoice->id,
                     'source_uuid' => $invoice->uuid,
-                    'reference_no' => $invoice->invoice_number,
+                    'reference_no' => $invoice->purchaseOrder?->code ?? '-',
+                    'external_doc_ref_no' => $invoice->invoice_number,
                     'title' => 'AP Invoice',
                     'project' => $invoice->purchaseOrder?->purchaseRequest?->project?->name ?? 'Project',
                     'requester' => $invoice->supplier?->company_name ?? '-',
@@ -337,11 +456,13 @@ class PaymentSlipController extends Controller
             'pending' => $pending,
             'slips' => [
                 'processing' => $processing,
+                'payment_arrangement' => $paymentArrangement,
                 'paid' => $paid,
             ],
             'counts' => [
                 'pending' => $pending->count(),
                 'processing' => $processing->total(),
+                'payment_arrangement' => $paymentArrangement->total(),
                 'paid' => $paid->total(),
             ],
             'activeTab' => $tab,
@@ -360,7 +481,11 @@ class PaymentSlipController extends Controller
                 'tab',
                 'search',
                 'project_id',
+                'module',
+                'requester',
                 'voucher',
+                'amount_min',
+                'amount_max',
                 'date_from',
                 'date_to',
             ]),
@@ -458,6 +583,122 @@ class PaymentSlipController extends Controller
         return back()->with('success', 'Payment slip cancelled.');
     }
 
+    public function approve(Request $request, PaymentSlip $paymentSlip)
+    {
+        $this->ensurePaymentSlipBranchAccess($request, $paymentSlip);
+
+        if (!$this->canApproveSlip($request)) {
+            abort(403, 'Only CEO / GM can approve payment slips.');
+        }
+
+        if ($paymentSlip->workflow_status !== 'processing') {
+            abort(422, 'Only processing slips can be approved.');
+        }
+
+        $paymentSlip->update([
+            'workflow_status' => 'payment_arrangement',
+            'approved_at' => now(),
+            'approved_by' => $request->user()?->id,
+            'rejected_at' => null,
+            'rejected_by' => null,
+            'rejected_reason' => null,
+        ]);
+
+        return back()->with('success', 'Payment slip approved and moved to payment arrangement.');
+    }
+
+    public function reject(Request $request, PaymentSlip $paymentSlip)
+    {
+        $this->ensurePaymentSlipBranchAccess($request, $paymentSlip);
+
+        if (!$this->canApproveSlip($request)) {
+            abort(403, 'Only CEO / GM can reject payment slips.');
+        }
+
+        if ($paymentSlip->workflow_status !== 'processing') {
+            abort(422, 'Only processing slips can be rejected.');
+        }
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'max:255'],
+        ]);
+
+        $paymentSlip->update([
+            'workflow_status' => 'rejected',
+            'rejected_at' => now(),
+            'rejected_by' => $request->user()?->id,
+            'rejected_reason' => $validated['reason'],
+            'approved_at' => null,
+            'approved_by' => null,
+        ]);
+
+        return back()->with('success', 'Payment slip rejected and returned to pending.');
+    }
+
+    public function revertToArrangement(Request $request, PaymentSlip $paymentSlip)
+    {
+        $this->ensurePaymentSlipBranchAccess($request, $paymentSlip);
+
+        if ($paymentSlip->workflow_status !== 'paid') {
+            abort(422, 'Only paid slips can be reverted.');
+        }
+
+        $source = $paymentSlip->source;
+
+        if ($source instanceof Claim) {
+            if ($source->status === 'paid') {
+                $source->update([
+                    'status' => 'ceo_approved',
+                    'payment_ref_no' => null,
+                    'paid_at' => null,
+                    'paid_by' => null,
+                ]);
+            }
+        }
+
+        if ($source instanceof PettyCashTopup) {
+            if ($source->status === 'paid') {
+                $source->update([
+                    'status' => 'approved',
+                    'payment_ref_no' => null,
+                    'paid_at' => null,
+                    'paid_by' => null,
+                ]);
+            }
+        }
+
+        if ($source instanceof ApInvoice) {
+            $payment = $source->payments()
+                ->where('payment_slip_no', $paymentSlip->slip_no)
+                ->whereNull('cancelled_at')
+                ->first();
+
+            if ($payment) {
+                $source->paid_amount -= $payment->amount;
+                $source->balance_amount += $payment->amount;
+
+                if ($source->paid_amount <= 0) {
+                    $source->status = 'confirmed';
+                } else {
+                    $source->status = 'partially_paid';
+                }
+                $source->save();
+
+                $payment->update([
+                    'cancelled_at'  => now(),
+                    'cancelled_by'  => auth()->id(),
+                    'cancel_reason' => 'Reverted from paid to payment arrangement.',
+                ]);
+            }
+        }
+
+        $paymentSlip->update([
+            'workflow_status' => 'payment_arrangement',
+        ]);
+
+        return back()->with('success', 'Slip reverted to payment arrangement.');
+    }
+
     private function activeBranchId(Request $request): ?int
     {
         if (!$this->shouldScopeToActiveBranch($request)) {
@@ -475,6 +716,11 @@ class PaymentSlipController extends Controller
     private function shouldScopeToActiveBranch(Request $request): bool
     {
         return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
+
+    private function canApproveSlip(Request $request): bool
+    {
+        return (bool) ($request->user()?->is_superadmin || $request->user()?->is_general_manager);
     }
 
     private function ensurePaymentSlipBranchAccess(Request $request, PaymentSlip $paymentSlip): void

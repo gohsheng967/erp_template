@@ -26,6 +26,13 @@ class PaymentSlip extends Model
         'less_material_ob_label',
         'less_paid_previously',
         'less_paid_previously_label',
+        'amount_due_label',
+        'workflow_status',
+        'approved_at',
+        'approved_by',
+        'rejected_at',
+        'rejected_by',
+        'rejected_reason',
         'payment_slip_remark',
         'remark_label',
         'created_by',
@@ -36,6 +43,8 @@ class PaymentSlip extends Model
 
     protected $casts = [
         'cancelled_at' => 'datetime',
+        'approved_at' => 'datetime',
+        'rejected_at' => 'datetime',
     ];
 
     protected static function booted()
@@ -65,5 +74,20 @@ class PaymentSlip extends Model
     public function cancelledBy()
     {
         return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    public function approvedBy()
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    public function rejectedBy()
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 }

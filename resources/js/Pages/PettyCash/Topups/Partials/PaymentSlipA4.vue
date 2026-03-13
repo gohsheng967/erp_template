@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { useFormat } from '@/Composables/useFormat'
 import { amountToWords } from '@/helpers/string'
-import SignatureSection from '@/Components/Document/SignatureSection.vue'
 
 const { formatCurrency } = useFormat()
 
@@ -206,24 +205,24 @@ function formatLess(value) {
             <div class="border-t border-gray-400 p-2 text-xs">
                 <div class="grid grid-cols-3 gap-6">
                     <div>
-                        <div class="mb-8 border-b"></div>
-                        <div>Prepared by:</div>
+                        <div class="h-14 mb-2 border-b border-gray-400"></div>
+                        <div class="font-medium">Prepared by</div>
+                        <div class="text-gray-500">
+                            {{ topup.requester?.name ?? '-' }}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="h-14 mb-2 border-b border-gray-400"></div>
+                        <div class="font-medium">Approved by</div>
+                        <div class="text-gray-500">
+                            {{ topup.approver?.name ?? '-' }}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="h-14 mb-2 border-b border-gray-400"></div>
+                        <div class="font-medium">Paid by</div>
                         <div class="text-gray-500">
                             {{ topup.payer?.name ?? '-' }}
-                        </div>
-                    </div>
-                    <div>
-                        <div class="mb-8 border-b"></div>
-                        <div>Certified by:</div>
-                        <div class="text-gray-500">
-                            {{ topup.approver?.name ?? '-' }}
-                        </div>
-                    </div>
-                    <div>
-                        <div class="mb-8 border-b"></div>
-                        <div>Certified by / Approved by:</div>
-                        <div class="text-gray-500">
-                            {{ topup.approver?.name ?? '-' }}
                         </div>
                     </div>
                 </div>
@@ -236,10 +235,5 @@ function formatLess(value) {
                 </div>
             </div>
         </div>
-
-        <SignatureSection
-            class="relative z-10"
-            title="Prepared Signature"
-        />
     </div>
 </template>

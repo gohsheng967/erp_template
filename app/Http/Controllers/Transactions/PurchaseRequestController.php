@@ -9,11 +9,13 @@ use App\Models\PurchaseQuotation;
 use App\Models\Project;
 use App\Models\CompanyProfile;
 use App\Models\Supplier;
+use App\Models\User;
 use App\Http\Controllers\Controller;
 use App\Services\RunningNumberService;
 use Inertia\Inertia;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use App\Services\Document\PurchaseRequestToPurchaseOrderService;
 use DB;
@@ -22,12 +24,31 @@ class PurchaseRequestController extends Controller
 {
     public function index(Request $request)
     {
-        $tab = $request->get('tab', 'draft');
+        $allowedTabs = [
+            'draft',
+            'submitted',
+            'verified_own_department',
+            'verified_project_department',
+            'verified_purchasing_department',
+            'po',
+            'payment',
+            'rejected',
+        ];
+        $tab = in_array($request->get('tab'), $allowedTabs, true)
+            ? $request->get('tab')
+            : 'draft';
 
         $filters = [
             'search' => $request->get('search'),
             'from'   => $request->get('from'),
             'to'     => $request->get('to'),
+            'requester_id' => $request->get('requester_id'),
+            'project_id' => $request->get('project_id'),
+            'department_id' => $request->get('department_id'),
+            'project_linked' => $request->get('project_linked'),
+            'has_quotation' => $request->get('has_quotation'),
+            'amount_min' => $request->get('amount_min'),
+            'amount_max' => $request->get('amount_max'),
         ];
 
         /*
@@ -53,7 +74,51 @@ class PurchaseRequestController extends Controller
             )
             ->when($filters['to'], fn ($q) =>
                 $q->whereDate('created_at', '<=', $filters['to'])
-            );
+            )
+            ->when($filters['requester_id'], fn ($q) =>
+                $q->where('requested_by', (int) $filters['requester_id'])
+            )
+            ->when($filters['project_id'], fn ($q) =>
+                $q->where('project_id', (int) $filters['project_id'])
+            )
+            ->when($filters['department_id'], fn ($q) =>
+                $q->where('department_id', (int) $filters['department_id'])
+            )
+            ->when($filters['project_linked'] === 'yes', fn ($q) =>
+                $q->whereNotNull('project_id')
+            )
+            ->when($filters['project_linked'] === 'no', fn ($q) =>
+                $q->whereNull('project_id')
+            )
+            ->when($filters['has_quotation'] === 'yes', fn ($q) =>
+                $q->whereHas('quotations')
+            )
+            ->when($filters['has_quotation'] === 'no', fn ($q) =>
+                $q->whereDoesntHave('quotations')
+            )
+            ->when($filters['amount_min'] !== null && $filters['amount_min'] !== '', function ($q) use ($filters) {
+                $q->whereRaw(
+                    '(select coalesce(sum(pri.total_price),0) from purchase_request_items pri where pri.purchase_request_id = purchase_requests.id) >= ?',
+                    [(float) $filters['amount_min']]
+                );
+            })
+            ->when($filters['amount_max'] !== null && $filters['amount_max'] !== '', function ($q) use ($filters) {
+                $q->whereRaw(
+                    '(select coalesce(sum(pri.total_price),0) from purchase_request_items pri where pri.purchase_request_id = purchase_requests.id) <= ?',
+                    [(float) $filters['amount_max']]
+                );
+            });
+
+        // Auto-push PR to payment stage once payable/AP invoice exists.
+        $paymentSyncQuery = PurchaseRequest::query()
+            ->where('status', 'po')
+            ->whereHas('purchaseOrder.apInvoice', function ($q) {
+                $q->whereIn('status', ['confirmed', 'partially_paid', 'paid']);
+            });
+        if ($this->shouldScopeToActiveBranch($request)) {
+            $paymentSyncQuery->where('branch_id', $this->activeBranchId($request));
+        }
+        $paymentSyncQuery->update(['status' => 'payment']);
 
         /*
         |--------------------------------------------------------------------------
@@ -64,7 +129,8 @@ class PurchaseRequestController extends Controller
             ->with([
                 'requester',
                 'approver',
-                'purchaseOrder',
+                'project:id,name',
+                'purchaseOrder.apInvoice',
                 'approvedQuotation.attachment',
             ])
             ->withCount([
@@ -89,8 +155,18 @@ class PurchaseRequestController extends Controller
                 ->latest('updated_at')
                 ->paginate(10),
 
-            'approved' => (clone $listQuery)
-                ->where('status', 'approved')
+            'verified_own_department' => (clone $listQuery)
+                ->where('status', 'verified_own_department')
+                ->latest('updated_at')
+                ->paginate(10),
+
+            'verified_project_department' => (clone $listQuery)
+                ->where('status', 'verified_project_department')
+                ->latest('updated_at')
+                ->paginate(10),
+
+            'verified_purchasing_department' => (clone $listQuery)
+                ->where('status', 'verified_purchasing_department')
                 ->latest('updated_at')
                 ->paginate(10),
 
@@ -99,8 +175,13 @@ class PurchaseRequestController extends Controller
                 ->latest('updated_at')
                 ->paginate(10),
 
-            'issued' => (clone $listQuery)
-                ->where('status', 'issued')
+            'po' => (clone $listQuery)
+                ->where('status', 'po')
+                ->latest('updated_at')
+                ->paginate(10),
+
+            'payment' => (clone $listQuery)
+                ->where('status', 'payment')
                 ->latest('updated_at')
                 ->paginate(10),
         ];
@@ -115,12 +196,24 @@ class PurchaseRequestController extends Controller
                 ->where('status', 'submitted')
                 ->count(),
 
-            'approved' => (clone $filterQuery)
-                ->where('status', 'approved')
+            'verified_own_department' => (clone $filterQuery)
+                ->where('status', 'verified_own_department')
                 ->count(),
 
-            'issued' => (clone $filterQuery)
-                ->where('status', 'issued')
+            'verified_project_department' => (clone $filterQuery)
+                ->where('status', 'verified_project_department')
+                ->count(),
+
+            'verified_purchasing_department' => (clone $filterQuery)
+                ->where('status', 'verified_purchasing_department')
+                ->count(),
+
+            'po' => (clone $filterQuery)
+                ->where('status', 'po')
+                ->count(),
+
+            'payment' => (clone $filterQuery)
+                ->where('status', 'payment')
                 ->count(),
         ];
 
@@ -134,6 +227,29 @@ class PurchaseRequestController extends Controller
             'counts'           => $counts,
             'filters'          => $filters,
             'activeTab'        => $tab,
+            'filterOptions'    => [
+                'requesters' => User::query()
+                    ->select('id', 'name')
+                    ->where('status', 1)
+                    ->where(function ($q) use ($request) {
+                        $branchId = $this->activeBranchId($request);
+                        $q->where('active_branch_id', $branchId)
+                            ->orWhereHas('branches', fn ($qq) => $qq->where('branches.id', $branchId));
+                    })
+                    ->orderBy('name')
+                    ->get(),
+                'projects' => Project::query()
+                    ->select('id', 'name')
+                    ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                        $q->where('branch_id', $this->activeBranchId($request))
+                    )
+                    ->orderBy('name')
+                    ->get(),
+                'departments' => Department::query()
+                    ->select('id', 'name')
+                    ->orderBy('name')
+                    ->get(),
+            ],
         ]);
     }
 
@@ -186,6 +302,13 @@ class PurchaseRequestController extends Controller
         $departments = $user->departments()
             ->orderBy('name')
             ->get(['departments.id', 'departments.name']);
+
+        // Fallback for users without pivot_user_departments rows.
+        if ($departments->isEmpty()) {
+            $departments = Department::query()
+                ->orderBy('name')
+                ->get(['id', 'name']);
+        }
 
         $departmentIds = $departments->pluck('id');
 
@@ -294,6 +417,7 @@ class PurchaseRequestController extends Controller
                 'quotations.attachment',
                 'approvedQuotation',
                 'requester',
+                'siteContact:id,name',
             ])
             ->where('uuid', $uuid)
             ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
@@ -307,6 +431,16 @@ class PurchaseRequestController extends Controller
             // dropdowns for basic info
             'departments' => Department::select('id', 'name')->get(),
             'projects' => Project::select('id', 'name')->get(),
+            'contactUsers' => User::query()
+                ->select('id', 'name')
+                ->where('status', 1)
+                ->where(function ($q) use ($request) {
+                    $branchId = $this->activeBranchId($request);
+                    $q->where('active_branch_id', $branchId)
+                        ->orWhereHas('branches', fn ($qq) => $qq->where('branches.id', $branchId));
+                })
+                ->orderBy('name')
+                ->get(),
         ]);
     }
 
@@ -409,7 +543,7 @@ class PurchaseRequestController extends Controller
 
         $quotation = PurchaseQuotation::where('uuid', $quotationUuid)->firstOrFail();
 
-        if ($pr->status !== 'draft') {
+        if (!$this->isEditableStatus($pr->status)) {
             return response()->json([
                 'message' => 'Cannot modify quotation after submission',
             ], 422);
@@ -439,8 +573,8 @@ class PurchaseRequestController extends Controller
             )
             ->firstOrFail();
 
-        if ($purchaseRequest->status !== 'draft') {
-            abort(403, 'Only draft PR can be edited');
+        if (!$this->isEditableStatus($purchaseRequest->status)) {
+            abort(403, 'Only editable PR can be edited');
         }
 
         /* =========================
@@ -547,8 +681,8 @@ class PurchaseRequestController extends Controller
             )
             ->firstOrFail();
 
-        if ($purchaseRequest->status !== 'draft') {
-            abort(403, 'PR already submitted');
+        if (!in_array($purchaseRequest->status, ['draft', 'verified_own_department'], true)) {
+            abort(403, 'PR is not in a submittable state');
         }
 
         if (! $purchaseRequest->quotations()->exists()) {
@@ -564,6 +698,7 @@ class PurchaseRequestController extends Controller
             'project_id' => 'nullable|exists:projects,id',
             'requester_remark' => 'nullable|string',
             'required_date' => 'required|date',
+            'quotation_id' => ['required', 'exists:purchase_quotations,id'],
         ]);
 
         $validated = $request->validate([
@@ -591,6 +726,19 @@ class PurchaseRequestController extends Controller
         }
 
         DB::transaction(function () use ($purchaseRequest, $header, $validated) {
+            $fromStatus = (string) $purchaseRequest->status;
+            $quotationId = (int) $header['quotation_id'];
+            unset($header['quotation_id']);
+
+            $hasQuotation = $purchaseRequest->quotations()
+                ->where('purchase_quotation_id', $quotationId)
+                ->exists();
+            if (!$hasQuotation) {
+                throw ValidationException::withMessages([
+                    'quotation_id' => 'Selected quotation is not attached to this PR.',
+                ]);
+            }
+
             $purchaseRequest->update($header);
 
             $submittedIds = collect($validated['items'])
@@ -622,10 +770,19 @@ class PurchaseRequestController extends Controller
             }
 
             $purchaseRequest->update([
-                'code'   => RunningNumberService::next(documentType: 'purchase_request'),
+                'code'   => $purchaseRequest->code ?: RunningNumberService::next(documentType: 'purchase_request'),
                 'status' => 'submitted',
                 'submitted_at' => now(),
                 'requested_by' => auth()->id(),
+                'approved_quotation_id' => $quotationId,
+                'remark_log' => $this->appendRemarkLog(
+                    existing: $purchaseRequest->remark_log,
+                    fromStatus: $fromStatus,
+                    toStatus: 'submitted',
+                    remark: $purchaseRequest->requester_remark,
+                    userId: auth()->id(),
+                    userName: (string) (auth()->user()?->name ?? 'System'),
+                ),
             ]);
         });
 
@@ -642,7 +799,9 @@ class PurchaseRequestController extends Controller
                 'requester',
                 'approver',
                 'items',
-                'quotations.attachment'
+                'quotations.attachment',
+                'purchaseOrder.apInvoice',
+                'siteContact:id,name',
             ])
             ->where('uuid', $uuid)
             ->when($this->shouldScopeToActiveBranch($httpRequest), fn ($q) =>
@@ -651,45 +810,110 @@ class PurchaseRequestController extends Controller
             ->firstOrFail();
 
         $company = CompanyProfile::first();
+        $logUserIds = collect($request->remark_log ?? [])
+            ->pluck('user_id')
+            ->filter()
+            ->unique()
+            ->values();
+        $remarkSigners = User::query()
+            ->whereIn('id', $logUserIds)
+            ->get(['id', 'name', 'signature_path'])
+            ->mapWithKeys(function ($user) {
+                return [
+                    (string) $user->id => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'signature_url' => $user->signature_path
+                            ? Storage::disk('public')->url($user->signature_path)
+                            : null,
+                    ],
+                ];
+            });
 
         return response()->json([
             'request' => $request,
-            'company' => $company
+            'company' => $company,
+            'remark_signers' => $remarkSigners,
+            'contact_users' => User::query()
+                ->select('id', 'name')
+                ->where('status', 1)
+                ->where(function ($q) use ($httpRequest) {
+                    $branchId = $this->activeBranchId($httpRequest);
+                    $q->where('active_branch_id', $branchId)
+                        ->orWhereHas('branches', fn ($qq) => $qq->where('branches.id', $branchId));
+                })
+                ->orderBy('name')
+                ->get(),
         ]);
     }
 
-    public function approval(Request $request, string $uuid, PurchaseRequestToPurchaseOrderService $prToPo) 
+    public function approval(Request $request, string $uuid, PurchaseRequestToPurchaseOrderService $prToPo)
     {
         $data = $request->validate([
-            'status' => ['required', 'in:approved,rejected'],
+            'status' => ['required', 'in:verify,approved,rejected,create_po,draft'],
             'remark' => ['nullable', 'string'],
-            'quotation_id' => [
-                'nullable',
-                'required_if:status,approved',
-                'exists:purchase_quotations,id',
-            ],
+            'quotation_id' => ['nullable', 'exists:purchase_quotations,id'],
+            'delivery_period' => ['nullable', 'date'],
+            'payment_terms' => ['nullable', 'string'],
+            'site_contact_user_id' => ['nullable', 'exists:users,id'],
         ]);
 
-        $pr = PurchaseRequest::with('items')
+        $pr = PurchaseRequest::with(['items', 'purchaseOrder'])
             ->where('uuid', $uuid)
             ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
                 $q->where('branch_id', $this->activeBranchId($request))
             )
             ->firstOrFail();
 
-        if ($pr->status !== 'submitted') {
-            abort(422, 'Purchase request not in submitted state');
+        $fromStatus = (string) $pr->status;
+        if ($data['status'] === 'draft') {
+            if (!in_array($pr->status, ['submitted', 'verified_own_department'], true)) {
+                abort(422, 'Only submitted or own-department verified PR can return to draft.');
+            }
+
+            $pr->update([
+                'status'          => 'draft',
+                'reviewer_remark' => $fromStatus === 'verified_purchasing_department'
+                    ? $data['remark']
+                    : $pr->reviewer_remark,
+                'reviewer'        => auth()->id(),
+                'approved_at'     => now(),
+                'remark_log' => $this->appendRemarkLog(
+                    existing: $pr->remark_log,
+                    fromStatus: $fromStatus,
+                    toStatus: 'draft',
+                    remark: $data['remark'],
+                    userId: auth()->id(),
+                    userName: (string) (auth()->user()?->name ?? 'System'),
+                ),
+            ]);
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Purchase request returned to draft',
+            ]);
         }
 
-        /* ======================
-        REJECT
-        ====================== */
         if ($data['status'] === 'rejected') {
+            if ($pr->status === 'po') {
+                abort(422, 'PO-issued purchase request cannot be rejected.');
+            }
+
             $pr->update([
                 'status'          => 'rejected',
-                'reviewer_remark' => $data['remark'],
-                'reviewer'     => auth()->id(),
+                'reviewer_remark' => $fromStatus === 'verified_purchasing_department'
+                    ? $data['remark']
+                    : $pr->reviewer_remark,
+                'reviewer'        => auth()->id(),
                 'approved_at'     => now(),
+                'remark_log' => $this->appendRemarkLog(
+                    existing: $pr->remark_log,
+                    fromStatus: $fromStatus,
+                    toStatus: 'rejected',
+                    remark: $data['remark'],
+                    userId: auth()->id(),
+                    userName: (string) (auth()->user()?->name ?? 'System'),
+                ),
             ]);
 
             return response()->json([
@@ -698,43 +922,192 @@ class PurchaseRequestController extends Controller
             ]);
         }
 
-        /* ======================
-        APPROVE
-        ====================== */
+        if ($data['status'] === 'verify') {
+            $nextStatus = match ($pr->status) {
+                'submitted' => 'verified_own_department',
+                'verified_own_department' => $pr->project_id
+                    ? 'verified_project_department'
+                    : 'verified_purchasing_department',
+                'verified_project_department' => 'verified_purchasing_department',
+                default => null,
+            };
 
-        $quotation = PurchaseQuotation::where('id', $data['quotation_id'])->firstOrFail();
+            if (!$nextStatus) {
+                abort(422, 'Purchase request is not in a verifiable state.');
+            }
 
-        // 1️⃣ approve PR
-        $pr->update([
-            'status'                => 'approved',
-            'reviewer_remark'       => $data['remark'],
-            'reviewer'           => auth()->id(),
-            'approved_at'           => now(),
-            'approved_quotation_id' => $quotation->id,
-        ]);
+            if ($nextStatus === 'verified_purchasing_department') {
+                $deliveryPeriod = trim((string) ($data['delivery_period'] ?? ''));
+                $paymentTerms = trim((string) ($data['payment_terms'] ?? ''));
+                $siteContactUserId = (int) ($data['site_contact_user_id'] ?? 0);
 
-        // 2️⃣ build PO items FROM PR ITEMS ✅
+                if ($deliveryPeriod === '' || $paymentTerms === '' || $siteContactUserId <= 0) {
+                    throw ValidationException::withMessages([
+                        'delivery_period' => 'Delivery period, payment terms, and site contact person are required before purchasing verification.',
+                    ]);
+                }
+            }
+
+            $pr->update([
+                'status'          => $nextStatus,
+                'reviewer_remark' => $fromStatus === 'verified_purchasing_department'
+                    ? $data['remark']
+                    : $pr->reviewer_remark,
+                'reviewer'        => auth()->id(),
+                'approved_at'     => now(),
+                'delivery_period' => $nextStatus === 'verified_purchasing_department'
+                    ? ($data['delivery_period'] ?? $pr->delivery_period)
+                    : $pr->delivery_period,
+                'payment_terms' => $nextStatus === 'verified_purchasing_department'
+                    ? ($data['payment_terms'] ?? $pr->payment_terms)
+                    : $pr->payment_terms,
+                'site_contact_user_id' => $nextStatus === 'verified_purchasing_department'
+                    ? ($data['site_contact_user_id'] ?? $pr->site_contact_user_id)
+                    : $pr->site_contact_user_id,
+                'remark_log' => $this->appendRemarkLog(
+                    existing: $pr->remark_log,
+                    fromStatus: $fromStatus,
+                    toStatus: $nextStatus,
+                    remark: $data['remark'],
+                    userId: auth()->id(),
+                    userName: (string) (auth()->user()?->name ?? 'System'),
+                ),
+            ]);
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Purchase request verified',
+            ]);
+        }
+
+        if ($data['status'] === 'approved') {
+            if ($pr->status !== 'verified_purchasing_department') {
+                abort(422, 'Only purchasing-verified PR can be CEO approved.');
+            }
+
+            if ($pr->purchaseOrder) {
+                abort(422, 'Purchase order already created for this PR.');
+            }
+
+            $quotationId = (int) ($data['quotation_id'] ?? $pr->approved_quotation_id);
+            if ($quotationId <= 0) {
+                abort(422, 'No approved quotation selected for PO generation.');
+            }
+
+            $quotation = PurchaseQuotation::where('id', $quotationId)->firstOrFail();
+
+            $deliveryPeriod = trim((string) ($data['delivery_period'] ?? $pr->delivery_period ?? ''));
+            $paymentTerms = trim((string) ($data['payment_terms'] ?? $pr->payment_terms ?? ''));
+            $siteContactUserId = (int) ($data['site_contact_user_id'] ?? $pr->site_contact_user_id ?? 0);
+            if ($deliveryPeriod === '' || $paymentTerms === '' || $siteContactUserId <= 0) {
+                throw ValidationException::withMessages([
+                    'delivery_period' => 'Missing purchasing verification terms. Please complete verify-to-purchasing step first.',
+                ]);
+            }
+
+            $items = $pr->items->map(fn ($item) => [
+                'item_name' => $item->title,
+                'description' => $item->description,
+                'quantity' => $item->quantity,
+                'unit_price' => $item->unit_price,
+                'total_amount' => $item->quantity * $item->unit_price,
+            ])->toArray();
+
+            $po = $prToPo->createPO($pr, $quotation->supplier_id, $items, [
+                'terms'  => $quotation->terms ?? null,
+                'remark' => 'Auto-created from approved PR',
+                'delivery_period' => $deliveryPeriod,
+                'payment_terms' => $paymentTerms,
+                'site_contact_user_id' => $siteContactUserId,
+            ]);
+
+            $pr->update([
+                'status'                => 'po',
+                'reviewer_remark'       => $fromStatus === 'verified_purchasing_department'
+                    ? $data['remark']
+                    : $pr->reviewer_remark,
+                'reviewer'              => auth()->id(),
+                'approved_at'           => now(),
+                'approved_quotation_id' => $quotation->id,
+                'remark_log' => $this->appendRemarkLog(
+                    existing: $pr->remark_log,
+                    fromStatus: $fromStatus,
+                    toStatus: 'po',
+                    remark: $data['remark'],
+                    userId: auth()->id(),
+                    userName: (string) (auth()->user()?->name ?? 'System'),
+                ),
+            ]);
+
+            return response()->json([
+                'status'  => 'success',
+                'message' => 'Purchase request CEO approved and purchase order created',
+                'po_id'   => $po->id,
+            ]);
+        }
+
+        if ($pr->status !== 'verified_purchasing_department') {
+            abort(422, 'Only purchasing-verified PR can be converted to PO.');
+        }
+
+        if ($pr->purchaseOrder) {
+            abort(422, 'Purchase order already created for this PR.');
+        }
+
+        $quotationId = (int) ($data['quotation_id'] ?? $pr->approved_quotation_id);
+        if ($quotationId <= 0) {
+            abort(422, 'No approved quotation selected for PO generation.');
+        }
+
+        $quotation = PurchaseQuotation::where('id', $quotationId)->firstOrFail();
+
+        $deliveryPeriod = trim((string) ($data['delivery_period'] ?? $pr->delivery_period ?? ''));
+        $paymentTerms = trim((string) ($data['payment_terms'] ?? $pr->payment_terms ?? ''));
+        $siteContactUserId = (int) ($data['site_contact_user_id'] ?? $pr->site_contact_user_id ?? 0);
+        if ($deliveryPeriod === '' || $paymentTerms === '' || $siteContactUserId <= 0) {
+            throw ValidationException::withMessages([
+                'delivery_period' => 'Missing purchasing verification terms. Please complete verify-to-purchasing step first.',
+            ]);
+        }
+
         $items = $pr->items->map(fn ($item) => [
-            'item_name'                => $item->title,
-            'description'              => $item->description,
-            'quantity'                 => $item->quantity,
-            'unit_price'               => $item->unit_price,
-            'total_amount'             => $item->quantity * $item->unit_price
+            'item_name' => $item->title,
+            'description' => $item->description,
+            'quantity' => $item->quantity,
+            'unit_price' => $item->unit_price,
+            'total_amount' => $item->quantity * $item->unit_price,
         ])->toArray();
 
-        // 3️⃣ call PR → PO service
         $po = $prToPo->createPO($pr, $quotation->supplier_id, $items, [
-                'terms'    => $quotation->terms ?? null,
-                'remark'   => 'Auto-created from approved PR',
-            ]
-        );
+            'terms'  => $quotation->terms ?? null,
+            'remark' => 'Auto-created from approved PR',
+            'delivery_period' => $deliveryPeriod,
+            'payment_terms' => $paymentTerms,
+            'site_contact_user_id' => $siteContactUserId,
+        ]);
+
+        $pr->update([
+            'status' => 'po',
+            'reviewer_remark' => $fromStatus === 'verified_purchasing_department'
+                ? $data['remark']
+                : $pr->reviewer_remark,
+            'approved_quotation_id' => $quotation->id,
+            'remark_log' => $this->appendRemarkLog(
+                existing: $pr->remark_log,
+                fromStatus: $fromStatus,
+                toStatus: 'po',
+                remark: $data['remark'],
+                userId: auth()->id(),
+                userName: (string) (auth()->user()?->name ?? 'System'),
+            ),
+        ]);
 
         return response()->json([
             'status'  => 'success',
-            'message' => 'Purchase request approved and purchase order created',
+            'message' => 'Purchase order created',
             'po_id'   => $po->id,
-        ]);    
-}
+        ]);
+    }
 
     public function destroy(Request $request, string $uuid)
     {
@@ -774,5 +1147,33 @@ class PurchaseRequestController extends Controller
     {
         return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
     }
+
+    private function isEditableStatus(string $status): bool
+    {
+        return in_array($status, ['draft', 'verified_own_department', 'verified_project_department', 'verified_purchasing_department'], true);
+    }
+
+    private function appendRemarkLog(
+        mixed $existing,
+        string $fromStatus,
+        string $toStatus,
+        ?string $remark,
+        ?int $userId,
+        string $userName,
+    ): array {
+        $log = is_array($existing) ? $existing : [];
+
+        $log[] = [
+            'from' => $fromStatus,
+            'to' => $toStatus,
+            'remark' => $remark,
+            'user_id' => $userId,
+            'user_name' => $userName,
+            'at' => now()->toDateTimeString(),
+        ];
+
+        return $log;
+    }
 }
+
 

@@ -2,7 +2,6 @@
 import { computed } from 'vue'
 import { useFormat } from '@/Composables/useFormat'
 import { amountToWords } from '@/helpers/string'
-import SignatureSection from '@/Components/Document/SignatureSection.vue'
 
 const { formatCurrency } = useFormat()
 
@@ -49,6 +48,21 @@ const lessTotal = computed(() =>
     lessPaidPreviously.value
 )
 const amountDue = computed(() => Math.max(amount.value - lessTotal.value, 0))
+const amountDueLabel = computed(() => props.slip.amount_due_label || 'Amount Due For Payment No.1')
+const paymentRecord = computed(() =>
+    props.invoice?.payments?.find((payment) => payment.payment_slip_no === props.slip?.slip_no) ?? null
+)
+const preparedBy = computed(() => props.slip?.creator?.name ?? props.invoice?.creator?.name ?? '-')
+const approvedBy = computed(() => props.slip?.approved_by?.name ?? '-')
+const paidBy = computed(() => paymentRecord.value?.created_by?.name ?? '-')
+
+function signatureUrl(user) {
+    if (!user) return null
+    if (user.signature) return user.signature
+    if (user.signature_url) return user.signature_url
+    if (user.signature_path) return `/storage/${String(user.signature_path).replace(/^\/+/, '')}`
+    return null
+}
 
 function formatLess(value) {
     return value > 0 ? formatCurrency(value) : '-'
@@ -177,7 +191,7 @@ function formatLess(value) {
                             </td>
                         </tr>
                         <tr class="font-semibold">
-                            <td class="border px-2 py-1">Amount Due For Payment No.1</td>
+                            <td class="border px-2 py-1">{{ amountDueLabel }}</td>
                             <td class="border px-2 py-1 text-right">
                                 {{ formatCurrency(amountDue) }}
                             </td>
@@ -207,19 +221,40 @@ function formatLess(value) {
             <div class="border-t border-gray-400 p-2 text-xs">
                 <div class="grid grid-cols-3 gap-6">
                     <div>
-                        <div class="mb-8 border-b"></div>
-                        <div>Prepared by:</div>
-                        <div class="text-gray-500">-</div>
+                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
+                            <img
+                                v-if="signatureUrl(slip.creator ?? invoice.creator)"
+                                :src="signatureUrl(slip.creator ?? invoice.creator)"
+                                alt="Prepared by signature"
+                                class="h-12 object-contain"
+                            />
+                        </div>
+                        <div class="font-medium">Prepared by</div>
+                        <div class="text-gray-500">{{ preparedBy }}</div>
                     </div>
                     <div>
-                        <div class="mb-8 border-b"></div>
-                        <div>Certified by:</div>
-                        <div class="text-gray-500">-</div>
+                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
+                            <img
+                                v-if="signatureUrl(slip.approved_by)"
+                                :src="signatureUrl(slip.approved_by)"
+                                alt="Approved by signature"
+                                class="h-12 object-contain"
+                            />
+                        </div>
+                        <div class="font-medium">Approved by</div>
+                        <div class="text-gray-500">{{ approvedBy }}</div>
                     </div>
                     <div>
-                        <div class="mb-8 border-b"></div>
-                        <div>Certified by / Approved by:</div>
-                        <div class="text-gray-500">-</div>
+                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
+                            <img
+                                v-if="signatureUrl(paymentRecord?.created_by)"
+                                :src="signatureUrl(paymentRecord?.created_by)"
+                                alt="Paid by signature"
+                                class="h-12 object-contain"
+                            />
+                        </div>
+                        <div class="font-medium">Paid by</div>
+                        <div class="text-gray-500">{{ paidBy }}</div>
                     </div>
                 </div>
                 <div class="mt-4 text-xs text-gray-500">
@@ -231,10 +266,5 @@ function formatLess(value) {
                 </div>
             </div>
         </div>
-
-        <SignatureSection
-            class="relative z-10"
-            title="Prepared Signature"
-        />
     </div>
 </template>

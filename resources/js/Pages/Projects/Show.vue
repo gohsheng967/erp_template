@@ -22,8 +22,7 @@ const tabs = [
     { key: "documentation", label: "Documentation" },
     { key: "accounting", label: "Accounting" },
     { key: "milestones", label: "Milestones" },
-    { key: "subcons", label: "Sub Con" },
-    { key: "subcon_tasks", label: "Sub Con's Task" },
+    { key: "subcons", label: "Sub Con & Tasks" },
 ];
 
 const tabStorageKey = `project-show-active-tab:${project.value.uuid}`
@@ -154,20 +153,20 @@ function toggleFinished() {
                     :project="project"
                 />
 
-                <SubConsTab
-                    v-if="activeTab === 'subcons'"
-                    :project="project"
-                    :project-sub-cons="page.props.projectSubCons"
-                    :sub-con-options="page.props.subConOptions"
-                    :bank-options="page.props.bankOptions"
-                />
+                <div v-if="activeTab === 'subcons'" class="space-y-6">
+                    <SubConsTab
+                        :project="project"
+                        :project-sub-cons="page.props.projectSubCons"
+                        :sub-con-options="page.props.subConOptions"
+                        :bank-options="page.props.bankOptions"
+                    />
 
-                <SubConTasksTab
-                    v-if="activeTab === 'subcon_tasks'"
-                    :project="project"
-                    :sub-cons="page.props.subCons"
-                    :sub-con-tasks="page.props.subConTasks"
-                />
+                    <SubConTasksTab
+                        :project="project"
+                        :sub-cons="page.props.subCons"
+                        :sub-con-tasks="page.props.subConTasks"
+                    />
+                </div>
             </div>
 
         </div>

@@ -33,6 +33,7 @@ use App\Http\Controllers\Project\MilestoneController;
 use App\Http\Controllers\Transactions\ClaimsController;
 use App\Http\Controllers\Transactions\PurchaseRequestController;
 use App\Http\Controllers\Transactions\PurchaseOrderController;
+use App\Http\Controllers\Transactions\DeliveryController;
 use App\Http\Controllers\Transactions\ArInvoiceController;
 use App\Http\Controllers\Transactions\ApInvoiceController;
 
@@ -136,6 +137,15 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
     Route::post('/payment-slips/{paymentSlip}/cancel', [PaymentSlipController::class, 'cancel'])
         ->middleware('branch.context')
         ->name('payment-slips.cancel');
+    Route::post('/payment-slips/{paymentSlip}/approve', [PaymentSlipController::class, 'approve'])
+        ->middleware('branch.context')
+        ->name('payment-slips.approve');
+    Route::post('/payment-slips/{paymentSlip}/reject', [PaymentSlipController::class, 'reject'])
+        ->middleware('branch.context')
+        ->name('payment-slips.reject');
+    Route::post('/payment-slips/{paymentSlip}/revert', [PaymentSlipController::class, 'revertToArrangement'])
+        ->middleware('branch.context')
+        ->name('payment-slips.revert');
 
 
     Route::get('/users', [UserController::class, 'index'])->name('users.index');
@@ -332,6 +342,10 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
 
     });
 
+    Route::get('/deliveries', [DeliveryController::class, 'index'])
+        ->middleware('branch.context')
+        ->name('deliveries.index');
+
     // ------------------------------
     // CLAIMS
     // ------------------------------
@@ -417,6 +431,7 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
 
         Route::get('/topups', [PettyCashTopupController::class, 'index'])->name('topups.index');
         Route::post('/topups', [PettyCashTopupController::class, 'store'])->name('topups.store');
+        Route::post('/topups/{topup}/verify', [PettyCashTopupController::class, 'verify'])->name('topups.verify');
         Route::post('/topups/{topup}/approve', [PettyCashTopupController::class, 'approve'])->name('topups.approve');
         Route::post('/topups/{topup}/reject', [PettyCashTopupController::class, 'reject'])->name('topups.reject');
         Route::post('/topups/{topup}/payment-slip', [PettyCashTopupController::class, 'paymentSlip'])

@@ -8,7 +8,7 @@ import { useFormat } from '@/Composables/useFormat'
 
 const { formatCurrency } = useFormat()
 
-const emit = defineEmits(['view'])
+const emit = defineEmits(['view', 'view-pr', 'delivery', 'payable', 'payment-slip'])
 
 const props = defineProps({
     prs: {
@@ -16,7 +16,7 @@ const props = defineProps({
         required: true,
     },
     status: {
-        type: String, // draft | submitted | approved | issued | rejected
+        type: String,
         required: true,
     },
 })
@@ -27,6 +27,7 @@ const props = defineProps({
 const columnsByStatus = {
     draft: [
         'title',
+        'project_linked',
         'total_amount',
         'items_count',
         'action',
@@ -35,32 +36,67 @@ const columnsByStatus = {
     submitted: [
         'pr_no',
         'title',
+        'project_linked',
         'requester',
         'total_amount',
         'submitted_at',
         'action',
     ],
 
-    approved: [
+    verified_own_department: [
         'pr_no',
         'title',
+        'project_linked',
         'requester',
         'total_amount',
-        'approved_by',
-        'approved_at',
+        'submitted_at',
         'action',
     ],
 
-    issued: [
+    verified_project_department: [
         'pr_no',
+        'title',
+        'project_linked',
+        'requester',
+        'total_amount',
+        'submitted_at',
+        'action',
+    ],
+
+    verified_purchasing_department: [
+        'pr_no',
+        'title',
+        'project_linked',
+        'requester',
+        'total_amount',
+        'submitted_at',
+        'action',
+    ],
+
+    po: [
+        'pr_no',
+        'project_linked',
         'po_no',
         'approved_quotation',
         'reviewer_remark',
+        'action',
+    ],
+
+    payment: [
+        'pr_no',
+        'project_linked',
+        'po_no',
+        'payment_status',
+        'requester',
+        'total_amount',
+        'approved_quotation',
+        'action',
     ],
 
     rejected: [
         'pr_no',
         'title',
+        'project_linked',
         'requester',
         'total_amount',
         'submitted_at',
@@ -71,7 +107,9 @@ const columnsByStatus = {
 const columnLabels = {
     pr_no: 'PR No',
     po_no: 'PO No',
+    payment_status: 'Payment Status',
     title: 'Title / Purpose',
+    project_linked: 'Project Linked',
     requester: 'Requested By',
     total_amount: 'Total Amount',
     items_count: 'Items',
@@ -139,11 +177,11 @@ function closeDelete() {
    ROW CLICK (ISSUED ONLY)
 ========================= */
 function onRowClick(pr) {
-    if (props.status !== 'issued') return
+    if (props.status !== 'po') return
     if (!pr.purchase_order?.uuid) return
 
     router.visit(
-        route('purchase-orders.show', pr.purchase_order.uuid)
+        route('purchase-orders.deliveries.index', pr.purchase_order.uuid)
     )
 }
 
@@ -165,8 +203,18 @@ function renderCell(row, col) {
         case 'reviewer_remark':
             return row.reviewer_remark ?? '-'
 
+        case 'payment_status':
+            return row.purchase_order?.ap_invoice?.status
+                ? String(row.purchase_order.ap_invoice.status).replaceAll('_', ' ')
+                : 'pending'
+
         case 'title':
             return row.title
+
+        case 'project_linked':
+            return row.project?.name
+                ? `Yes (${row.project.name})`
+                : 'No'
 
         case 'requester':
             return row.requester?.name ?? '-'
@@ -221,7 +269,7 @@ function renderCell(row, col) {
                     :class="[
                         'border-t',
                         rowClass(),
-                        status === 'issued'
+                        (status === 'po' || status === 'payment')
                             ? 'cursor-pointer hover:bg-indigo-50'
                             : ''
                     ]"
@@ -243,6 +291,10 @@ function renderCell(row, col) {
                             :status="status"
                             @delete="askDelete"
                             @view="emit('view', $event)"
+                            @view-pr="emit('view-pr', $event)"
+                            @delivery="emit('delivery', $event)"
+                            @payable="emit('payable', $event)"
+                            @payment-slip="emit('payment-slip', $event)"
                         />
 
                         <!-- APPROVED QUOTATION ICON -->
@@ -263,6 +315,19 @@ function renderCell(row, col) {
                             class="text-gray-400"
                         >
                             -
+                        </span>
+
+                        <span
+                            v-else-if="col === 'payment_status'"
+                            class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold capitalize"
+                            :class="{
+                                'bg-amber-100 text-amber-800': renderCell(pr, col) === 'pending',
+                                'bg-blue-100 text-blue-800': renderCell(pr, col) === 'confirmed',
+                                'bg-indigo-100 text-indigo-800': renderCell(pr, col) === 'partially paid',
+                                'bg-green-100 text-green-800': renderCell(pr, col) === 'paid',
+                            }"
+                        >
+                            {{ renderCell(pr, col) }}
                         </span>
 
                         <!-- NORMAL CELLS -->

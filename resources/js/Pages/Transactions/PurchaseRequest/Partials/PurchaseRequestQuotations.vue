@@ -82,19 +82,7 @@ watch(selectedSupplierId, async (supplierUuid) => {
 
     if (!supplierUuid) return
 
-    try {
-        const res = await axios.get(
-            route('purchase-request.quotations', {
-                uuid: props.pr.uuid,
-                supplier_uuid: supplierUuid,
-            })
-        )
-
-        availableQuotations.value = res.data ?? []
-    } catch (e) {
-        console.error(e)
-        toast?.value?.show('Failed to load quotations', 'error')
-    }
+    await loadSupplierQuotations(supplierUuid)
 })
 
 /* =========================
@@ -156,17 +144,10 @@ async function attachQuotation() {
 
         toast?.value?.show('Quotation attached successfully', 'success')
 
-        // reset
-        selectedSupplierId.value = null
-        selectedQuotationId.value = null
-        quotationFile.value = null
-        quotationForm.value = {
-            quotation_no: '',
-            amount: null,
-            delivery_time: null,
-            terms: '',
+        resetQuotationDraft()
+        if (selectedSupplierId.value) {
+            await loadSupplierQuotations(selectedSupplierId.value)
         }
-        availableQuotations.value = []
 
         router.reload({
             only: ['pr'],
@@ -174,7 +155,8 @@ async function attachQuotation() {
         })
     } catch (e) {
         console.error(e)
-        toast?.value?.show(e, 'error')
+        const message = e?.response?.data?.message ?? 'Failed to attach quotation'
+        toast?.value?.show(message, 'error')
     }
 }
 
@@ -227,11 +209,44 @@ function triggerFilePicker() {
 
 function clearFile() {
     quotationFile.value = null
+    if (fileInputRef.value) {
+        fileInputRef.value.value = ''
+    }
+}
+
+async function loadSupplierQuotations(supplierUuid) {
+    try {
+        const res = await axios.get(
+            route('purchase-request.quotations', {
+                uuid: props.pr.uuid,
+                supplier_uuid: supplierUuid,
+            })
+        )
+        availableQuotations.value = res.data ?? []
+    } catch (e) {
+        console.error(e)
+        toast?.value?.show('Failed to load quotations', 'error')
+    }
+}
+
+function resetQuotationDraft() {
+    selectedQuotationId.value = null
+    quotationFile.value = null
+    quotationForm.value = {
+        quotation_no: '',
+        amount: null,
+        delivery_time: null,
+        terms: '',
+    }
+
+    if (fileInputRef.value) {
+        fileInputRef.value.value = ''
+    }
 }
 </script>
 
 <template>
-<section class="bg-white rounded-lg shadow border p-6 space-y-6">
+<section class="bg-white rounded-lg shadow border p-6 space-y-6 flex flex-col">
 
     <!-- HEADER -->
     <div class="flex justify-between items-center">
@@ -251,7 +266,7 @@ function clearFile() {
     <!-- ATTACH -->
     <div
         v-if="isDraft"
-        class="border rounded-lg p-4 bg-gray-50 space-y-5"
+        class="border rounded-lg p-4 bg-gray-50 space-y-5 order-2"
     >
         <!-- SUPPLIER -->
         <div>
@@ -406,7 +421,7 @@ function clearFile() {
     </div>
 
     <!-- LIST -->
-    <div v-if="quotations.length">
+    <div v-if="quotations.length" class="order-1">
         <table class="min-w-full text-sm border">
             <thead class="bg-gray-100">
                 <tr>
@@ -452,7 +467,7 @@ function clearFile() {
         </table>
     </div>
 
-    <div v-else class="text-sm text-gray-400">
+    <div v-else class="text-sm text-gray-400 order-1">
         No quotations attached
     </div>
 

@@ -106,6 +106,20 @@ const deliveryPercent = computed(() => {
 })
 
 const isFullyDelivered = computed(() => deliveryPercent.value >= 100)
+const sortedDeliveries = computed(() =>
+    [...props.deliveries].sort((a, b) => {
+        const ad = new Date(a.delivery_date ?? a.created_at ?? 0).getTime()
+        const bd = new Date(b.delivery_date ?? b.created_at ?? 0).getTime()
+        return bd - ad
+    })
+)
+const latestDelivery = computed(() => sortedDeliveries.value[0] ?? null)
+const isDueAlert = computed(() => {
+    const row = latestDelivery.value
+    if (!row || row.status !== 'preparation' || !row.eod_date) return false
+    const today = new Date().toISOString().slice(0, 10)
+    return today >= row.eod_date
+})
 
 function fileIcon(file) {
     const name = file.original_name?.toLowerCase() || ''
@@ -212,6 +226,14 @@ function fileIcon(file) {
                 </div>
             </div>
 
+            <div
+                v-if="isDueAlert"
+                class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            >
+                EOD alert: latest status is in preparation and has reached/passed EOD date
+                ({{ latestDelivery?.eod_date }}). Update next progress status.
+            </div>
+
             <!-- TIMELINE -->
             <div class="bg-white border rounded-xl p-6">
                 <div class="relative border-l border-gray-200 ml-6 space-y-10">
@@ -243,6 +265,7 @@ function fileIcon(file) {
                                    w-7 h-7 rounded-full
                                    flex items-center justify-center shadow"
                             :class="{
+                                'bg-amber-500': delivery.status === 'preparation',
                                 'bg-blue-500': delivery.status === 'transit',
                                 'bg-green-500': delivery.status === 'warehouse',
                                 'bg-red-500': delivery.status === 'returned',
@@ -275,12 +298,16 @@ function fileIcon(file) {
                                         <span
                                             class="text-xs px-2 py-0.5 rounded-full font-medium"
                                             :class="{
+                                                'bg-amber-100 text-amber-700': delivery.status === 'preparation',
                                                 'bg-blue-100 text-blue-700': delivery.status === 'transit',
                                                 'bg-green-100 text-green-700': delivery.status === 'warehouse',
                                                 'bg-red-100 text-red-700': delivery.status === 'returned',
                                             }"
                                         >
                                             {{ delivery.status.toUpperCase() }}
+                                        </span>
+                                        <span v-if="delivery.eod_date" class="text-xs text-gray-500">
+                                            EOD: {{ formatDate(delivery.eod_date) }}
                                         </span>
                                     </div>
                                 </div>

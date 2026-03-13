@@ -732,6 +732,9 @@ class ClaimsController extends Controller
                 'paid_by'      => auth()->id(),
             ]);
 
+            $slip->workflow_status = 'paid';
+            $slip->save();
+
             return response()->json([
                 'success' => true,
             ]);
@@ -789,6 +792,12 @@ class ClaimsController extends Controller
         $slip->less_material_ob_label = $request->input('less_material_ob_label');
         $slip->less_paid_previously = $request->input('less_paid_previously');
         $slip->less_paid_previously_label = $request->input('less_paid_previously_label');
+        $slip->workflow_status = 'processing';
+        $slip->approved_at = null;
+        $slip->approved_by = null;
+        $slip->rejected_at = null;
+        $slip->rejected_by = null;
+        $slip->rejected_reason = null;
         $slip->payment_slip_remark = $request->input('payment_slip_remark');
         $slip->remark_label = $request->input('remark_label');
         $slip->created_by = $request->user()->id;

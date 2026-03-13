@@ -88,11 +88,11 @@ const activeTab = ref('overview')
 
                             <span
                                 class="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full"
-                                :class="supplier.status
+                                :class="supplier.status === 'active'
                                     ? 'bg-green-100 text-green-700'
                                     : 'bg-red-100 text-red-700'"
                             >
-                                {{ supplier.status ? 'Active' : 'Inactive' }}
+                                {{ supplier.status === 'active' ? 'Active' : 'Inactive' }}
                             </span>
                         </div>
 
@@ -116,7 +116,7 @@ const activeTab = ref('overview')
                             <div>
                                 <p class="text-gray-500">Phone</p>
                                 <p class="font-medium text-gray-800">
-                                    {{ supplier.contact_number || '-' }}
+                                    {{ supplier.contact_phone || '-' }}
                                 </p>
                             </div>
 

@@ -352,7 +352,7 @@ function toggleWidget(id) {
                 <ul class="space-y-1">
                   <li v-for="pr in q.purchase_requests" :key="pr.id">
                     <Link
-                      :href="route('purchase-request.show', pr.id)"
+                      :href="route('purchase-request.show', pr.uuid)"
                       target="_blank"
                       class="text-indigo-600 hover:underline text-sm"
                     >

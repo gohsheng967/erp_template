@@ -16,6 +16,7 @@ use App\Models\PurchaseOrder;
 use App\Models\PurchaseRequest;
 use App\Models\ArInvoice;
 use App\Models\PettyCashTopup;
+use App\Models\PettyCashWallet;
 use App\Models\SubCon;
 use App\Models\SubConTask;
 
@@ -453,7 +454,14 @@ class ProjectController extends Controller
             ->whereIn('status', ['approved', 'ceo_approved', 'paid'])
             ->sum('total_amount');
 
-        $expenseUsed = 0;
+        $expenseBaseQuery = PettyCashTopup::query()
+            ->whereHas('wallet', function ($query) use ($project) {
+                $query->where('context_type', 'project')
+                    ->where('context_id', $project->id);
+            })
+            ->whereIn('status', ['approved', 'paid']);
+
+        $expenseUsed = (float) (clone $expenseBaseQuery)->sum('amount');
 
         $used = $purchaseOrderUsed + $claimUsed + $expenseUsed;
         $total = (float) ($project->budget ?? 0);
@@ -472,7 +480,9 @@ class ProjectController extends Controller
             'label'  => $po->code ?? 'PO #' . $po->id,
             'amount' => (float) $po->total_amount,
             'type'   => 'purchase_order',
-        ]);
+        ])
+        ->values()
+        ->all();
 
         $claimCosts  = $project->claims()
             ->whereIn('status', ['approved', 'ceo_approved', 'paid'])
@@ -486,10 +496,28 @@ class ProjectController extends Controller
                     ?? 'Claim #' . $claim->id,
                 'amount' => (float) $claim->total_amount,
                 'type' => 'claim',
-            ]);
+            ])
+            ->values()
+            ->all();
 
-        $topCosts = $poCosts
+        $expenseCosts = (clone $expenseBaseQuery)
+            ->orderByDesc('amount')
+            ->limit(5)
+            ->get()
+            ->map(fn ($topup) => [
+                'id' => $topup->id,
+                'label' => $topup->topup_no
+                    ?? $topup->reason
+                    ?? 'Expense #' . $topup->id,
+                'amount' => (float) $topup->amount,
+                'type' => 'expense',
+            ])
+            ->values()
+            ->all();
+
+        $topCosts = collect($poCosts)
             ->merge($claimCosts)
+            ->merge($expenseCosts)
             ->sortByDesc('amount')
             ->take(10)
             ->values();
@@ -667,19 +695,20 @@ class ProjectController extends Controller
         ->sum('total_amount');
 
         // =========================
-        // PENDING PR LIST
+        // RECENT PO LIST
         // =========================
-        $pendingPRs = $project->purchaseRequests()
-            ->whereIn('status', ['draft', 'submitted'])
+        $purchaseOrders = PurchaseOrder::query()
+            ->whereHas('purchaseRequest', fn ($query) => $query->where('project_id', $project->id))
             ->latest()
             ->limit(5)
             ->get()
-            ->map(fn ($pr) => [
-                'id'         => $pr->id,
-                'uuid'       => $pr->uuid,
-                'title'      => $pr->title,
-                'status'     => $pr->status,
-                'created_at' => $pr->created_at->toDateString(),
+            ->map(fn ($po) => [
+                'id' => $po->id,
+                'uuid' => $po->uuid,
+                'code' => $po->code ?? ('PO #' . $po->id),
+                'status' => $po->status,
+                'total_amount' => (float) $po->total_amount,
+                'created_at' => optional($po->created_at)?->toDateString(),
             ]);
 
         return response()->json([
@@ -687,7 +716,7 @@ class ProjectController extends Controller
                 'pending_approval' => $pendingApproval,
                 'total_po_amount'  => $confirmedPOAmount,
             ],
-            'pending_requests' => $pendingPRs,
+            'purchase_orders' => $purchaseOrders,
         ]);
     }
 
@@ -784,9 +813,41 @@ class ProjectController extends Controller
             ->paginate(10)
             ->withQueryString();
 
+        $projectWallets = PettyCashWallet::query()
+            ->where('context_type', 'project')
+            ->where('context_id', $project->id)
+            ->orderByDesc('id')
+            ->get(['id', 'uuid', 'current_balance']);
+
+        $walletCount = $projectWallets->count();
+
+        $latestHolderTopups = PettyCashTopup::query()
+            ->whereIn('wallet_id', $projectWallets->pluck('id'))
+            ->whereIn('status', ['approved', 'paid'])
+            ->with('requester:id,name')
+            ->orderByDesc('paid_at')
+            ->orderByDesc('approved_at')
+            ->orderByDesc('id')
+            ->get()
+            ->unique('wallet_id')
+            ->keyBy('wallet_id');
+
+        $walletSummaries = $projectWallets->map(function ($wallet) use ($latestHolderTopups) {
+            $holderTopup = $latestHolderTopups->get($wallet->id);
+
+            return [
+                'id' => $wallet->id,
+                'uuid' => $wallet->uuid,
+                'current_balance' => (float) $wallet->current_balance,
+                'holder_name' => $holderTopup?->requester?->name,
+            ];
+        })->values();
+
         return response()->json([
             'topups' => $topups,
             'counts' => $counts,
+            'wallet_count' => $walletCount,
+            'wallet_summaries' => $walletSummaries,
         ]);
     }
 

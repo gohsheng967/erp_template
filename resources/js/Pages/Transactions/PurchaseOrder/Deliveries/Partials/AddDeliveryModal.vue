@@ -18,9 +18,10 @@ const submitting = ref(false)
 
 const form = ref({
     delivery_date: new Date().toISOString().slice(0, 10),
+    eod_date: '',
     title: '',
     description: '',
-    status: 'transit',      // ✅ default
+    status: 'preparation',
     delivery_type: 'partial',
     warehouse_id: '',
     items: [],
@@ -74,6 +75,7 @@ function formatSize(bytes) {
 ====================== */
 const canSubmit = computed(() => {
     if (!form.value.title) return false
+    if (form.value.status === 'preparation' && !form.value.eod_date) return false
 
     if (form.value.status === 'warehouse') {
         return (
@@ -97,6 +99,7 @@ async function submit() {
         const fd = new FormData()
 
         fd.append('delivery_date', form.value.delivery_date)
+        fd.append('eod_date', form.value.eod_date || '')
         fd.append('title', form.value.title)
         fd.append('description', form.value.description)
         fd.append('status', form.value.status)
@@ -172,11 +175,24 @@ async function submit() {
                         v-model="form.status"
                         class="w-full border rounded px-2 py-1 text-sm"
                     >
+                        <option value="preparation">Preparation</option>
                         <option value="transit">Transit</option>
                         <option value="warehouse">Warehouse / Office</option>
                         <option value="returned">Returned</option>
                     </select>
                 </div>
+            </div>
+
+            <div v-if="form.status === 'preparation'">
+                <label class="text-xs text-gray-500">EOD Date</label>
+                <input
+                    type="date"
+                    v-model="form.eod_date"
+                    class="w-full border rounded px-2 py-1 text-sm"
+                />
+                <p class="text-xs text-amber-600 mt-1">
+                    Alert will trigger on due date until next progress is updated.
+                </p>
             </div>
 
             <div>
@@ -348,3 +364,4 @@ async function submit() {
         </div>
     </div>
 </template>
+

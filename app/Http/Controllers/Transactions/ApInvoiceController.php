@@ -5,6 +5,7 @@ use App\Http\Controllers\Controller;
 
 use App\Models\ApInvoice;
 use App\Models\PurchaseOrder;
+use App\Models\PurchaseRequest;
 use App\Models\ApInvoicePayment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -30,6 +31,7 @@ class ApInvoiceController extends Controller
             'due_date'          => 'required|date|after_or_equal:invoice_date',
             'invoice_amount'    => 'required|numeric|min:0.01',
             'remarks'           => 'nullable|string',
+            'document'          => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ]);
 
         DB::transaction(function () use ($request) {
@@ -48,6 +50,16 @@ class ApInvoiceController extends Controller
             if (!$po->confirmed_at) {
                 throw ValidationException::withMessages([
                     'purchase_order_id' => 'PO must be confirmed before invoicing.',
+                ]);
+            }
+
+            $existingActiveAp = ApInvoice::where('purchase_order_id', $po->id)
+                ->whereNotIn('status', ['cancelled'])
+                ->exists();
+
+            if ($existingActiveAp) {
+                throw ValidationException::withMessages([
+                    'purchase_order_id' => 'Only one AP invoice is allowed per PO.',
                 ]);
             }
 
@@ -86,6 +98,13 @@ class ApInvoiceController extends Controller
                 'remarks'           => $request->remarks,
                 'created_by'        => auth()->id(),
             ]);
+
+            // Once payable is created, PR moves to payment tracking stage.
+            if ($po->purchase_request_id) {
+                PurchaseRequest::where('id', $po->purchase_request_id)
+                    ->where('status', 'po')
+                    ->update(['status' => 'payment']);
+            }
 
             AttachmentService::store(
                 $request->file('document'),
@@ -253,6 +272,7 @@ class ApInvoiceController extends Controller
             'less_recoupment' => ['nullable', 'numeric', 'min:0'],
             'less_material_ob' => ['nullable', 'numeric', 'min:0'],
             'less_paid_previously' => ['nullable', 'numeric', 'min:0'],
+            'amount_due_label' => ['nullable', 'string', 'max:255'],
             'payment_slip_remark' => ['nullable', 'string', 'max:255'],
         ]);
 
@@ -327,6 +347,9 @@ class ApInvoiceController extends Controller
             } else {
                 $invoice->status = 'partially_paid';
             }
+
+            $slip->workflow_status = 'paid';
+            $slip->save();
 
             $invoice->save();
         });
@@ -590,6 +613,13 @@ class ApInvoiceController extends Controller
         $slip->less_recoupment = $request->less_recoupment;
         $slip->less_material_ob = $request->less_material_ob;
         $slip->less_paid_previously = $request->less_paid_previously;
+        $slip->amount_due_label = $request->amount_due_label;
+        $slip->workflow_status = 'processing';
+        $slip->approved_at = null;
+        $slip->approved_by = null;
+        $slip->rejected_at = null;
+        $slip->rejected_by = null;
+        $slip->rejected_reason = null;
         $slip->payment_slip_remark = $request->payment_slip_remark;
         $slip->created_by = $request->user()->id;
         $slip->save();

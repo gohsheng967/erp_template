@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, ref } from 'vue'
+import { computed } from 'vue'
 import { usePage } from '@inertiajs/vue3'
 import PaymentSlipA4 from './PaymentSlipA4.vue'
 
@@ -12,17 +12,9 @@ const emit = defineEmits(['close'])
 
 const page = usePage()
 const company = computed(() => page.props.company ?? null)
-const printing = ref(false)
 
 function printPage() {
-    printing.value = true
-
-    nextTick(() => {
-        requestAnimationFrame(() => {
-            window.print()
-            printing.value = false
-        })
-    })
+    window.print()
 }
 
 function closeModal() {
@@ -52,18 +44,10 @@ function closeModal() {
             <div class="flex h-[calc(100%-56px)] gap-6 p-6">
                 <div class="flex-1 overflow-auto">
                     <PaymentSlipA4
-                        v-if="slip && !printing"
+                        v-if="slip"
                         :slip="slip"
                         :company="company"
                     />
-
-                    <Teleport to="body">
-                        <PaymentSlipA4
-                            v-if="slip && printing"
-                            :slip="slip"
-                            :company="company"
-                        />
-                    </Teleport>
                 </div>
             </div>
         </div>

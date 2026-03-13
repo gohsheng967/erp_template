@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, nextTick, ref } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { router, usePage } from '@inertiajs/vue3'
 import TopupApprovalA4 from './TopupApprovalA4.vue'
 import { useFormat } from '@/Composables/useFormat'
@@ -16,19 +16,24 @@ const emit = defineEmits(['close', 'approved'])
 
 const page = usePage()
 const company = computed(() => page.props.company ?? null)
-const printing = ref(false)
 const submitting = ref(false)
 const rejectReason = ref('')
+const statusLabel = computed(() => {
+    if (!props.topup?.status) return '-'
+    if (props.topup.status === 'verified_own_department') return 'Own Dept Verified'
+    if (props.topup.status === 'verified_project_department') return 'Project Dept Verified'
+    if (props.topup.status === 'approved') return 'CEO / GM Approved'
+    return capitalize(props.topup.status)
+})
+const verifyButtonLabel = computed(() => {
+    if (props.topup?.wallet?.context_type === 'project') {
+        return 'Project Dept Verified'
+    }
+    return 'Own Dept Verified'
+})
 
 function printPage() {
-    printing.value = true
-
-    nextTick(() => {
-        requestAnimationFrame(() => {
-            window.print()
-            printing.value = false
-        })
-    })
+    window.print()
 }
 
 function closeModal() {
@@ -47,6 +52,28 @@ function approveTopup() {
             preserveScroll: true,
             onSuccess: () => {
                 toast?.value?.show('Top-up approved')
+                emit('approved')
+                closeModal()
+            },
+            onFinish: () => {
+                submitting.value = false
+            },
+        }
+    )
+}
+
+function verifyTopup() {
+    if (!props.topup) return
+
+    submitting.value = true
+
+    router.post(
+        route('petty-cash.topups.verify', props.topup.id),
+        {},
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                toast?.value?.show('Top-up verified by own department')
                 emit('approved')
                 closeModal()
             },
@@ -104,18 +131,10 @@ function rejectTopup() {
             <div class="flex h-[calc(100%-56px)] gap-6 p-6">
                 <div class="flex-1 overflow-auto">
                     <TopupApprovalA4
-                        v-if="topup && !printing"
+                        v-if="topup"
                         :topup="topup"
                         :company="company"
                     />
-
-                    <Teleport to="body">
-                        <TopupApprovalA4
-                            v-if="topup && printing"
-                            :topup="topup"
-                            :company="company"
-                        />
-                    </Teleport>
                 </div>
 
                 <div
@@ -124,8 +143,8 @@ function rejectTopup() {
                 >
                     <div>
                         <div class="text-xs text-gray-500">Status</div>
-                        <div class="font-semibold uppercase">
-                            {{ capitalize(topup.status ?? '') }}
+                        <div class="font-semibold">
+                            {{ statusLabel }}
                         </div>
                     </div>
 
@@ -150,13 +169,22 @@ function rejectTopup() {
 
                     <hr class="my-4">
 
-                    <div v-if="topup.status === 'requested'" class="space-y-3">
+                    <div v-if="topup.status === 'requested' || topup.status === 'verified_own_department' || topup.status === 'verified_project_department'" class="space-y-3">
                         <button
+                            v-if="topup.status === 'requested'"
+                            class="w-full py-2 bg-indigo-600 text-white rounded disabled:opacity-40"
+                            :disabled="submitting"
+                            @click="verifyTopup"
+                        >
+                            {{ verifyButtonLabel }}
+                        </button>
+                        <button
+                            v-if="topup.status === 'verified_own_department' || topup.status === 'verified_project_department'"
                             class="w-full py-2 bg-green-600 text-white rounded disabled:opacity-40"
                             :disabled="submitting"
                             @click="approveTopup"
                         >
-                            Approve
+                            CEO / GM Approved
                         </button>
                         <div class="space-y-2">
                             <label class="text-xs text-gray-500">Rejection Reason</label>

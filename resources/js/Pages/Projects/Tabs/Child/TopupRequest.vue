@@ -2,6 +2,7 @@
 import { computed, inject, onMounted, ref, watch } from 'vue'
 import { router } from '@inertiajs/vue3'
 import axios from 'axios'
+import { useFormat } from '@/Composables/useFormat'
 import TopupTable from '@/Pages/PettyCash/Topups/Partials/TopupsTable.vue'
 import CreateTopupModal from '@/Pages/PettyCash/Topups/Partials/CreateTopupModal.vue'
 import TopupApprovalModal from '@/Pages/PettyCash/Topups/Partials/TopupApprovalModal.vue'
@@ -20,6 +21,7 @@ const props = defineProps({
 })
 
 const toast = inject('toast', null)
+const { formatCurrency } = useFormat()
 
 const tabs = [
     { key: 'requested', label: 'Requested', badge: true },
@@ -32,6 +34,8 @@ const activeTab = ref('requested')
 const loading = ref(true)
 const topups = ref({ data: [], links: [] })
 const counts = ref({})
+const walletCount = ref(0)
+const walletSummaries = ref([])
 
 const showCreateModal = ref(false)
 const showApproveModal = ref(false)
@@ -63,6 +67,8 @@ async function loadTopups(url = null) {
 
         topups.value = response.data.topups
         counts.value = response.data.counts ?? {}
+        walletCount.value = response.data.wallet_count ?? 0
+        walletSummaries.value = response.data.wallet_summaries ?? []
     } catch (error) {
         console.error(error)
         toast?.value?.show('Failed to load top-up requests', 'error')
@@ -148,6 +154,9 @@ watch(activeTab, () => loadTopups())
                 <p class="text-sm text-gray-500">
                     Submit and track petty cash top-ups for this project
                 </p>
+                <p class="text-xs text-gray-500 mt-1">
+                    {{ walletCount }} wallet{{ walletCount === 1 ? '' : 's' }} bound to this project
+                </p>
             </div>
 
             <button
@@ -157,6 +166,22 @@ watch(activeTab, () => loadTopups())
             >
                 New Top-Up Request
             </button>
+        </div>
+
+        <div v-if="walletSummaries.length" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div
+                v-for="wallet in walletSummaries"
+                :key="wallet.id"
+                class="bg-white rounded border p-3"
+            >
+                <div class="text-xs text-gray-500">Wallet #{{ wallet.id }}</div>
+                <div class="text-sm font-semibold text-gray-800 mt-1">
+                    Balance: {{ formatCurrency(wallet.current_balance) }}
+                </div>
+                <div class="text-xs text-gray-600 mt-1">
+                    Holding: {{ wallet.holder_name ?? 'Unassigned' }}
+                </div>
+            </div>
         </div>
 
         <div class="bg-white rounded shadow border px-4">

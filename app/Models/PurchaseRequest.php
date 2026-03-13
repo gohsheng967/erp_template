@@ -21,8 +21,16 @@ class PurchaseRequest extends Model
         'requester_remark',
         'reviewer',
         'reviewer_remark',
+        'remark_log',
         'required_date',
-        'approved_at'
+        'approved_at',
+        'delivery_period',
+        'payment_terms',
+        'site_contact_user_id',
+    ];
+
+    protected $casts = [
+        'remark_log' => 'array',
     ];
     
     protected static function booted()
@@ -63,6 +71,11 @@ class PurchaseRequest extends Model
     public function approver()
     {
         return $this->belongsTo(User::class, 'reviewer');
+    }
+
+    public function siteContact()
+    {
+        return $this->belongsTo(User::class, 'site_contact_user_id');
     }
 
     public function items()

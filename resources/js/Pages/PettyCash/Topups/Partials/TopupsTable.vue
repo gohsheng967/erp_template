@@ -28,7 +28,7 @@ const props = defineProps({
         required: true,
     },
     status: {
-        type: String, // requested | approved | paid
+        type: String, // requested | verified_own_department | verified_project_department | rejected | payment
         required: true,
     },
 })
@@ -46,12 +46,21 @@ const columnsByStatus = {
         'action',
     ],
 
-    approved: [
+    verified_own_department: [
         'topup_no',
         'wallet',
         'amount',
-        'approved_by',
-        'approved_at',
+        'verified_by',
+        'verified_at',
+        'action',
+    ],
+
+    verified_project_department: [
+        'topup_no',
+        'wallet',
+        'amount',
+        'verified_by',
+        'verified_at',
         'action',
     ],
 
@@ -63,12 +72,13 @@ const columnsByStatus = {
         'rejected_at',
     ],
 
-    paid: [
+    payment: [
         'topup_no',
         'wallet',
         'amount',
-        'paid_by',
-        'paid_at',
+        'approved_by',
+        'approved_at',
+        'payment_status',
         'payment_ref_no',
         'voucher',
     ],
@@ -81,12 +91,13 @@ const columnLabels = {
     amount: 'Amount',
     requested_by: 'Requested By',
     requested_at: 'Requested At',
-    approved_by: 'Approved By',
-    approved_at: 'Approved At',
+    approved_by: 'CEO / GM Approved By',
+    approved_at: 'CEO / GM Approved At',
+    verified_by: 'Own Dept Verified By',
+    verified_at: 'Own Dept Verified At',
     rejected_by: 'Rejected By',
     rejected_at: 'Rejected At',
-    paid_by: 'Paid By',
-    paid_at: 'Paid At',
+    payment_status: 'Payment Status',
     voucher: 'Voucher',
     payment_ref_no: 'Payment Ref No',
     action: 'Action',
@@ -119,8 +130,8 @@ function renderCell(row, col) {
         case 'approved_by':
             return row.approver?.name ?? '-'
 
-        case 'paid_by':
-            return row.payer?.name ?? '-'
+        case 'verified_by':
+            return row.verifier?.name ?? '-'
 
         case 'requested_at':
             return row.created_at
@@ -132,6 +143,11 @@ function renderCell(row, col) {
                 ? formatDateTime(row.approved_at)
                 : '-'
 
+        case 'verified_at':
+            return row.verified_at
+                ? formatDateTime(row.verified_at)
+                : '-'
+
         case 'rejected_by':
             return row.rejector?.name ?? '-'
 
@@ -140,10 +156,8 @@ function renderCell(row, col) {
                 ? formatDateTime(row.rejected_at)
                 : '-'
 
-        case 'paid_at':
-            return row.paid_at
-                ? formatDateTime(row.paid_at)
-                : '-'
+        case 'payment_status':
+            return row.status === 'paid' ? 'Paid' : 'Pending'
 
         case 'payment_ref_no':
             return row.payment_ref_no ?? '-'
@@ -197,7 +211,16 @@ function renderCell(row, col) {
                             <button
                                 v-if="status === 'requested'"
                                 class="text-indigo-600 hover:text-indigo-800"
-                                title="Approve"
+                                :title="topup.wallet?.context_type === 'project' ? 'Project Dept Verified' : 'Own Dept Verified'"
+                                @click="emit('approve', topup)"
+                            >
+                                <i class="mdi mdi-check-decagram-outline text-lg"></i>
+                            </button>
+
+                            <button
+                                v-if="status === 'verified_own_department' || status === 'verified_project_department'"
+                                class="text-indigo-600 hover:text-indigo-800"
+                                title="CEO / GM Approved"
                                 @click="emit('approve', topup)"
                             >
                                 <i class="mdi mdi-check-circle-outline text-lg"></i>
@@ -205,7 +228,7 @@ function renderCell(row, col) {
 
                             <!-- PAY -->
                             <button
-                                v-if="status === 'approved'"
+                                v-if="status === 'payment' && topup.status === 'approved'"
                                 class="text-green-600 hover:text-green-800"
                                 title="Pay"
                                 @click="emit('pay', topup)"
@@ -231,8 +254,8 @@ function renderCell(row, col) {
                         <!-- ================= VOUCHER ================= -->
                         <template v-else-if="col === 'voucher'">
                             <Link
-                                v-if="topup.attachment.url"
-                                :href="topup.attachment.url"
+                                v-if="topup.attachment?.url"
+                                :href="topup.attachment?.url"
                                 target="_blank"
                                 title="View Voucher"
                                 class="text-gray-600 hover:text-gray-800"

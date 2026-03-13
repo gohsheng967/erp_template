@@ -8,6 +8,10 @@ use Str;
 class PurchaseDelivery extends Model
 {
     protected $guarded = [];
+    protected $casts = [
+        'delivery_date' => 'date',
+        'eod_date' => 'date',
+    ];
 
     protected static function booted()
     {

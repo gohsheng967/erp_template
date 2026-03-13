@@ -18,6 +18,9 @@ const props = defineProps({
 
 const watermark = computed(() => {
     switch (props.topup.status) {
+        case 'verified_own_department':
+        case 'verified_project_department':
+            return { text: 'VERIFIED', color: 'rgba(37,99,235,0.15)' }
         case 'approved':
             return { text: 'APPROVED', color: 'rgba(34,197,94,0.15)' }
         case 'rejected':
@@ -34,6 +37,28 @@ const walletLabel = computed(() => {
         return 'Office'
     }
     return props.topup.wallet?.project?.name ?? 'Project'
+})
+
+const statusLabel = computed(() => {
+    switch (props.topup.status) {
+        case 'verified_own_department':
+            return 'Own Dept Verified'
+        case 'verified_project_department':
+            return 'Project Dept Verified'
+        case 'approved':
+            return 'CEO / GM Approved'
+        case 'paid':
+            return 'Payment Completed'
+        default:
+            return capitalize(props.topup.status ?? '')
+    }
+})
+
+const verifiedByLabel = computed(() => {
+    if (props.topup.status === 'verified_project_department' || props.topup.wallet?.context_type === 'project') {
+        return 'Project Dept Verified By'
+    }
+    return 'Own Dept Verified By'
 })
 </script>
 
@@ -86,7 +111,7 @@ const walletLabel = computed(() => {
                 <div class="text-xs mt-1">
                     Status:
                     <span class="font-semibold uppercase">
-                        {{ capitalize(topup.status ?? '') }}
+                        {{ statusLabel }}
                     </span>
                 </div>
             </div>
@@ -140,7 +165,7 @@ const walletLabel = computed(() => {
             </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-x-12 gap-y-2 mb-6 relative z-10">
+        <div class="grid grid-cols-3 gap-x-8 gap-y-2 mb-6 relative z-10">
             <div>
                 <div class="mb-8 border-b-2 border-gray-300"></div>
                 <div>Requested By</div>
@@ -154,7 +179,18 @@ const walletLabel = computed(() => {
 
             <div>
                 <div class="mb-8 border-b-2 border-gray-300"></div>
-                <div>Approved By</div>
+                <div>{{ verifiedByLabel }}</div>
+                <div class="text-xs text-gray-500">
+                    {{ topup.verifier?.name ?? '-' }}
+                </div>
+                <div class="text-xs text-gray-500">
+                    {{ topup.verified_at ? formatDateTime(topup.verified_at) : '-' }}
+                </div>
+            </div>
+
+            <div>
+                <div class="mb-8 border-b-2 border-gray-300"></div>
+                <div>CEO / GM Approved By</div>
                 <div class="text-xs text-gray-500">
                     {{ topup.approver?.name ?? '-' }}
                 </div>

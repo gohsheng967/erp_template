@@ -17,6 +17,9 @@ class PurchaseOrder extends Model
         'currency',
         'order_date',
         'expected_delivery_date',
+        'delivery_period',
+        'payment_terms',
+        'site_contact_user_id',
         'status',
         'terms',
         'remark',
@@ -85,6 +88,11 @@ class PurchaseOrder extends Model
     public function apInvoice()
     {
         return $this->hasOne(ApInvoice::class);
+    }
+
+    public function siteContact()
+    {
+        return $this->belongsTo(User::class, 'site_contact_user_id');
     }
 
 }

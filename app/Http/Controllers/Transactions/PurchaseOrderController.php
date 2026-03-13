@@ -8,6 +8,7 @@ use App\Models\CompanyProfile;
 use App\Models\PurchaseDelivery;
 use App\Models\PurchaseDeliveryItem;
 use App\Models\PurchaseOrder;
+use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\InventoryService;
 use DB;
@@ -92,6 +93,7 @@ class PurchaseOrderController extends Controller
             'purchaseRequest.approver',
             'confirmBy',
             'signedPo',
+            'siteContact:id,name',
         ])->where('uuid', $uuid);
 
         if ($this->shouldScopeToActiveBranch($request)) {
@@ -102,9 +104,21 @@ class PurchaseOrderController extends Controller
 
         $po = $poQuery->firstOrFail();
 
+        $branchId = $this->activeBranchId($request);
+        $contactUsers = User::query()
+            ->select('id', 'name')
+            ->where('status', 1)
+            ->where(function ($q) use ($branchId) {
+                $q->where('active_branch_id', $branchId)
+                    ->orWhereHas('branches', fn ($qq) => $qq->where('branches.id', $branchId));
+            })
+            ->orderBy('name')
+            ->get();
+
         return response()->json([
             'po' => $po,
             'company' => CompanyProfile::first(),
+            'contact_users' => $contactUsers,
         ]);
     }
 
@@ -192,6 +206,9 @@ class PurchaseOrderController extends Controller
         $validated = $request->validate([
             'terms' => ['nullable', 'array'],
             'terms.*' => ['nullable', 'string'],
+            'delivery_period' => ['nullable', 'string', 'max:255'],
+            'payment_terms' => ['nullable', 'string'],
+            'site_contact_user_id' => ['nullable', 'exists:users,id'],
         ]);
 
         $terms = collect($validated['terms'] ?? [])
@@ -201,11 +218,20 @@ class PurchaseOrderController extends Controller
             ->toArray();
 
         $po->terms = $terms;
+        $po->delivery_period = $validated['delivery_period'] ?? null;
+        $po->payment_terms = $validated['payment_terms'] ?? null;
+        $po->site_contact_user_id = $validated['site_contact_user_id'] ?? null;
         $po->save();
+
+        $po->load('siteContact:id,name');
 
         return response()->json([
             'success' => true,
             'terms' => $po->terms,
+            'delivery_period' => $po->delivery_period,
+            'payment_terms' => $po->payment_terms,
+            'site_contact_user_id' => $po->site_contact_user_id,
+            'site_contact' => $po->siteContact,
         ]);
     }
 
@@ -260,9 +286,10 @@ class PurchaseOrderController extends Controller
 
         $validated = $request->validate([
             'delivery_date' => ['required', 'date'],
+            'eod_date' => ['nullable', 'date'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
-            'status' => ['required', 'in:transit,warehouse,returned'],
+            'status' => ['required', 'in:preparation,transit,warehouse,returned'],
             'delivery_type' => ['required', 'in:partial,full'],
             'warehouse_id' => ['nullable', 'exists:warehouses,id'],
             'items' => ['array'],
@@ -279,11 +306,18 @@ class PurchaseOrderController extends Controller
             ]);
         }
 
+        if ($validated['status'] === 'preparation' && empty($validated['eod_date'])) {
+            throw ValidationException::withMessages([
+                'eod_date' => 'EOD date is required for preparation status.',
+            ]);
+        }
+
         DB::transaction(function () use ($request, $purchaseOrder, $validated) {
             $delivery = PurchaseDelivery::create([
                 'uuid' => Str::uuid(),
                 'purchase_order_id' => $purchaseOrder->id,
                 'delivery_date' => $validated['delivery_date'],
+                'eod_date' => $validated['eod_date'] ?? null,
                 'title' => $validated['title'],
                 'description' => $validated['description'] ?? null,
                 'status' => $validated['status'],
