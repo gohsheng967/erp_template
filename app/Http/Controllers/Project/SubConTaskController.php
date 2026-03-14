@@ -13,6 +13,7 @@ use App\Services\AttachmentService;
 use App\Services\RunningNumberService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class SubConTaskController extends Controller
 {
@@ -246,20 +247,27 @@ class SubConTaskController extends Controller
         $this->ensureInternalUser($request);
 
         $task = $this->getTask($request, $projectUuid, $taskUuid);
+        $projectBranchId = (int) (Project::query()->whereKey($task->project_id)->value('branch_id') ?? 0);
 
-        if (!in_array($task->status, ['approved', 'justified'], true)) {
-            return back()->withErrors([
-                'status' => 'Only approved tasks can issue payment cert.',
+        if (!in_array($task->status, ['approved', 'justified', 'certified'], true)) {
+            throw ValidationException::withMessages([
+                'status' => 'Only approved or certified tasks can issue payment cert.',
             ]);
         }
 
         $validated = $request->validate([
             'company_bank_account_id' => [
                 'required',
-                Rule::exists('company_bank_accounts', 'id')->where(function ($query) use ($request) {
+                Rule::exists('company_bank_accounts', 'id')->where(function ($query) use ($request, $projectBranchId) {
                     $query
-                        ->where('status', 'active')
-                        ->where('branch_id', (int) ($request->user()?->active_branch_id ?? 0));
+                        ->where('status', 'active');
+
+                    $activeBranchId = (int) ($request->user()?->active_branch_id ?? 0);
+                    $resolvedBranchId = $activeBranchId > 0 ? $activeBranchId : $projectBranchId;
+
+                    if ($resolvedBranchId > 0) {
+                        $query->where('branch_id', $resolvedBranchId);
+                    }
                 }),
             ],
             'less_retention' => ['nullable', 'numeric', 'min:0'],
@@ -288,6 +296,7 @@ class SubConTaskController extends Controller
         $slip->less_material_ob = $request->input('less_material_ob');
         $slip->less_paid_previously = $request->input('less_paid_previously');
         $slip->payment_slip_remark = $request->input('payment_slip_remark');
+        $slip->workflow_status = 'processing';
         $slip->created_by = $request->user()?->id;
         $slip->save();
 
@@ -302,6 +311,8 @@ class SubConTaskController extends Controller
 
         $slip->load([
             'companyBankAccount',
+            'creator:id,name,signature_path',
+            'approvedBy:id,name,signature_path',
             'source.project',
             'source.subCon',
         ]);

@@ -155,6 +155,8 @@ class ProjectController extends Controller
             'updates',
             'paymentSlip.companyBankAccount',
             'paymentSlip.attachments',
+            'paymentSlip.creator:id,name,signature_path',
+            'paymentSlip.approvedBy:id,name,signature_path',
             'paymentSlip.source',
             'paymentSlip.source.subCon',
             'paymentSlip.source.project',

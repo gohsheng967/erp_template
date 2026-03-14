@@ -34,6 +34,11 @@ class ProfileController extends Controller
     public function update(ProfileUpdateRequest $request)
     {
         $user = $request->user();
+        $publicDisk = Storage::disk('public');
+
+        if (!$publicDisk->exists('signatures')) {
+            $publicDisk->makeDirectory('signatures');
+        }
 
         $user->fill([
             'name' => $request->input('name'),
@@ -74,14 +79,14 @@ class ProfileController extends Controller
             }
 
             $signaturePath = 'signatures/' . Str::uuid() . '.png';
-            Storage::disk('public')->put($signaturePath, $raw);
+            $publicDisk->put($signaturePath, $raw);
         } elseif ($request->hasFile('signature_file')) {
             $signaturePath = $request->file('signature_file')->store('signatures', 'public');
         }
 
-        if ($signaturePath) {
+        if ($signaturePath && $publicDisk->exists($signaturePath)) {
             if ($user->signature_path) {
-                Storage::disk('public')->delete($user->signature_path);
+                $publicDisk->delete($user->signature_path);
             }
 
             $user->signature_path = $signaturePath;
@@ -91,7 +96,8 @@ class ProfileController extends Controller
         
         return back()->with('status', 'profile-updated');
     }
-    
+
+
     /**
      * Delete the user's account.
      */

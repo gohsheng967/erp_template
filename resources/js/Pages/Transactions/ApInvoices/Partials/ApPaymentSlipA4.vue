@@ -58,10 +58,25 @@ const paidBy = computed(() => paymentRecord.value?.created_by?.name ?? '-')
 
 function signatureUrl(user) {
     if (!user) return null
-    if (user.signature) return user.signature
-    if (user.signature_url) return user.signature_url
-    if (user.signature_path) return `/storage/${String(user.signature_path).replace(/^\/+/, '')}`
-    return null
+    const raw = user.signature ?? user.signature_url ?? user.signature_path ?? null
+    if (!raw) return null
+
+    const value = String(raw).trim()
+    if (!value) return null
+    if (/^https?:\/\//i.test(value)) return value
+    if (value.startsWith('data:image/')) return value
+    if (user.id) return `/media/signatures/${user.id}`
+    if (value.startsWith('/storage/')) return value
+    if (value.startsWith('storage/')) return `/${value}`
+    return `/storage/${value.replace(/^\/+/, '')}`
+}
+
+function onSignatureImageError(event) {
+    const img = event?.target
+    if (!img) return
+    img.classList.add('hidden')
+    const fallback = img.nextElementSibling
+    if (fallback) fallback.classList.remove('hidden')
 }
 
 function formatLess(value) {
@@ -222,36 +237,45 @@ function formatLess(value) {
                 <div class="grid grid-cols-3 gap-6">
                     <div>
                         <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <img
-                                v-if="signatureUrl(slip.creator ?? invoice.creator)"
-                                :src="signatureUrl(slip.creator ?? invoice.creator)"
-                                alt="Prepared by signature"
-                                class="h-12 object-contain"
-                            />
+                            <template v-if="signatureUrl(slip.creator ?? invoice.creator)">
+                                <img
+                                    :src="signatureUrl(slip.creator ?? invoice.creator)"
+                                    alt="Prepared by signature"
+                                    class="h-12 object-contain"
+                                    @error="onSignatureImageError"
+                                />
+                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
+                            </template>
                         </div>
                         <div class="font-medium">Prepared by</div>
                         <div class="text-gray-500">{{ preparedBy }}</div>
                     </div>
                     <div>
                         <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <img
-                                v-if="signatureUrl(slip.approved_by)"
-                                :src="signatureUrl(slip.approved_by)"
-                                alt="Approved by signature"
-                                class="h-12 object-contain"
-                            />
+                            <template v-if="signatureUrl(slip.approved_by)">
+                                <img
+                                    :src="signatureUrl(slip.approved_by)"
+                                    alt="Approved by signature"
+                                    class="h-12 object-contain"
+                                    @error="onSignatureImageError"
+                                />
+                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
+                            </template>
                         </div>
                         <div class="font-medium">Approved by</div>
                         <div class="text-gray-500">{{ approvedBy }}</div>
                     </div>
                     <div>
                         <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <img
-                                v-if="signatureUrl(paymentRecord?.created_by)"
-                                :src="signatureUrl(paymentRecord?.created_by)"
-                                alt="Paid by signature"
-                                class="h-12 object-contain"
-                            />
+                            <template v-if="signatureUrl(paymentRecord?.created_by)">
+                                <img
+                                    :src="signatureUrl(paymentRecord?.created_by)"
+                                    alt="Paid by signature"
+                                    class="h-12 object-contain"
+                                    @error="onSignatureImageError"
+                                />
+                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
+                            </template>
                         </div>
                         <div class="font-medium">Paid by</div>
                         <div class="text-gray-500">{{ paidBy }}</div>
@@ -268,3 +292,4 @@ function formatLess(value) {
         </div>
     </div>
 </template>
+

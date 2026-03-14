@@ -17,6 +17,14 @@ const page = usePage()
 
 const signatureUrl = computed(() => page.props.auth?.user?.data?.signature ?? null)
 const signerName = computed(() => props.name || page.props.auth?.user?.data?.name || '-')
+
+function onSignatureImageError(event) {
+    const img = event?.target
+    if (!img) return
+    img.classList.add('hidden')
+    const fallback = img.nextElementSibling
+    if (fallback) fallback.classList.remove('hidden')
+}
 </script>
 
 <template>
@@ -26,12 +34,17 @@ const signerName = computed(() => props.name || page.props.auth?.user?.data?.nam
         </div>
 
         <div class="h-14 flex items-end">
-            <img
-                v-if="signatureUrl"
-                :src="signatureUrl"
-                alt="User signature"
-                class="h-12 max-w-[180px] object-contain"
-            >
+            <template v-if="signatureUrl">
+                <img
+                    :src="signatureUrl"
+                    alt="User signature"
+                    class="h-12 max-w-[180px] object-contain"
+                    @error="onSignatureImageError"
+                >
+                <div class="hidden text-[11px] text-gray-400 italic">
+                    No signature on file
+                </div>
+            </template>
             <div v-else class="text-[11px] text-gray-400 italic">
                 No signature on file
             </div>
@@ -42,4 +55,3 @@ const signerName = computed(() => props.name || page.props.auth?.user?.data?.nam
         </div>
     </div>
 </template>
-

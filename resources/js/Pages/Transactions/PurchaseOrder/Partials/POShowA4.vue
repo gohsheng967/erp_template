@@ -28,10 +28,24 @@ function formatCurrency(value) {
 
 function signatureUrl(user) {
     if (!user) return null
-    if (user.signature) return user.signature
-    if (user.signature_url) return user.signature_url
-    if (user.signature_path) return `/storage/${String(user.signature_path).replace(/^\/+/, '')}`
-    return null
+    const raw = user.signature ?? user.signature_url ?? user.signature_path ?? null
+    if (!raw) return null
+
+    const value = String(raw).trim()
+    if (!value) return null
+    if (/^https?:\/\//i.test(value)) return value
+    if (value.startsWith('data:image/')) return value
+    if (value.startsWith('/storage/')) return value
+    if (value.startsWith('storage/')) return `/${value}`
+    return `/storage/${value.replace(/^\/+/, '')}`
+}
+
+function onSignatureImageError(event) {
+    const img = event?.target
+    if (!img) return
+    img.classList.add('hidden')
+    const fallback = img.nextElementSibling
+    if (fallback) fallback.classList.remove('hidden')
 }
 
 const totalAmount = computed(() =>
@@ -138,12 +152,15 @@ const totalAmount = computed(() =>
     <div class="mt-14 grid grid-cols-2 gap-10 text-sm">
         <div>
             <div class="h-12 mb-2 flex items-end">
-                <img
-                    v-if="signatureUrl(po.purchase_request?.approver)"
-                    :src="signatureUrl(po.purchase_request?.approver)"
-                    alt="Authorized signature"
-                    class="h-10 max-w-[160px] object-contain"
-                >
+                <template v-if="signatureUrl(po.purchase_request?.approver)">
+                    <img
+                        :src="signatureUrl(po.purchase_request?.approver)"
+                        alt="Authorized signature"
+                        class="h-10 max-w-[160px] object-contain"
+                        @error="onSignatureImageError"
+                    >
+                    <div class="hidden text-[11px] text-slate-400 italic">No signature</div>
+                </template>
                 <div v-else class="text-[11px] text-slate-400 italic">No signature</div>
             </div>
             <div class="font-medium">Authorized By</div>

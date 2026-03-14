@@ -52,7 +52,7 @@ class UserResource extends JsonResource
             'profile_photo' => $this->profile_photo
                 ? Storage::disk('public')->url($this->profile_photo)
                 : null,
-            'signature' => $this->signature_path
+            'signature' => ($this->signature_path && Storage::disk('public')->exists($this->signature_path))
                 ? Storage::disk('public')->url($this->signature_path)
                 : null,
             'branches' => $branches->map(function ($branch) {

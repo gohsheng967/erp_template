@@ -102,15 +102,18 @@ const stageHints = {
     draft: "Sub Con is still progressing the task.",
     submitted: "Task completed by Sub Con and waiting Project Department review.",
     contra_verified: "Project Department has verified completion (Project Verified).",
-    invoiced: "Invoice submitted by Sub Con and pending approval.",
+    invoiced: "Invoice submitted by Sub Con and pending Contra Department approval.",
     payment: "CEO / GM approved tasks proceed in Payment tab.",
 };
 
 function showError(errors, fallback) {
     const msg =
         errors?.status ||
+        errors?.company_bank_account_id ||
+        errors?.remark ||
         errors?.parent_id ||
         errors?.delete ||
+        (Array.isArray(Object.values(errors || {})[0]) ? Object.values(errors || {})[0][0] : null) ||
         errors?.message ||
         fallback ||
         "Action failed.";
@@ -286,13 +289,19 @@ async function submitCert() {
             }
         );
 
+        if (!res?.data?.slip) {
+            throw new Error("Payment slip response is invalid.");
+        }
+
         slipData.value = res.data.slip;
-        showSlipModal.value = true;
         toast?.value?.show("Payment slip generated.", "success");
         showCertModal.value = false;
         refresh();
     } catch (error) {
-        showError(error?.response?.data?.errors, "Failed to generate payment slip.");
+        const errors = error?.response?.data?.errors ?? {
+            message: error?.response?.data?.message || error?.message,
+        };
+        showError(errors, "Failed to generate payment slip.");
     }
 }
 
@@ -342,18 +351,13 @@ function justifyTask(task, action) {
         {
             preserveScroll: true,
             onSuccess: () => {
-                toast?.value?.show(
-                    action === "approve" ? "Task approved." : "Approval rejected.",
-                    action === "approve" ? "success" : "error"
-                );
+                if (action !== "approve") {
+                    toast?.value?.show("Approval rejected.", "error");
+                }
                 showJustifyModal.value = false;
                 selectedTask.value = null;
                 justifyForm.value.remark = "";
                 refresh();
-
-                if (action === "approve") {
-                    openCert(task);
-                }
             },
             onError: (errors) => showError(errors, "Failed to justify."),
         }
@@ -813,7 +817,12 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
                                     class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
                                     :class="isChildChecked(child) ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'"
                                 >
-                                    {{ isChildChecked(child) ? "Checked" : "Unchecked" }}
+                                    <i
+                                        v-if="isChildChecked(child)"
+                                        class="mdi mdi-check text-sm leading-none"
+                                        title="Checked"
+                                    ></i>
+                                    <span v-else>Unchecked</span>
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-center">
@@ -1220,7 +1229,12 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
                                 class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
                                 :class="isChildChecked(child) ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'"
                             >
-                                {{ isChildChecked(child) ? "Checked" : "Unchecked" }}
+                                <i
+                                    v-if="isChildChecked(child)"
+                                    class="mdi mdi-check text-sm leading-none"
+                                    title="Checked"
+                                ></i>
+                                <span v-else>Unchecked</span>
                             </span>
                         </div>
                     </div>
@@ -1436,3 +1450,4 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
         @close="showSlipModal = false"
     />
 </template>
+

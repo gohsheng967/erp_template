@@ -42,7 +42,7 @@ class PaymentSlipController extends Controller
                     $morphTo->morphWith([
                         PettyCashTopup::class => [
                             'wallet.project',
-                            'requester:id,name',
+                            'requester:id,name,signature_path',
                             'approver:id,name,signature_path',
                             'payer:id,name,signature_path',
                         ],
@@ -54,7 +54,7 @@ class PaymentSlipController extends Controller
                         ],
                         Claim::class => [
                             'project',
-                            'issuer:id,name',
+                            'issuer:id,name,signature_path',
                             'approver:id,name,signature_path',
                             'payer:id,name,signature_path',
                         ],

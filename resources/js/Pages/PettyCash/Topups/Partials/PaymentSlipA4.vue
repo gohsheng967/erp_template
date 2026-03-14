@@ -48,6 +48,29 @@ const lessTotal = computed(() =>
 )
 const amountDue = computed(() => Math.max(amount.value - lessTotal.value, 0))
 
+function signatureUrl(user) {
+    if (!user) return null
+    const raw = user.signature ?? user.signature_url ?? user.signature_path ?? null
+    if (!raw) return null
+
+    const value = String(raw).trim()
+    if (!value) return null
+    if (/^https?:\/\//i.test(value)) return value
+    if (value.startsWith('data:image/')) return value
+    if (user.id) return `/media/signatures/${user.id}`
+    if (value.startsWith('/storage/')) return value
+    if (value.startsWith('storage/')) return `/${value}`
+    return `/storage/${value.replace(/^\/+/, '')}`
+}
+
+function onSignatureImageError(event) {
+    const img = event?.target
+    if (!img) return
+    img.classList.add('hidden')
+    const fallback = img.nextElementSibling
+    if (fallback) fallback.classList.remove('hidden')
+}
+
 function formatLess(value) {
     return value > 0 ? formatCurrency(value) : '-'
 }
@@ -205,21 +228,51 @@ function formatLess(value) {
             <div class="border-t border-gray-400 p-2 text-xs">
                 <div class="grid grid-cols-3 gap-6">
                     <div>
-                        <div class="h-14 mb-2 border-b border-gray-400"></div>
+                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
+                            <template v-if="signatureUrl(topup.requester)">
+                                <img
+                                    :src="signatureUrl(topup.requester)"
+                                    alt="Prepared by signature"
+                                    class="h-12 object-contain"
+                                    @error="onSignatureImageError"
+                                />
+                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
+                            </template>
+                        </div>
                         <div class="font-medium">Prepared by</div>
                         <div class="text-gray-500">
                             {{ topup.requester?.name ?? '-' }}
                         </div>
                     </div>
                     <div>
-                        <div class="h-14 mb-2 border-b border-gray-400"></div>
+                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
+                            <template v-if="signatureUrl(topup.approver)">
+                                <img
+                                    :src="signatureUrl(topup.approver)"
+                                    alt="Approved by signature"
+                                    class="h-12 object-contain"
+                                    @error="onSignatureImageError"
+                                />
+                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
+                            </template>
+                        </div>
                         <div class="font-medium">Approved by</div>
                         <div class="text-gray-500">
                             {{ topup.approver?.name ?? '-' }}
                         </div>
                     </div>
                     <div>
-                        <div class="h-14 mb-2 border-b border-gray-400"></div>
+                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
+                            <template v-if="signatureUrl(topup.payer)">
+                                <img
+                                    :src="signatureUrl(topup.payer)"
+                                    alt="Paid by signature"
+                                    class="h-12 object-contain"
+                                    @error="onSignatureImageError"
+                                />
+                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
+                            </template>
+                        </div>
                         <div class="font-medium">Paid by</div>
                         <div class="text-gray-500">
                             {{ topup.payer?.name ?? '-' }}
@@ -237,3 +290,4 @@ function formatLess(value) {
         </div>
     </div>
 </template>
+
