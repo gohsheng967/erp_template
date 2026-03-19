@@ -445,12 +445,14 @@ class ProjectController extends Controller
     {
         $this->ensureProjectBranchAccess(request(), $project);
 
-        $purchaseOrderUsed = (float) PurchaseOrder::whereHas(
-            'purchaseRequest',
-            fn ($q) => $q->where('project_id', $project->id)
-        )
-        ->whereNotNull('confirmed_at') 
-        ->sum('total_amount');
+        $confirmedPoQuery = PurchaseOrder::query()
+            ->whereHas('purchaseRequest', fn ($q) => $q->where('project_id', $project->id))
+            ->where(function ($q) {
+                $q->whereNotNull('confirmed_at')
+                    ->orWhere('status', 'confirmed');
+            });
+
+        $purchaseOrderUsed = (float) (clone $confirmedPoQuery)->sum('total_amount');
 
         $claimUsed = (float) $project->claims()
             ->whereIn('status', ['approved', 'ceo_approved', 'paid'])
@@ -469,22 +471,18 @@ class ProjectController extends Controller
         $total = (float) ($project->budget ?? 0);
         $remaining = max($total - $used, 0);
 
-        $poCosts = PurchaseOrder::whereHas(
-            'purchaseRequest',
-            fn ($q) => $q->where('project_id', $project->id)
-        )
-        ->whereNotNull('confirmed_at')
-        ->orderByDesc('total_amount')
-        ->limit(5)
-        ->get()
-        ->map(fn ($po) => [
-            'id'     => $po->id,
-            'label'  => $po->code ?? 'PO #' . $po->id,
-            'amount' => (float) $po->total_amount,
-            'type'   => 'purchase_order',
-        ])
-        ->values()
-        ->all();
+        $poCosts = (clone $confirmedPoQuery)
+            ->orderByDesc('total_amount')
+            ->limit(5)
+            ->get()
+            ->map(fn ($po) => [
+                'id'     => $po->id,
+                'label'  => $po->code ?? 'PO #' . $po->id,
+                'amount' => (float) $po->total_amount,
+                'type'   => 'purchase_order',
+            ])
+            ->values()
+            ->all();
 
         $claimCosts  = $project->claims()
             ->whereIn('status', ['approved', 'ceo_approved', 'paid'])
@@ -693,12 +691,13 @@ class ProjectController extends Controller
             ->whereIn('status', ['draft', 'submitted'])
             ->count();
 
-        $confirmedPOAmount = (float) PurchaseOrder::whereHas(
-            'purchaseRequest',
-            fn ($q) => $q->where('project_id', $project->id)
-        )
-        ->whereNotNull('confirmed_at')
-        ->sum('total_amount');
+        $confirmedPOAmount = (float) PurchaseOrder::query()
+            ->whereHas('purchaseRequest', fn ($q) => $q->where('project_id', $project->id))
+            ->where(function ($q) {
+                $q->whereNotNull('confirmed_at')
+                    ->orWhere('status', 'confirmed');
+            })
+            ->sum('total_amount');
 
         // =========================
         // RECENT PO LIST

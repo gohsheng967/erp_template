@@ -1,168 +1,110 @@
 <template>
-    <div class="absolute inset-0 -z-10 overflow-hidden">
-        <div class="mesh-bg"></div>
-
-        <!-- Soft organic blob 1 -->
-        <div class="blob blob1"></div>
-
-        <!-- Soft organic blob 2 -->
-        <div class="blob blob2"></div>
-
-        <!-- Soft organic blob 3 -->
-        <div class="blob blob3"></div>
-        <!-- Organic curved contour 1 -->
-        <svg class="contour contour1" viewBox="0 0 800 800">
-            <path d="M400,80 
-                    C550,120 720,250 680,400 
-                    C640,550 500,700 350,680 
-                    C200,660 120,520 130,380 
-                    C140,240 250,100 400,80Z" />
-        </svg>
-
-        <!-- Organic curved contour 2 -->
-        <svg class="contour contour2" viewBox="0 0 800 800">
-            <path d="M400,50 
-                    C600,100 760,260 720,430 
-                    C680,600 520,750 340,720 
-                    C160,690 80,530 120,360 
-                    C160,190 240,100 400,50Z" />
-        </svg>
-
-        <!-- Organic curved contour 3 -->
-        <svg class="contour contour3" viewBox="0 0 800 800">
-            <path d="M400,110 
-                    C520,130 650,240 620,360 
-                    C590,480 480,610 350,600 
-                    C220,590 160,460 180,350 
-                    C200,240 260,140 400,110Z" />
-        </svg>
+    <div class="auth-bg" aria-hidden="true">
+        <div class="auth-bg__base"></div>
+        <div class="auth-bg__orb auth-bg__orb--blue"></div>
+        <div class="auth-bg__orb auth-bg__orb--teal"></div>
+        <div class="auth-bg__orb auth-bg__orb--amber"></div>
+        <div class="auth-bg__grid"></div>
+        <div class="auth-bg__noise"></div>
     </div>
 </template>
 
-<style>
-
-/* Base animated gradient */
-.mesh-bg {
+<style scoped>
+.auth-bg {
+    --bg-top: #f6fbff;
+    --bg-bottom: #dce9ff;
+    --orb-blue: rgba(32, 122, 255, 0.3);
+    --orb-teal: rgba(19, 184, 166, 0.25);
+    --orb-amber: rgba(245, 158, 11, 0.18);
     position: absolute;
     inset: 0;
-    background: linear-gradient(120deg, #62a8ff, #b67bff, #ff7ad2);
-    background-size: 200% 200%;
-    animation: meshMove 12s ease-in-out infinite;
-    filter: blur(40px);
+    overflow: hidden;
+    z-index: -10;
+    pointer-events: none;
 }
 
-/* Blobs */
-.blob {
+.auth-bg__base {
     position: absolute;
-    border-radius: 40%;
-    filter: blur(60px);
-    opacity: 0.45;
-    mix-blend-mode: screen;
+    inset: 0;
+    background: radial-gradient(130% 120% at 0% 100%, #e8f2ff 0%, rgba(232, 242, 255, 0) 55%),
+        radial-gradient(120% 110% at 100% 0%, #eefaf8 0%, rgba(238, 250, 248, 0) 50%),
+        linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
 }
 
-/* Blob colors + positions */
-.blob1 {
-    width: 60vw;
-    height: 60vw;
-    background: #7cb8ff;
-    top: -10%;
-    left: -20%;
-    animation: blobFloat1 18s infinite ease-in-out alternate;
-}
-
-.blob2 {
-    width: 55vw;
-    height: 55vw;
-    background: #c47cff;
-    bottom: -15%;
-    right: -10%;
-    animation: blobFloat2 22s infinite ease-in-out alternate;
-}
-
-.blob3 {
-    width: 50vw;
-    height: 50vw;
-    background: #ff66c4;
-    top: 40%;
-    left: 35%;
-    animation: blobFloat3 20s infinite ease-in-out alternate;
-}
-
-/* Animations */
-@keyframes meshMove {
-    0% { background-position: 0% 50%; }
-    100% { background-position: 100% 50%; }
-}
-
-@keyframes blobFloat1 {
-    0% { transform: translate(0, 0) scale(1.1); }
-    100% { transform: translate(40px, 30px) scale(1.2); }
-}
-
-@keyframes blobFloat2 {
-    0% { transform: translate(0, 0) scale(1); }
-    100% { transform: translate(-40px, -20px) scale(1.15); }
-}
-
-@keyframes blobFloat3 {
-    0% { transform: translate(0, 0) scale(1.05); }
-    100% { transform: translate(25px, -25px) scale(1.15); }
-}
-
-/* Soft contour lines */
-.contour {
+.auth-bg__orb {
     position: absolute;
-    stroke: rgba(255, 255, 255, 0.12);
-    fill: none;
-    stroke-width: 2;
-    filter: blur(2px);
-    transform-origin: center;
-    animation: contourRotate 22s infinite linear;
+    border-radius: 9999px;
+    filter: blur(50px);
+    mix-blend-mode: multiply;
+    animation: float 18s ease-in-out infinite alternate;
 }
 
-/* Position them */
-/* Soft contour lines */
-.contour {
+.auth-bg__orb--blue {
+    width: min(52vw, 560px);
+    height: min(52vw, 560px);
+    top: -14%;
+    left: -10%;
+    background: var(--orb-blue);
+}
+
+.auth-bg__orb--teal {
+    width: min(42vw, 480px);
+    height: min(42vw, 480px);
+    right: -8%;
+    top: 30%;
+    background: var(--orb-teal);
+    animation-duration: 21s;
+}
+
+.auth-bg__orb--amber {
+    width: min(38vw, 420px);
+    height: min(38vw, 420px);
+    bottom: -12%;
+    left: 30%;
+    background: var(--orb-amber);
+    animation-duration: 24s;
+}
+
+.auth-bg__grid {
     position: absolute;
-    stroke: rgba(255, 255, 255, 0.22); /* Increased visibility */
-    fill: none;
-    stroke-width: 3; /* thicker lines */
-    filter: blur(1px); /* less blur = sharper */
-    transform-origin: center;
-    animation: contourRotate 28s infinite linear;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(255, 255, 255, 0.32) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.32) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: radial-gradient(circle at center, black 42%, transparent 88%);
 }
 
-/* Position & adjust opacity of each layer */
-.contour1 {
-    width: 1200px;
-    height: 1200px;
-    top: -180px;
-    left: -240px;
-    stroke-opacity: 0.25; /* stronger */
+.auth-bg__noise {
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(rgba(13, 38, 76, 0.06) 0.65px, transparent 0.65px);
+    background-size: 3px 3px;
+    opacity: 0.35;
 }
 
-.contour2 {
-    width: 1500px;
-    height: 1500px;
-    top: -260px;
-    right: -260px;
-    stroke-opacity: 0.18;
+@keyframes float {
+    0% {
+        transform: translate3d(0, 0, 0) scale(1);
+    }
+    100% {
+        transform: translate3d(38px, -28px, 0) scale(1.08);
+    }
 }
 
-.contour3 {
-    width: 1700px;
-    height: 1700px;
-    bottom: -280px;
-    left: -180px;
-    stroke-opacity: 0.15;
+@media (max-width: 640px) {
+    .auth-bg__grid {
+        background-size: 24px 24px;
+    }
+
+    .auth-bg__orb {
+        filter: blur(38px);
+    }
 }
 
-
-/* Animation */
-@keyframes contourRotate {
-    0%   { transform: rotate(0deg) scale(1); }
-    50%  { transform: rotate(180deg) scale(1.05); }
-    100% { transform: rotate(360deg) scale(1); }
+@media (prefers-reduced-motion: reduce) {
+    .auth-bg__orb {
+        animation: none;
+    }
 }
-
 </style>

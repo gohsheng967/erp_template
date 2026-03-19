@@ -888,10 +888,10 @@ class PurchaseRequestController extends Controller
                 ),
             ]);
 
-            return response()->json([
-                'status'  => 'success',
-                'message' => 'Purchase request returned to draft',
-            ]);
+            return $this->approvalSuccessResponse(
+                $request,
+                'Purchase request returned to draft'
+            );
         }
 
         if ($data['status'] === 'rejected') {
@@ -916,10 +916,10 @@ class PurchaseRequestController extends Controller
                 ),
             ]);
 
-            return response()->json([
-                'status'  => 'success',
-                'message' => 'Purchase request rejected',
-            ]);
+            return $this->approvalSuccessResponse(
+                $request,
+                'Purchase request rejected'
+            );
         }
 
         if ($data['status'] === 'verify') {
@@ -974,10 +974,10 @@ class PurchaseRequestController extends Controller
                 ),
             ]);
 
-            return response()->json([
-                'status'  => 'success',
-                'message' => 'Purchase request verified',
-            ]);
+            return $this->approvalSuccessResponse(
+                $request,
+                'Purchase request verified'
+            );
         }
 
         if ($data['status'] === 'approved') {
@@ -1039,11 +1039,11 @@ class PurchaseRequestController extends Controller
                 ),
             ]);
 
-            return response()->json([
-                'status'  => 'success',
-                'message' => 'Purchase request CEO approved and purchase order created',
-                'po_id'   => $po->id,
-            ]);
+            return $this->approvalSuccessResponse(
+                $request,
+                'Purchase request CEO approved and purchase order created',
+                ['po_id' => $po->id]
+            );
         }
 
         if ($pr->status !== 'verified_purchasing_department') {
@@ -1102,11 +1102,11 @@ class PurchaseRequestController extends Controller
             ),
         ]);
 
-        return response()->json([
-            'status'  => 'success',
-            'message' => 'Purchase order created',
-            'po_id'   => $po->id,
-        ]);
+        return $this->approvalSuccessResponse(
+            $request,
+            'Purchase order created',
+            ['po_id' => $po->id]
+        );
     }
 
     public function destroy(Request $request, string $uuid)
@@ -1173,6 +1173,20 @@ class PurchaseRequestController extends Controller
         ];
 
         return $log;
+    }
+
+    private function approvalSuccessResponse(Request $request, string $message, array $extra = [])
+    {
+        if ($request->expectsJson() || $request->wantsJson()) {
+            return response()->json(array_merge([
+                'status' => 'success',
+                'message' => $message,
+            ], $extra));
+        }
+
+        return back()->with(array_merge([
+            'success' => $message,
+        ], $extra));
     }
 }
 

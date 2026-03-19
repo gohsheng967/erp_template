@@ -26,6 +26,24 @@ function formatCurrency(value) {
     }).format(value ?? 0)
 }
 
+function formatTermsText(value) {
+    const raw = String(value ?? '').replace(/\r\n/g, '\n').trim()
+    if (!raw) return '-'
+
+    // Normalize numbered items like "1.Text" into "1. Text"
+    return raw.replace(/(^|\n)\s*(\d+)\.(\S)/g, '$1$2. $3')
+}
+
+function formatTermsList(value) {
+    const normalized = formatTermsText(value)
+    if (normalized === '-') return []
+
+    return normalized
+        .split('\n')
+        .map((line) => line.replace(/^\s*\d+\.\s*/, '').trim())
+        .filter(Boolean)
+}
+
 function signatureUrl(user) {
     if (!user) return null
     const raw = user.signature ?? user.signature_url ?? user.signature_path ?? null
@@ -54,6 +72,8 @@ const totalAmount = computed(() =>
         0
     ) ?? 0
 )
+
+const paymentTermsList = computed(() => formatTermsList(props.po.payment_terms))
 </script>
 
 <template>
@@ -126,20 +146,31 @@ const totalAmount = computed(() =>
         </div>
     </div>
 
-    <div class="mb-8 rounded border border-slate-300 bg-white p-4 text-sm">
-        <div class="mb-2 text-sm font-semibold tracking-wide">TERMS AND CONDITIONS</div>
-
-        <div class="mb-3 grid grid-cols-1 gap-1 text-[13px]">
-            <div><span class="font-semibold">Delivery Period:</span> {{ po.delivery_period || '-' }}</div>
-            <div><span class="font-semibold">Terms of Payment:</span> {{ po.payment_terms || '-' }}</div>
-            <div><span class="font-semibold">Site Contact Person:</span> {{ po.site_contact?.name || '-' }}</div>
+    <div class="mb-8 overflow-hidden rounded border border-slate-300 bg-white text-sm">
+        <div class="bg-slate-100 px-4 py-2 text-sm font-semibold tracking-wide text-slate-800">
+            Additional Information
         </div>
 
-        <ol class="list-decimal space-y-1 pl-5">
-            <li v-for="(term, i) in po.terms ?? []" :key="i">{{ term }}</li>
-        </ol>
+        <div class="grid grid-cols-1 gap-4 p-4 text-[13px]">
+            <div class="rounded border border-slate-200 bg-slate-50 p-3">
+                <div class="mb-2 font-semibold text-slate-800">Terms &amp; Condition</div>
+                <ol class="list-decimal space-y-1 pl-5">
+                    <li v-for="(term, i) in paymentTermsList" :key="i">{{ term }}</li>
+                </ol>
+                <div v-if="!paymentTermsList.length" class="text-slate-400">-</div>
+            </div>
 
-        <div v-if="!po.terms?.length" class="text-slate-400">-</div>
+            <div class="grid grid-cols-2 gap-3">
+                <div class="rounded border border-slate-200 bg-slate-50 p-3">
+                    <div class="text-[11px] uppercase tracking-wide text-slate-500">Delivery Date</div>
+                    <div class="mt-1 font-medium text-slate-800">{{ po.delivery_period || '-' }}</div>
+                </div>
+                <div class="rounded border border-slate-200 bg-slate-50 p-3">
+                    <div class="text-[11px] uppercase tracking-wide text-slate-500">Person incharge</div>
+                    <div class="mt-1 font-medium text-slate-800">{{ po.site_contact?.name || '-' }}</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="mb-8">
