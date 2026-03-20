@@ -20,17 +20,67 @@ class PettyCashTopupController extends Controller
 {
     public function index(Request $request)
     {
-        $requestedTab = (string) $request->get('tab', 'requested');
-        $tab = $requestedTab === 'paid' ? 'payment' : $requestedTab;
-        if (!in_array($tab, ['requested', 'verified_own_department', 'verified_project_department', 'payment', 'rejected'], true)) {
-            $tab = 'requested';
-        }
+        $allowedTabs = [
+            'my_in_progress',
+            'my_rejected',
+            'my_completed',
+            'all_non_draft',
+            'checked',
+            'verified',
+            'approval',
+            'payment',
+            'rejected',
+        ];
+        $tab = in_array($request->tab, $allowedTabs, true) ? $request->tab : 'checked';
         $branchId = $this->activeBranchId($request);
+        $verifiedStatuses = ['verified_own_department', 'verified_project_department'];
+        $paymentState = in_array($request->payment_state, ['pending', 'paid'], true)
+            ? $request->payment_state
+            : 'all';
 
-        /* =========================
-        BASE QUERY
-        ========================= */
-        $baseQuery = PettyCashTopup::query()
+        $search = $request->search;
+        $from = $request->from ?? Carbon::now()->subMonth()->toDateString();
+        $to = $request->to ?? Carbon::now()->toDateString();
+        $contextType = in_array($request->context_type, ['office', 'project'], true)
+            ? $request->context_type
+            : null;
+        $projectId = $request->filled('project_id') ? (int) $request->project_id : null;
+        $requesterId = $request->filled('requester_id') ? (int) $request->requester_id : null;
+        $amountMin = $request->filled('amount_min') ? (float) $request->amount_min : null;
+        $amountMax = $request->filled('amount_max') ? (float) $request->amount_max : null;
+
+        $filterQuery = PettyCashTopup::query()
+            ->when($branchId !== null, function ($q) use ($branchId) {
+                $q->where(function ($query) use ($branchId) {
+                    $query->whereHas('wallet', function ($wallet) use ($branchId) {
+                        $wallet->where('context_type', 'office')
+                            ->orWhereHas('project', fn ($project) => $project->where('branch_id', $branchId));
+                    })
+                        ->orWhereHas('companyBankAccount', fn ($bank) => $bank->where('branch_id', $branchId))
+                        ->orWhereHas(
+                            'paymentSlip.companyBankAccount',
+                            fn ($bank) => $bank->where('branch_id', $branchId)
+                        );
+                });
+            })
+            ->when($search, function ($q) use ($search) {
+                $q->where(function ($query) use ($search) {
+                    $query->where('topup_no', 'like', "%{$search}%")
+                        ->orWhere('reason', 'like', "%{$search}%")
+                        ->orWhere('payment_ref_no', 'like', "%{$search}%")
+                        ->orWhereHas('requester', fn ($u) => $u->where('name', 'like', "%{$search}%"))
+                        ->orWhereHas('wallet.project', fn ($project) => $project->where('name', 'like', "%{$search}%"));
+                });
+            })
+            ->when($from, fn ($q) => $q->whereDate('created_at', '>=', $from))
+            ->when($to, fn ($q) => $q->whereDate('created_at', '<=', $to))
+            ->when($contextType, fn ($q) => $q->whereHas('wallet', fn ($wallet) => $wallet->where('context_type', $contextType)))
+            ->when($projectId, fn ($q) => $q->whereHas('wallet', fn ($wallet) => $wallet->where('context_type', 'project')->where('context_id', $projectId)))
+            ->when($requesterId, fn ($q) => $q->where('requested_by', $requesterId))
+            ->when($amountMin !== null, fn ($q) => $q->where('amount', '>=', $amountMin))
+            ->when($amountMax !== null, fn ($q) => $q->where('amount', '<=', $amountMax));
+
+        $listQuery = (clone $filterQuery)
             ->with([
                 'wallet.project',
                 'bankAccount',
@@ -45,85 +95,62 @@ class PettyCashTopupController extends Controller
             ])
             ->orderByDesc('created_at');
 
-        if ($branchId !== null) {
-            $baseQuery->where(function ($q) use ($branchId) {
-                $q->whereHas('wallet', function ($wallet) use ($branchId) {
-                    $wallet->where('context_type', 'office')
-                        ->orWhereHas('project', fn ($project) => $project->where('branch_id', $branchId));
-                })
-                    ->orWhereHas('companyBankAccount', fn ($bank) => $bank->where('branch_id', $branchId))
-                    ->orWhereHas(
-                        'paymentSlip.companyBankAccount',
-                        fn ($bank) => $bank->where('branch_id', $branchId)
-                    );
-            });
-        }
+        $myBaseQuery = (clone $listQuery)->where('requested_by', (int) auth()->id());
 
-        /* =========================
-        STATUS QUERIES
-        ========================= */
-        $requestedQuery = (clone $baseQuery)->where('status', 'requested');
-        $verifiedQuery  = (clone $baseQuery)->where('status', 'verified_own_department');
-        $verifiedProjectQuery = (clone $baseQuery)->where('status', 'verified_project_department');
-        $paymentQuery   = (clone $baseQuery)->whereIn('status', ['approved', 'paid']);
-        $rejectedQuery  = (clone $baseQuery)->where('status', 'rejected');
-
-        /* =========================
-        PAGINATED DATA
-        ========================= */
-        $requested = $requestedQuery
+        $checked = (clone $listQuery)->where('status', 'requested')->paginate(15)->withQueryString();
+        $verified = (clone $listQuery)->whereIn('status', $verifiedStatuses)->paginate(15)->withQueryString();
+        $approval = (clone $listQuery)->where('status', 'approved')->paginate(15)->withQueryString();
+        $payment = (clone $listQuery)
+            ->whereIn('status', ['approved', 'paid'])
+            ->when($paymentState === 'pending', fn ($q) => $q->where('status', 'approved'))
+            ->when($paymentState === 'paid', fn ($q) => $q->where('status', 'paid'))
             ->paginate(15)
             ->withQueryString();
+        $rejected = (clone $listQuery)->where('status', 'rejected')->paginate(15)->withQueryString();
+        $allNonDraft = (clone $listQuery)->paginate(15)->withQueryString();
 
-        $verified = $verifiedQuery
+        $myInProgress = (clone $myBaseQuery)
+            ->whereNotIn('status', ['rejected', 'paid'])
             ->paginate(15)
             ->withQueryString();
+        $myRejected = (clone $myBaseQuery)->where('status', 'rejected')->paginate(15)->withQueryString();
+        $myCompleted = (clone $myBaseQuery)->where('status', 'paid')->paginate(15)->withQueryString();
 
-        $verifiedProject = $verifiedProjectQuery
-            ->paginate(15)
-            ->withQueryString();
-
-        $rejected = $rejectedQuery
-            ->paginate(15)
-            ->withQueryString();
-
-        $payment = $paymentQuery
-            ->paginate(15)
-            ->withQueryString();
-
-        /* =========================
-        TAB BADGE COUNTS
-        ========================= */
         $tabCounts = [
-            'requested' => (clone $requestedQuery)->count(),
-            'verified_own_department' => (clone $verifiedQuery)->count(),
-            'verified_project_department' => (clone $verifiedProjectQuery)->count(),
-            'rejected'  => (clone $rejectedQuery)->count(),
-            // payment tab intentionally has no badge
+            'checked' => (clone $filterQuery)->where('status', 'requested')->count(),
+            'verified' => (clone $filterQuery)->whereIn('status', $verifiedStatuses)->count(),
+            'approval' => (clone $filterQuery)->where('status', 'approved')->count(),
+            'payment' => (clone $filterQuery)->whereIn('status', ['approved', 'paid'])->count(),
+            'my_in_progress' => (clone $filterQuery)->where('requested_by', (int) auth()->id())->whereNotIn('status', ['rejected', 'paid'])->count(),
+            'my_rejected' => (clone $filterQuery)->where('requested_by', (int) auth()->id())->where('status', 'rejected')->count(),
+            'my_completed' => (clone $filterQuery)->where('requested_by', (int) auth()->id())->where('status', 'paid')->count(),
+            'rejected' => (clone $filterQuery)->where('status', 'rejected')->count(),
         ];
 
-        /* =========================
-        RESPONSE
-        ========================= */
+        $requesterIds = (clone $filterQuery)->distinct()->pluck('requested_by')->filter();
+        $requesters = \App\Models\User::query()
+            ->whereIn('id', $requesterIds)
+            ->select('id', 'name')
+            ->orderBy('name')
+            ->get();
+
         return inertia('PettyCash/Topups/Index', [
             'topups' => [
-                'requested' => $requested,
-                'verified_own_department' => $verified,
-                'verified_project_department' => $verifiedProject,
-                'payment'   => $payment,
-                'rejected'  => $rejected,
+                'my_in_progress' => $myInProgress,
+                'my_rejected' => $myRejected,
+                'my_completed' => $myCompleted,
+                'all_non_draft' => $allNonDraft,
+                'checked' => $checked,
+                'verified' => $verified,
+                'approval' => $approval,
+                'payment' => $payment,
+                'rejected' => $rejected,
             ],
-
-            // 🔔 Badge numbers for tabs
             'tabCounts' => $tabCounts,
-
-            // Required for CreateTopupModal
             'projects' => Project::select('id', 'name')
                 ->when($branchId !== null, fn ($q) => $q->where('branch_id', $branchId))
                 ->orderBy('name')
                 ->get(),
-
-            // Optional (future use)
             'wallets' => PettyCashWallet::with('project')
                 ->when($branchId !== null, function ($q) use ($branchId) {
                     $q->where(function ($wallet) use ($branchId) {
@@ -132,13 +159,19 @@ class PettyCashTopupController extends Controller
                     });
                 })
                 ->get(),
-
+            'requesters' => $requesters,
             'activeTab' => $tab,
-
+            'canBrowseAllTopups' => $this->canBrowseAllTopups($request),
             'filters' => [
-                'search' => $request->search,
-                'from'   => $request->from,
-                'to'     => $request->to,
+                'search' => $search,
+                'from' => $from,
+                'to' => $to,
+                'context_type' => $contextType,
+                'project_id' => $projectId,
+                'requester_id' => $requesterId,
+                'amount_min' => $amountMin,
+                'amount_max' => $amountMax,
+                'payment_state' => $paymentState,
             ],
         ]);
     }
@@ -489,5 +522,11 @@ class PettyCashTopupController extends Controller
     {
         return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
     }
+
+    private function canBrowseAllTopups(Request $request): bool
+    {
+        return (bool) ($request->user()?->is_superadmin || $request->user()?->is_general_manager);
+    }
 }
+
 

@@ -10,6 +10,7 @@ import MilestonesTab from "./Tabs/MilestonesTab.vue";
 import AccountingTab from "./Tabs/AccountingTab.vue";
 import SubConTasksTab from "./Tabs/SubConTasksTab.vue";
 import SubConsTab from "./Tabs/SubConsTab.vue";
+import SubConClaimsTab from "./Tabs/SubConClaimsTab.vue";
 import { useFormat } from '@/Composables/useFormat'
 
 const { capitalize, formatCurrency } = useFormat()
@@ -24,6 +25,7 @@ const tabs = [
     { key: "milestones", label: "Milestones" },
     { key: "subcons", label: "Sub Con" },
     { key: "subcon-tasks", label: "Sub Con Tasks" },
+    { key: "subcon-claims", label: "Sub Con Claims" },
 ];
 
 const tabStorageKey = `project-show-active-tab:${project.value.uuid}`
@@ -104,7 +106,7 @@ function toggleFinished() {
                         </label>
                         <Link
                             :href="route('projects.index')"
-                            class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                            class="px-3 py-1.5 text-sm bg-gray-200 rounded hover:bg-gray-300"
                         >
                             Back
                         </Link>
@@ -112,6 +114,7 @@ function toggleFinished() {
                 </div>
             </div>
 
+            <div class="project-tabs-compact">
             <!-- TABS -->
             <div class="border-b mb-4">
                 <nav class="flex gap-6">
@@ -168,10 +171,34 @@ function toggleFinished() {
                         :project="project"
                         :sub-cons="page.props.subCons"
                         :sub-con-tasks="page.props.subConTasks"
+                        :project-purchase-orders="page.props.projectPurchaseOrders"
                     />
                 </div>
+
+                <div v-if="activeTab === 'subcon-claims'" class="space-y-6">
+                    <SubConClaimsTab
+                        :project="project"
+                        :sub-cons="page.props.subCons"
+                        :sub-con-claims="page.props.subConClaims"
+                    />
+                </div>
+            </div>
             </div>
 
         </div>
     </AuthenticatedLayout>
 </template>
+
+<style scoped>
+:deep(.project-tabs-compact button[class*="px-"]) {
+    padding: 0.25rem 0.5rem !important;
+    font-size: 0.75rem !important;
+    line-height: 1rem !important;
+}
+
+:deep(.project-tabs-compact a[class*="px-"]) {
+    padding: 0.25rem 0.5rem !important;
+    font-size: 0.75rem !important;
+    line-height: 1rem !important;
+}
+</style>

@@ -53,15 +53,86 @@ const subCons = computed(() => page.props.subCons);
 const filters = computed(() => page.props.filters ?? {});
 
 const search = ref(filters.value.search ?? "");
+const portal = ref(filters.value.portal ?? "all");
+const bankAccount = ref(filters.value.bank_account ?? "all");
+const sort = ref(filters.value.sort ?? "latest");
+
+const totalSubCons = computed(() => subCons.value.total ?? subCons.value.data?.length ?? 0);
+const hasAnyFilter = computed(() => {
+    return (
+        search.value.trim() !== "" ||
+        portal.value !== "all" ||
+        bankAccount.value !== "all" ||
+        sort.value !== "latest"
+    );
+});
+
+const activeFilters = computed(() => {
+    const chips = [];
+
+    if (search.value.trim() !== "") {
+        chips.push({
+            key: "search",
+            label: `Search: ${search.value.trim()}`,
+        });
+    }
+
+    if (portal.value !== "all") {
+        const portalLabel = {
+            with_portal: "Portal: Has account",
+            active_portal: "Portal: Active login",
+            inactive_portal: "Portal: Inactive login",
+            no_portal: "Portal: No account",
+        }[portal.value];
+
+        if (portalLabel) chips.push({ key: "portal", label: portalLabel });
+    }
+
+    if (bankAccount.value !== "all") {
+        chips.push({
+            key: "bank_account",
+            label: bankAccount.value === "yes" ? "Bank account: Added" : "Bank account: Missing",
+        });
+    }
+
+    if (sort.value !== "latest") {
+        const sortLabel = {
+            name_asc: "Sort: Name A-Z",
+            name_desc: "Sort: Name Z-A",
+            company_asc: "Sort: Company A-Z",
+        }[sort.value];
+
+        if (sortLabel) chips.push({ key: "sort", label: sortLabel });
+    }
+
+    return chips;
+});
 
 function applyFilters() {
     router.get(route("sub-cons.index"), {
         search: search.value,
+        portal: portal.value,
+        bank_account: bankAccount.value,
+        sort: sort.value,
+    }, {
+        preserveState: true,
+        replace: true,
     });
 }
 
 function resetFilters() {
     search.value = "";
+    portal.value = "all";
+    bankAccount.value = "all";
+    sort.value = "latest";
+    applyFilters();
+}
+
+function clearFilter(filterKey) {
+    if (filterKey === "search") search.value = "";
+    if (filterKey === "portal") portal.value = "all";
+    if (filterKey === "bank_account") bankAccount.value = "all";
+    if (filterKey === "sort") sort.value = "latest";
     applyFilters();
 }
 
@@ -93,7 +164,7 @@ function bankSummary(subCon) {
             <div class="flex justify-between items-center">
                 <h2 class="font-semibold text-xl text-gray-800">Sub Con Management</h2>
                 <button
-                    class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 shadow"
+                    class="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 shadow"
                     @click="openCreate"
                 >
                     + Create Sub Con
@@ -102,33 +173,111 @@ function bankSummary(subCon) {
         </template>
 
         <div class="p-6 space-y-6">
-            <div class="bg-white p-4 rounded-lg shadow w-full border">
-                <div class="flex flex-wrap gap-4 items-end">
-                    <div class="flex flex-col w-full md:w-1/3">
-                        <label class="block text-sm font-medium text-gray-700">
+            <div class="bg-white p-4 md:p-5 rounded-xl shadow w-full border space-y-4">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-800">Filter Sub Cons</h3>
+                        <p class="text-xs text-gray-500 mt-0.5">
+                            {{ totalSubCons }} result{{ totalSubCons === 1 ? "" : "s" }}
+                        </p>
+                    </div>
+
+                    <button
+                        v-if="hasAnyFilter"
+                        class="text-xs text-red-600 hover:text-red-700 font-medium"
+                        @click="resetFilters"
+                    >
+                        Clear all
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                    <div class="xl:col-span-2">
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
                             Search
                         </label>
                         <input
                             v-model="search"
                             type="text"
-                            placeholder="Name / Email / Company / Phone / Bank Account"
-                            class="border rounded-md px-3 py-2 w-full"
+                            placeholder="Name / company / email / phone / bank"
+                            class="border border-gray-300 rounded-lg px-3 py-2.5 w-full text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
                             @keyup.enter="applyFilters"
                         />
                     </div>
 
-                    <button
-                        class="px-4 py-2 h-10 bg-gray-200 rounded hover:bg-gray-300"
-                        @click="applyFilters"
-                    >
-                        Apply
-                    </button>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                            Portal Account
+                        </label>
+                        <select
+                            v-model="portal"
+                            class="border border-gray-300 rounded-lg px-3 py-2.5 w-full text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                        >
+                            <option value="all">All</option>
+                            <option value="with_portal">Has Account</option>
+                            <option value="active_portal">Active Login</option>
+                            <option value="inactive_portal">Inactive Login</option>
+                            <option value="no_portal">No Account</option>
+                        </select>
+                    </div>
 
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                            Bank Account
+                        </label>
+                        <select
+                            v-model="bankAccount"
+                            class="border border-gray-300 rounded-lg px-3 py-2.5 w-full text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                        >
+                            <option value="all">All</option>
+                            <option value="yes">Added</option>
+                            <option value="no">Missing</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="w-full md:w-56">
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
+                            Sort By
+                        </label>
+                        <select
+                            v-model="sort"
+                            class="border border-gray-300 rounded-lg px-3 py-2.5 w-full text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                        >
+                            <option value="latest">Latest</option>
+                            <option value="name_asc">Name (A-Z)</option>
+                            <option value="name_desc">Name (Z-A)</option>
+                            <option value="company_asc">Company (A-Z)</option>
+                        </select>
+                    </div>
+
+                    <div class="flex items-end gap-2 ml-auto">
+                        <button
+                            class="px-3 py-1.5 rounded-lg text-xs font-medium bg-indigo-600 text-white hover:bg-indigo-700"
+                            @click="applyFilters"
+                        >
+                            Apply Filters
+                        </button>
+                        <button
+                            class="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
+                            @click="resetFilters"
+                        >
+                            Reset
+                        </button>
+                    </div>
+                </div>
+
+                <div v-if="activeFilters.length" class="flex flex-wrap gap-2 pt-1">
                     <button
-                        class="px-4 py-2 h-10 bg-red-200 rounded hover:bg-red-300"
-                        @click="resetFilters"
+                        v-for="filter in activeFilters"
+                        :key="filter.key"
+                        type="button"
+                        class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium hover:bg-indigo-100"
+                        @click="clearFilter(filter.key)"
                     >
-                        Reset
+                        <span>{{ filter.label }}</span>
+                        <span class="text-indigo-500">x</span>
                     </button>
                 </div>
             </div>
@@ -151,6 +300,9 @@ function bankSummary(subCon) {
                             </th>
                             <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                                 Bank Accounts
+                            </th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                Portal
                             </th>
                             <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                                 Actions
@@ -177,7 +329,28 @@ function bankSummary(subCon) {
                             </td>
 
                             <td class="px-4 py-3 text-sm">
-                                {{ bankSummary(subCon) }}
+                                <div class="font-medium text-gray-800">
+                                    {{ bankSummary(subCon) }}
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    {{ subCon.bank_accounts_count ?? 0 }} account{{ (subCon.bank_accounts_count ?? 0) === 1 ? "" : "s" }}
+                                </div>
+                            </td>
+
+                            <td class="px-4 py-3 text-sm">
+                                <span
+                                    v-if="subCon.portal_user"
+                                    class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium"
+                                    :class="subCon.portal_user.status === 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
+                                >
+                                    {{ subCon.portal_user.status === 1 ? "Active" : "Inactive" }}
+                                </span>
+                                <span
+                                    v-else
+                                    class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600"
+                                >
+                                    No account
+                                </span>
                             </td>
 
                             <td class="px-4 py-3 text-center">
@@ -210,7 +383,7 @@ function bankSummary(subCon) {
                         </tr>
 
                         <tr v-if="subCons.data.length === 0">
-                            <td colspan="6" class="px-4 py-6 text-center text-gray-500">
+                            <td colspan="7" class="px-4 py-6 text-center text-gray-500">
                                 No sub cons found.
                             </td>
                         </tr>

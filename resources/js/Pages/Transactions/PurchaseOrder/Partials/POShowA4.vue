@@ -74,6 +74,26 @@ const totalAmount = computed(() =>
 )
 
 const paymentTermsList = computed(() => formatTermsList(props.po.payment_terms))
+const poStages = computed(() => [
+    {
+        label: 'Requested by',
+        user: props.po.purchase_request?.requester ?? null,
+        name: props.po.purchase_request?.requester?.name ?? '-',
+        at: props.po.purchase_request?.submitted_at ?? null,
+    },
+    {
+        label: 'Authorized by',
+        user: props.po.purchase_request?.approver ?? null,
+        name: props.po.purchase_request?.approver?.name ?? '-',
+        at: props.po.purchase_request?.approved_at ?? null,
+    },
+    {
+        label: 'Vendor acceptance',
+        user: null,
+        name: props.po.supplier?.company_name ?? '-',
+        at: null,
+    },
+])
 </script>
 
 <template>
@@ -180,39 +200,30 @@ const paymentTermsList = computed(() => formatTermsList(props.po.payment_terms))
         </div>
     </div>
 
-    <div class="mt-14 grid grid-cols-2 gap-10 text-sm">
-        <div>
-            <div class="h-12 mb-2 flex items-end">
-                <template v-if="signatureUrl(po.purchase_request?.approver)">
-                    <img
-                        :src="signatureUrl(po.purchase_request?.approver)"
-                        alt="Authorized signature"
-                        class="h-10 max-w-[160px] object-contain"
-                        @error="onSignatureImageError"
-                    >
-                    <div class="hidden text-[11px] text-slate-400 italic">No signature</div>
-                </template>
-                <div v-else class="text-[11px] text-slate-400 italic">No signature</div>
-            </div>
-            <div class="font-medium">Authorized By</div>
-            <div class="text-xs text-slate-500">{{ po.purchase_request?.approver?.name ?? '-' }}</div>
-            <div class="mt-4 border-t-2 border-slate-300 pt-2 text-xs text-slate-400">
-                Signature
-                <br>
-                Date:
-            </div>
-        </div>
-
-        <div>
-            <div class="h-12 mb-2 flex items-end">
-                <div class="text-[11px] text-slate-400 italic">Vendor signature on stamped copy</div>
-            </div>
-            <div class="font-medium">Vendor Acceptance</div>
-            <div class="text-xs text-slate-500">{{ po.supplier?.company_name ?? '-' }}</div>
-            <div class="mt-4 border-t-2 border-slate-300 pt-2 text-xs text-slate-400">
-                Signature
-                <br>
-                Date:
+    <div class="mt-14 text-sm">
+        <div
+            class="grid gap-4"
+            :style="{ gridTemplateColumns: `repeat(${poStages.length}, minmax(0, 1fr))` }"
+        >
+            <div v-for="stage in poStages" :key="stage.label">
+                <div class="h-12 mb-2 flex items-end">
+                    <template v-if="signatureUrl(stage.user)">
+                        <img
+                            :src="signatureUrl(stage.user)"
+                            :alt="`${stage.label} signature`"
+                            class="h-10 max-w-[160px] object-contain"
+                            @error="onSignatureImageError"
+                        >
+                        <div class="hidden text-[11px] text-slate-400 italic">No signature</div>
+                    </template>
+                    <div v-else class="text-[11px] text-slate-400 italic">
+                        {{ stage.label === 'Vendor acceptance' ? 'Vendor signature on stamped copy' : 'No signature' }}
+                    </div>
+                </div>
+                <div class="mb-3 border-b-2 border-slate-300"></div>
+                <div>{{ stage.label }}</div>
+                <div class="text-xs text-slate-500">{{ stage.name }}</div>
+                <div class="text-xs text-slate-500">{{ stage.at ? formatDate(stage.at) : '-' }}</div>
             </div>
         </div>
     </div>

@@ -19,6 +19,30 @@ const props = defineProps({
 const slip = computed(() => props.slip ?? {})
 const claim = computed(() => slip.value?.source ?? {})
 
+function signerFromRemarkLog(targetStatus) {
+    const logs = Array.isArray(claim.value?.remark_log) ? claim.value.remark_log : []
+    const matched = [...logs].reverse().find((log) => log?.to === targetStatus)
+    if (!matched) return null
+    return {
+        id: matched.user_id ?? null,
+        name: matched.user_name ?? '-',
+    }
+}
+
+const claimStageSigners = computed(() => {
+    const transactionApproved = claim.value?.approver ?? signerFromRemarkLog('ceo_approved')
+
+    return [
+        { label: 'Submitted by', user: claim.value?.issuer ?? null },
+        { label: 'Checked by', user: claim.value?.checker ?? null },
+        { label: 'Verified by', user: signerFromRemarkLog('verified') },
+        { label: 'Tx Approved by', user: transactionApproved },
+        { label: 'Prepared by', user: slip.value?.creator ?? null },
+        { label: 'Slip Approved by', user: slip.value?.approved_by ?? null },
+        { label: 'Done by', user: claim.value?.payer ?? null },
+    ]
+})
+
 const projectName = computed(() => claim.value?.project?.name ?? 'Others')
 
 function formatDate(value) {
@@ -226,57 +250,24 @@ function formatLess(value) {
             </div>
 
             <div class="border-t border-gray-400 p-2 text-xs">
-                <div class="grid grid-cols-3 gap-6">
-                    <div>
+                <div
+                    class="grid gap-4"
+                    :style="{ gridTemplateColumns: `repeat(${claimStageSigners.length}, minmax(0, 1fr))` }"
+                >
+                    <div v-for="stage in claimStageSigners" :key="stage.label">
                         <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(claim.issuer)">
+                            <template v-if="signatureUrl(stage.user)">
                                 <img
-                                    :src="signatureUrl(claim.issuer)"
-                                    alt="Prepared by signature"
+                                    :src="signatureUrl(stage.user)"
+                                    :alt="`${stage.label} signature`"
                                     class="h-12 object-contain"
                                     @error="onSignatureImageError"
                                 />
                                 <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
                             </template>
                         </div>
-                        <div class="font-medium">Prepared by</div>
-                        <div class="text-gray-500">
-                            {{ claim.issuer?.name ?? '-' }}
-                        </div>
-                    </div>
-                    <div>
-                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(claim.approver)">
-                                <img
-                                    :src="signatureUrl(claim.approver)"
-                                    alt="Approved by signature"
-                                    class="h-12 object-contain"
-                                    @error="onSignatureImageError"
-                                />
-                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                            </template>
-                        </div>
-                        <div class="font-medium">Approved by</div>
-                        <div class="text-gray-500">
-                            {{ claim.approver?.name ?? '-' }}
-                        </div>
-                    </div>
-                    <div>
-                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(claim.payer)">
-                                <img
-                                    :src="signatureUrl(claim.payer)"
-                                    alt="Paid by signature"
-                                    class="h-12 object-contain"
-                                    @error="onSignatureImageError"
-                                />
-                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                            </template>
-                        </div>
-                        <div class="font-medium">Paid by</div>
-                        <div class="text-gray-500">
-                            {{ claim.payer?.name ?? '-' }}
-                        </div>
+                        <div class="font-medium">{{ stage.label }}</div>
+                        <div class="text-gray-500">{{ stage.user?.name ?? '-' }}</div>
                     </div>
                 </div>
                 <div class="mt-4 text-xs text-gray-500">

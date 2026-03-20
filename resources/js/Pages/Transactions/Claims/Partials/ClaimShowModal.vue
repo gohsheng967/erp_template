@@ -13,6 +13,10 @@ const props = defineProps({
         type: Object,
         required: true,
     },
+    hideApprovalActions: {
+        type: Boolean,
+        default: false,
+    },
 })
 
 const emit = defineEmits(['close', 'refresh', 'print'])
@@ -31,29 +35,43 @@ const approvalRemark = ref('')
 const toast = inject('toast', null)
 
 const reviewFlowLabels = {
-    submitted: 'Mark as Checked',
+    submitted: 'Mark as Checked (Admin)',
     checked: 'Mark as Verified',
-    verified: 'Approve',
-    approved: 'CEO Approve',
+    verified: 'CEO / GM Approve',
+    approved: 'CEO / GM Approve',
 }
 
 const reviewFlowNextStatus = {
     submitted: 'checked',
     checked: 'verified',
-    verified: 'approved',
+    verified: 'ceo_approved',
     approved: 'ceo_approved',
 }
 
+const isPettyCashOrigin = computed(() =>
+    Boolean(fullClaim.value?.is_petty_cash_origin)
+    || String(fullClaim.value?.remark ?? '').trim().toLowerCase() === 'created from petty cash'
+)
+
+const nextReviewLabel = computed(() => {
+    if (!fullClaim.value?.status) return 'Approve'
+    if (['verified', 'approved'].includes(fullClaim.value.status) && isPettyCashOrigin.value) {
+        return 'Payment (Auto Paid)'
+    }
+    return reviewFlowLabels[fullClaim.value.status] ?? 'Approve'
+})
+
 const canReview = computed(() =>
-    ['submitted', 'checked', 'verified', 'approved'].includes(fullClaim.value?.status)
+    !props.hideApprovalActions
+    && ['submitted', 'checked', 'verified', 'approved'].includes(fullClaim.value?.status)
 )
 
 const rejectAction = computed(() =>
-    fullClaim.value?.status === 'approved' ? 'rejected' : 'draft'
+    ['verified', 'approved'].includes(fullClaim.value?.status) ? 'rejected' : 'draft'
 )
 
 const rejectActionLabel = computed(() =>
-    fullClaim.value?.status === 'approved'
+    ['verified', 'approved'].includes(fullClaim.value?.status)
         ? 'Reject'
         : 'Return for Further Modification'
 )
@@ -360,7 +378,7 @@ function printPage() {
     <textarea
         v-model="approvalRemark"
         rows="4"
-        class="w-full border rounded px-3 py-2 text-sm"
+        class="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-xs focus:border-indigo-500 focus:ring-indigo-500"
         placeholder="Approval / rejection remark"
     />
 
@@ -369,7 +387,7 @@ function printPage() {
         @click="submitDecision(reviewFlowNextStatus[fullClaim.status])"
         :disabled="submitting"
     >
-        {{ reviewFlowLabels[fullClaim.status] }}
+        {{ nextReviewLabel }}
     </button>
 
     <button

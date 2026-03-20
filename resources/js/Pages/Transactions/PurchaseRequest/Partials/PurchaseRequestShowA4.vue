@@ -33,6 +33,35 @@ const watermark = computed(() => {
   }
 })
 
+function displayStatusLabel(status, isProjectLinked = false) {
+  switch (status) {
+    case 'draft':
+      return 'Draft'
+    case 'submitted':
+      return 'Pending Check'
+    case 'verified_own_department':
+      return isProjectLinked
+        ? 'Pending Project Dept Verify'
+        : 'Pending Purchasing Dept Verify'
+    case 'verified_project_department':
+      return 'Pending Purchasing Dept Verify'
+    case 'verified_purchasing_department':
+      return 'Pending CEO / GM Approve'
+    case 'po':
+      return 'PO'
+    case 'payment':
+      return 'Payment'
+    case 'rejected':
+      return 'Rejected'
+    default:
+      return String(status ?? '-').replaceAll('_', ' ')
+  }
+}
+
+const currentStatusLabel = computed(() =>
+  displayStatusLabel(props.request.status, !!props.request.project_id)
+)
+
 const stageMap = computed(() => {
   const logs = Array.isArray(props.request.remark_log) ? props.request.remark_log : []
   const map = {}
@@ -75,14 +104,14 @@ const signatureStages = computed(() => {
   const stages = [
     {
       key: 'requested',
-      label: 'Requested By',
+      label: 'Submitted By',
       name: props.request.requester?.name ?? '-',
       at: props.request.submitted_at ?? '-',
       signature_url: signatureUrl(props.request.requester),
     },
     {
       key: 'verified_own_department',
-      label: 'Own Dept Verified By',
+      label: 'Verified By',
       name: stageMap.value.verified_own_department?.user_name ?? '-',
       at: stageMap.value.verified_own_department?.at ?? '-',
       signature_url: signatureUrl(signerFromLog('verified_own_department')),
@@ -92,29 +121,32 @@ const signatureStages = computed(() => {
   if (props.request.project_id) {
     stages.push({
       key: 'verified_project_department',
-      label: 'Project Verified By',
+      label: 'Verified By',
       name: stageMap.value.verified_project_department?.user_name ?? '-',
       at: stageMap.value.verified_project_department?.at ?? '-',
       signature_url: signatureUrl(signerFromLog('verified_project_department')),
     })
   }
 
-    stages.push(
-        {
-            key: 'verified_purchasing_department',
-            label: 'Purchasing Verified By',
-            name: stageMap.value.verified_purchasing_department?.user_name ?? '-',
-            at: stageMap.value.verified_purchasing_department?.at ?? '-',
-            signature_url: signatureUrl(signerFromLog('verified_purchasing_department')),
-        },
-        {
-            key: 'po',
-            label: 'CEO Approved By',
-            name: stageMap.value.po?.user_name ?? props.request.approver?.name ?? '-',
-            at: stageMap.value.po?.at ?? props.request.approved_at ?? '-',
-            signature_url: signatureUrl(signerFromLog('po')) || signatureUrl(props.request.approver),
-        }
-    )
+  stages.push({
+    key: 'verified_purchasing_department',
+    label: 'Verified By',
+    name: stageMap.value.verified_purchasing_department?.user_name ?? '-',
+    at: stageMap.value.verified_purchasing_department?.at ?? '-',
+    signature_url: signatureUrl(signerFromLog('verified_purchasing_department')),
+  })
+
+  // Show approval signer only after PR is actually approved to PO/payment.
+  const isApprovedStage = ['po', 'payment'].includes(props.request.status)
+  if (isApprovedStage) {
+    stages.push({
+      key: 'po',
+      label: 'Approved By',
+      name: stageMap.value.po?.user_name ?? props.request.approver?.name ?? '-',
+      at: stageMap.value.po?.at ?? props.request.approved_at ?? '-',
+      signature_url: signatureUrl(signerFromLog('po')) || signatureUrl(props.request.approver),
+    })
+  }
 
   return stages
 })
@@ -180,8 +212,8 @@ const signatureStages = computed(() => {
       </div>
       <div class="text-xs mt-1">
           Status:
-          <span class="font-semibold uppercase">
-              {{ request.status }}
+          <span class="font-semibold">
+              {{ currentStatusLabel }}
           </span>
       </div>
     </div>
@@ -293,6 +325,26 @@ const signatureStages = computed(() => {
     </div>
   </div>
 
+  <div class="mb-1 relative z-10">
+    <div class="font-medium text-xs mb-1">Purchasing Verification Details</div>
+    <div class="border border-gray-300 px-3 py-2 text-xs space-y-1">
+      <div v-if="!request.is_subcon_purchase_request">
+        <span class="font-medium">Delivery Period:</span>
+        {{ request.delivery_period ? formatDate(request.delivery_period) : '-' }}
+      </div>
+      <div>
+        <span class="font-medium">Site Contact Person:</span>
+        {{ request.site_contact?.name ?? '-' }}
+      </div>
+      <div>
+        <span class="font-medium">Terms &amp; Condition:</span>
+        <div class="mt-0.5 whitespace-pre-wrap">
+          {{ request.payment_terms ?? '-' }}
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="mb-4 relative z-10">
     <div class="font-medium text-xs mb-1">Remark</div>
     <div class="border border-gray-300 px-2 py-1 min-h-[40px] text-xs whitespace-pre-wrap">
@@ -304,7 +356,13 @@ const signatureStages = computed(() => {
   <!-- =====================
        APPROVAL SIGNATURES
   ====================== -->
-  <div class="grid grid-cols-2 gap-x-12 gap-y-2 mb-6 relative z-10">
+  <div
+    class="mb-6 relative z-10"
+  >
+    <div
+      class="grid gap-4"
+      :style="{ gridTemplateColumns: `repeat(${signatureStages.length}, minmax(0, 1fr))` }"
+    >
     <div
       v-for="stage in signatureStages"
       :key="stage.key"
@@ -329,6 +387,7 @@ const signatureStages = computed(() => {
       <div class="text-xs text-gray-500">
         {{ stage.at && stage.at !== '-' ? formatDate(stage.at) : '-' }}
       </div>
+    </div>
     </div>
   </div>
 

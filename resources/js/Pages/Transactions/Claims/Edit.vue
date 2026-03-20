@@ -21,6 +21,13 @@ const toast = inject('toast', null)
    State
 ========================= */
 const showSubmitConfirm = ref(false)
+const todayDate = (() => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+})()
 
 /* =========================
    Form
@@ -183,7 +190,7 @@ function confirmSubmit() {
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <input v-model="item.receipt_no" class="input" placeholder="Receipt No" />
-          <input v-model="item.receipt_date" type="date" class="input" />
+          <input v-model="item.receipt_date" type="date" class="input" :max="todayDate" />
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -9,6 +9,7 @@ const emit = defineEmits(['close', 'saved'])
 const props = defineProps({
     purchaseOrder: Object,
     warehouses: Array, // [{ id, title, address }]
+    stockCategories: Array,
 })
 
 /* ======================
@@ -38,6 +39,8 @@ props.purchaseOrder.items.forEach(item => {
         ordered_qty: Number(item.quantity),
         delivered_qty: Number(item.delivered_quantity ?? 0),
         quantity: 0,
+        serial_number: '',
+        stock_category: '',
         destination: '',
         remark: '',
     })
@@ -78,9 +81,19 @@ const canSubmit = computed(() => {
     if (form.value.status === 'preparation' && !form.value.eod_date) return false
 
     if (form.value.status === 'warehouse') {
+        const hasQty = form.value.items.some(i => Number(i.quantity) > 0)
+        const allSelectedHaveSerial = form.value.items
+            .filter(i => Number(i.quantity) > 0)
+            .every(i => String(i.serial_number ?? '').trim() !== '')
+        const allSelectedHaveCategory = form.value.items
+            .filter(i => Number(i.quantity) > 0)
+            .every(i => String(i.stock_category ?? '').trim() !== '')
+
         return (
             form.value.warehouse_id &&
-            form.value.items.some(i => Number(i.quantity) > 0)
+            hasQty &&
+            allSelectedHaveSerial &&
+            allSelectedHaveCategory
         )
     }
 
@@ -114,6 +127,8 @@ async function submit() {
             .forEach((i, idx) => {
                 fd.append(`items[${idx}][purchase_order_item_id]`, i.purchase_order_item_id)
                 fd.append(`items[${idx}][quantity]`, i.quantity)
+                fd.append(`items[${idx}][serial_number]`, i.serial_number ?? '')
+                fd.append(`items[${idx}][stock_category]`, i.stock_category ?? '')
                 fd.append(`items[${idx}][destination]`, i.destination)
                 fd.append(`items[${idx}][remark]`, i.remark)
             })
@@ -243,6 +258,8 @@ async function submit() {
                             <th class="text-left">Item</th>
                             <th class="text-center">Remaining</th>
                             <th class="text-center">Qty</th>
+                            <th class="text-left">Serial Number</th>
+                            <th class="text-left">Stock Category</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -264,9 +281,37 @@ async function submit() {
                                     class="w-16 border rounded px-1 py-0.5 text-sm"
                                 />
                             </td>
+                            <td class="py-1">
+                                <input
+                                    v-model="item.serial_number"
+                                    type="text"
+                                    :disabled="Number(item.quantity) <= 0"
+                                    placeholder="Required when qty > 0"
+                                    class="w-full border rounded px-2 py-1 text-sm disabled:bg-gray-100 disabled:text-gray-400"
+                                />
+                            </td>
+                            <td class="py-1">
+                                <select
+                                    v-model="item.stock_category"
+                                    :disabled="Number(item.quantity) <= 0"
+                                    class="w-full border rounded px-2 py-1 text-sm disabled:bg-gray-100 disabled:text-gray-400"
+                                >
+                                    <option value="">Select category</option>
+                                    <option
+                                        v-for="category in stockCategories || []"
+                                        :key="category"
+                                        :value="category"
+                                    >
+                                        {{ category }}
+                                    </option>
+                                </select>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
+                <p class="mt-2 text-xs text-gray-500">
+                    Serial number and stock category are required for every delivered row with quantity above zero.
+                </p>
             </div>
 
             <!-- ATTACHMENTS -->

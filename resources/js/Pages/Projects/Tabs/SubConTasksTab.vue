@@ -22,6 +22,10 @@ const props = defineProps({
         type: Array,
         required: true,
     },
+    projectPurchaseOrders: {
+        type: Array,
+        default: () => [],
+    },
 });
 
 const page = usePage();
@@ -87,23 +91,23 @@ const paidForm = ref({
 
 const slipData = ref(null);
 const activeStage = ref("all");
+const poTaskForm = ref({
+    purchase_order_id: "",
+    sub_con_id: "",
+});
 
 const stageTabs = [
     { key: "all", label: "All" },
     { key: "draft", label: "In Progress" },
     { key: "submitted", label: "Submitted" },
-    { key: "contra_verified", label: "Project Verified" },
-    { key: "invoiced", label: "Invoiced" },
-    { key: "payment", label: "Payment" },
+    { key: "verified", label: "Verified" },
 ];
 
 const stageHints = {
     all: "All main tasks across every stage.",
     draft: "Sub Con is still progressing the task.",
     submitted: "Task completed by Sub Con and waiting Project Department review.",
-    contra_verified: "Project Department has verified completion (Project Verified).",
-    invoiced: "Invoice submitted by Sub Con and pending Contra Department approval.",
-    payment: "CEO / GM approved tasks proceed in Payment tab.",
+    verified: "Project Department has verified completion.",
 };
 
 function showError(errors, fallback) {
@@ -150,6 +154,30 @@ function createTask() {
                 refresh();
             },
             onError: (errors) => showError(errors, "Failed to create task."),
+        }
+    );
+}
+
+function generateTasksFromPo() {
+    if (!poTaskForm.value.purchase_order_id || !poTaskForm.value.sub_con_id) {
+        toast?.value?.show("Please select both PO and Sub Con.", "error");
+        return;
+    }
+
+    router.post(
+        route("projects.sub-con-tasks.generate-from-po", { project: props.project.uuid }),
+        {
+            purchase_order_id: poTaskForm.value.purchase_order_id,
+            sub_con_id: poTaskForm.value.sub_con_id,
+        },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                toast?.value?.show("Tasks generated from PO.", "success");
+                poTaskForm.value = { purchase_order_id: "", sub_con_id: "" };
+                refresh();
+            },
+            onError: (errors) => showError(errors, "Failed to generate tasks from PO."),
         }
     );
 }
@@ -322,7 +350,7 @@ function verifyTask(task, action) {
             onSuccess: () => {
                 toast?.value?.show(
                     action === "approve"
-                        ? "Task reviewed and moved to Project Verified."
+                        ? "Task reviewed and moved to Verified."
                         : "Task rejected and moved to In Progress.",
                     action === "approve" ? "success" : "error"
                 );
@@ -463,20 +491,8 @@ function statusClass(status) {
     switch ((status || "").toLowerCase()) {
         case "submitted":
             return "bg-amber-100 text-amber-700";
-        case "contra_verified":
-            return "bg-indigo-100 text-indigo-700";
         case "verified":
             return "bg-indigo-100 text-indigo-700";
-        case "invoiced":
-            return "bg-purple-100 text-purple-700";
-        case "approved":
-            return "bg-emerald-100 text-emerald-700";
-        case "justified":
-            return "bg-emerald-100 text-emerald-700";
-        case "certified":
-            return "bg-sky-100 text-sky-700";
-        case "paid":
-            return "bg-emerald-200 text-emerald-800";
         default:
             return "bg-gray-100 text-gray-700";
     }
@@ -485,8 +501,7 @@ function statusClass(status) {
 function statusLabel(status) {
     const value = (status || "").toLowerCase();
     if (value === "draft") return "In Progress";
-    if (value === "contra_verified" || value === "verified") return "Project Verified";
-    if (value === "justified") return "Approved";
+    if (["verified", "contra_verified", "invoiced", "approved", "justified", "certified", "paid"].includes(value)) return "Verified";
     return capitalize(value || "draft");
 }
 
@@ -496,8 +511,7 @@ function isChildChecked(task) {
 
 function normalizedStatus(task) {
     const status = (task?.status || "").toLowerCase();
-    if (status === "verified") return "contra_verified";
-    if (["approved", "justified", "certified", "paid"].includes(status)) return "payment";
+    if (["verified", "contra_verified", "invoiced", "approved", "justified", "certified", "paid"].includes(status)) return "verified";
     return status;
 }
 
@@ -557,6 +571,17 @@ watch(activeStage, () => {
 });
 
 const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
+
+watch(
+    () => poTaskForm.value.purchase_order_id,
+    (poId) => {
+        const selectedPo = (props.projectPurchaseOrders ?? []).find(
+            (po) => Number(po.id) === Number(poId)
+        );
+
+        poTaskForm.value.sub_con_id = selectedPo?.suggested_sub_con_id ?? "";
+    }
+);
 </script>
 
 <template>
@@ -627,6 +652,48 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
                 >
                     Add Task
                 </button>
+            </div>
+
+            <div class="mt-5 border-t pt-4">
+                <h4 class="text-sm font-semibold text-gray-800">Generate From Confirmed PO</h4>
+                <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="md:col-span-2">
+                        <label class="block text-sm text-gray-600">Purchase Order</label>
+                        <select
+                            v-model="poTaskForm.purchase_order_id"
+                            class="mt-1 w-full border rounded-md px-3 py-2"
+                        >
+                            <option value="">Select confirmed PO</option>
+                            <option
+                                v-for="po in projectPurchaseOrders"
+                                :key="po.id"
+                                :value="po.id"
+                            >
+                                {{ po.code }} · {{ po.supplier?.company_name || "N/A" }} · {{ po.items?.length || 0 }} item(s)
+                            </option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600">Sub Con</label>
+                        <select
+                            v-model="poTaskForm.sub_con_id"
+                            class="mt-1 w-full border rounded-md px-3 py-2"
+                        >
+                            <option value="">Select sub con</option>
+                            <option v-for="sc in subCons" :key="sc.id" :value="sc.id">
+                                {{ sc.name }} ({{ sc.company_name || "N/A" }})
+                            </option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <button
+                        class="px-4 py-2 bg-slate-700 text-white rounded hover:bg-slate-800"
+                        @click="generateTasksFromPo"
+                    >
+                        Generate Tasks
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -714,9 +781,6 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
                                 <div v-if="task.updates?.length" class="text-xs text-gray-500">
                                     Last: {{ task.updates[0]?.note || "Update submitted" }}
                                 </div>
-                                <div v-if="task.invoice_no" class="text-xs text-gray-500">
-                                    Invoice: {{ task.invoice_no }} ({{ formatCurrency(task.invoice_amount ?? 0) }})
-                                </div>
                             </td>
                             <td class="px-4 py-3 text-sm">
                                 <span
@@ -727,10 +791,7 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-center">
-                                <div v-if="activeStage === 'payment'" class="text-xs text-gray-400">
-                                    Status only
-                                </div>
-                                <div v-else class="flex flex-wrap justify-center gap-2">
+                                <div class="flex flex-wrap justify-center gap-2">
                                     <button
                                         class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
                                         @click="openHistory(task)"
@@ -738,14 +799,14 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
                                         History
                                     </button>
                                     <button
-                                        v-if="!['submitted', 'contra_verified', 'invoiced'].includes((task.status || '').toLowerCase())"
+                                        v-if="!['submitted', 'verified', 'contra_verified', 'invoiced', 'approved', 'justified', 'certified', 'paid'].includes((task.status || '').toLowerCase())"
                                         class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
                                         @click="openEdit(task)"
                                     >
                                         Edit
                                     </button>
                                     <button
-                                        v-if="!['submitted', 'contra_verified', 'invoiced'].includes((task.status || '').toLowerCase())"
+                                        v-if="!['submitted', 'verified', 'contra_verified', 'invoiced', 'approved', 'justified', 'certified', 'paid'].includes((task.status || '').toLowerCase())"
                                         class="px-2 py-1 text-xs rounded bg-red-100 text-red-700 hover:bg-red-200"
                                         @click="openDelete(task)"
                                     >
@@ -755,20 +816,6 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
                                         class="px-2 py-1 text-xs rounded bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
                                         v-if="task.status === 'submitted'"
                                         @click="openVerify(task)"
-                                    >
-                                        Review
-                                    </button>
-                                    <button
-                                        class="px-2 py-1 text-xs rounded bg-violet-100 text-violet-700 hover:bg-violet-200"
-                                        v-if="task.status === 'invoiced'"
-                                        @click="downloadInvoice(task)"
-                                    >
-                                        Invoice
-                                    </button>
-                                    <button
-                                        class="px-2 py-1 text-xs rounded bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                                        v-if="task.status === 'invoiced'"
-                                        @click="openJustify(task)"
                                     >
                                         Review
                                     </button>
@@ -808,9 +855,6 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
                                 <div v-if="child.updates?.length" class="text-xs text-gray-500">
                                     Last: {{ child.updates[0]?.note || "Update submitted" }}
                                 </div>
-                                <div v-if="child.invoice_no" class="text-xs text-gray-500">
-                                    Invoice: {{ child.invoice_no }} ({{ formatCurrency(child.invoice_amount ?? 0) }})
-                                </div>
                             </td>
                             <td class="px-4 py-3 text-sm">
                                 <span
@@ -826,10 +870,7 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
                                 </span>
                             </td>
                             <td class="px-4 py-3 text-center">
-                                <div v-if="activeStage === 'payment'" class="text-xs text-gray-400">
-                                    Status only
-                                </div>
-                                <div v-else class="flex flex-wrap justify-center gap-2">
+                                <div class="flex flex-wrap justify-center gap-2">
                                     <button
                                         class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
                                         @click="openHistory(child)"
@@ -837,7 +878,7 @@ const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
                                         History
                                     </button>
                                     <button
-                                        v-if="!['submitted', 'contra_verified', 'invoiced'].includes((child.status || '').toLowerCase())"
+                                        v-if="!['submitted', 'verified', 'contra_verified', 'invoiced', 'approved', 'justified', 'certified', 'paid'].includes((child.status || '').toLowerCase())"
                                         class="px-2 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
                                         @click="openEdit(child)"
                                     >

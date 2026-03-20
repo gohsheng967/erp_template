@@ -3,98 +3,47 @@ import { computed } from 'vue'
 import { usePage, Link } from '@inertiajs/vue3'
 import { useFormat } from '@/Composables/useFormat'
 
-/* =========================
-   PAGE / AUTH
-========================= */
 const page = usePage()
 const authUserId = computed(() => page.props.auth?.user?.data?.id)
 
-/* =========================
-   FORMATTERS
-========================= */
 const { formatCurrency, formatDateTime } = useFormat()
 
-/* =========================
-   EMITS
-========================= */
 const emit = defineEmits(['approve', 'pay', 'delete'])
 
-/* =========================
-   PROPS
-========================= */
 const props = defineProps({
     topups: {
-        type: Object, // Inertia pagination object
+        type: Object,
         required: true,
     },
     status: {
-        type: String, // requested | verified_own_department | verified_project_department | rejected | payment
+        type: String,
         required: true,
     },
 })
 
-/* =========================
-   COLUMN CONFIG
-========================= */
 const columnsByStatus = {
-    requested: [
-        'topup_no',
-        'wallet',
-        'amount',
-        'requested_by',
-        'requested_at',
-        'action',
-    ],
-
-    verified_own_department: [
-        'topup_no',
-        'wallet',
-        'amount',
-        'verified_by',
-        'verified_at',
-        'action',
-    ],
-
-    verified_project_department: [
-        'topup_no',
-        'wallet',
-        'amount',
-        'verified_by',
-        'verified_at',
-        'action',
-    ],
-
-    rejected: [
-        'topup_no',
-        'wallet',
-        'amount',
-        'rejected_by',
-        'rejected_at',
-    ],
-
-    payment: [
-        'topup_no',
-        'wallet',
-        'amount',
-        'approved_by',
-        'approved_at',
-        'payment_status',
-        'payment_ref_no',
-        'voucher',
-    ],
-
+    my_in_progress: ['topup_no', 'wallet', 'status', 'amount', 'requested_by', 'requested_at', 'action'],
+    my_rejected: ['topup_no', 'wallet', 'status', 'amount', 'requested_by', 'requested_at'],
+    my_completed: ['topup_no', 'wallet', 'status', 'amount', 'requested_by', 'requested_at', 'payment_ref_no', 'voucher'],
+    checked: ['topup_no', 'wallet', 'status', 'amount', 'requested_by', 'requested_at', 'action'],
+    verified: ['topup_no', 'wallet', 'status', 'amount', 'verified_by', 'verified_at', 'action'],
+    approval: ['topup_no', 'wallet', 'status', 'amount', 'approved_by', 'approved_at'],
+    rejected: ['topup_no', 'wallet', 'status', 'amount', 'rejected_by', 'rejected_at'],
+    payment: ['topup_no', 'wallet', 'status', 'amount', 'payment_status', 'payment_ref_no', 'voucher', 'action'],
+    all_non_draft: ['topup_no', 'wallet', 'status', 'amount', 'requested_by', 'requested_at', 'payment_ref_no', 'voucher', 'action'],
 }
 
 const columnLabels = {
     topup_no: 'Top-Up No',
     wallet: 'Wallet',
+    status: 'Status',
     amount: 'Amount',
     requested_by: 'Requested By',
     requested_at: 'Requested At',
     approved_by: 'CEO / GM Approved By',
     approved_at: 'CEO / GM Approved At',
-    verified_by: 'Own Dept Verified By',
-    verified_at: 'Own Dept Verified At',
+    verified_by: 'Verified By',
+    verified_at: 'Verified At',
     rejected_by: 'Rejected By',
     rejected_at: 'Rejected At',
     payment_status: 'Payment Status',
@@ -103,65 +52,87 @@ const columnLabels = {
     action: 'Action',
 }
 
-const visibleColumns = computed(
-    () => columnsByStatus[props.status] ?? []
-)
+const visibleColumns = computed(() => columnsByStatus[props.status] ?? columnsByStatus.checked)
 
-/* =========================
-   CELL RENDERER
-========================= */
+function walletLabel(row) {
+    if (row.wallet?.context_type === 'office') return 'Office'
+    return row.wallet?.project?.name ?? 'Project'
+}
+
+function normalizedStatus(row) {
+    if (row.status === 'requested') return 'Checked'
+    if (row.status === 'verified_own_department' || row.status === 'verified_project_department') return 'Verified'
+    if (row.status === 'approved') return 'CEO / GM Approved'
+    if (row.status === 'paid') return 'Paid'
+    if (row.status === 'rejected') return 'Rejected'
+    return String(row.status ?? '-')
+}
+
+function statusBadgeClass(row) {
+    if (row.status === 'requested') return 'bg-amber-100 text-amber-700 border border-amber-200'
+    if (row.status === 'verified_own_department' || row.status === 'verified_project_department') return 'bg-sky-100 text-sky-700 border border-sky-200'
+    if (row.status === 'approved') return 'bg-violet-100 text-violet-700 border border-violet-200'
+    if (row.status === 'paid') return 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+    if (row.status === 'rejected') return 'bg-red-100 text-red-700 border border-red-200'
+    return 'bg-gray-100 text-gray-700 border border-gray-200'
+}
+
+function paymentStatusText(row) {
+    return row.status === 'paid' ? 'Paid' : 'Pending Payment'
+}
+
+function paymentStatusBadgeClass(row) {
+    if (row.status === 'paid') return 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+    return 'bg-amber-100 text-amber-700 border border-amber-200'
+}
+
+function canTriggerApproval(row) {
+    return ['requested', 'verified_own_department', 'verified_project_department'].includes(row.status)
+}
+
+function approvalActionTitle(row) {
+    if (row.status === 'requested') return row.wallet?.context_type === 'project' ? 'Mark as Verified (Project Department)' : 'Mark as Verified (Own Department)'
+    return 'CEO / GM Approve'
+}
+
+function canPay(row) {
+    return row.status === 'approved'
+}
+
+function canDelete(row) {
+    return row.status === 'requested' && authUserId.value && row.requested_by === authUserId.value
+}
+
 function renderCell(row, col) {
     switch (col) {
         case 'topup_no':
             return row.topup_no ?? '-'
-
         case 'wallet':
-            if (row.wallet?.context_type === 'office') {
-                return 'Office'
-            }
-            return row.wallet?.project?.name ?? 'Project'
-
+            return walletLabel(row)
         case 'amount':
             return formatCurrency(row.amount)
-
+        case 'status':
+            return normalizedStatus(row)
         case 'requested_by':
             return row.requester?.name ?? '-'
-
         case 'approved_by':
             return row.approver?.name ?? '-'
-
         case 'verified_by':
             return row.verifier?.name ?? '-'
-
         case 'requested_at':
-            return row.created_at
-                ? formatDateTime(row.created_at)
-                : '-'
-
+            return row.created_at ? formatDateTime(row.created_at) : '-'
         case 'approved_at':
-            return row.approved_at
-                ? formatDateTime(row.approved_at)
-                : '-'
-
+            return row.approved_at ? formatDateTime(row.approved_at) : '-'
         case 'verified_at':
-            return row.verified_at
-                ? formatDateTime(row.verified_at)
-                : '-'
-
+            return row.verified_at ? formatDateTime(row.verified_at) : '-'
         case 'rejected_by':
             return row.rejector?.name ?? '-'
-
         case 'rejected_at':
-            return row.rejected_at
-                ? formatDateTime(row.rejected_at)
-                : '-'
-
+            return row.rejected_at ? formatDateTime(row.rejected_at) : '-'
         case 'payment_status':
-            return row.status === 'paid' ? 'Paid' : 'Pending'
-
+            return paymentStatusText(row)
         case 'payment_ref_no':
             return row.payment_ref_no ?? '-'
-
         default:
             return ''
     }
@@ -171,8 +142,6 @@ function renderCell(row, col) {
 <template>
     <div class="overflow-x-auto border rounded bg-white">
         <table class="min-w-full text-sm">
-
-            <!-- ================= HEADER ================= -->
             <thead class="bg-gray-100 text-gray-700">
                 <tr>
                     <th
@@ -189,7 +158,6 @@ function renderCell(row, col) {
                 </tr>
             </thead>
 
-            <!-- ================= BODY ================= -->
             <tbody>
                 <tr
                     v-for="topup in topups.data"
@@ -205,44 +173,27 @@ function renderCell(row, col) {
                             'text-center': col === 'action' || col === 'voucher'
                         }"
                     >
-                        <!-- ================= ACTIONS ================= -->
                         <template v-if="col === 'action'">
-                            <!-- APPROVE -->
                             <button
-                                v-if="status === 'requested'"
+                                v-if="canTriggerApproval(topup)"
                                 class="text-indigo-600 hover:text-indigo-800"
-                                :title="topup.wallet?.context_type === 'project' ? 'Project Dept Verified' : 'Own Dept Verified'"
+                                :title="approvalActionTitle(topup)"
                                 @click="emit('approve', topup)"
                             >
                                 <i class="mdi mdi-check-decagram-outline text-lg"></i>
                             </button>
 
                             <button
-                                v-if="status === 'verified_own_department' || status === 'verified_project_department'"
-                                class="text-indigo-600 hover:text-indigo-800"
-                                title="CEO / GM Approved"
-                                @click="emit('approve', topup)"
-                            >
-                                <i class="mdi mdi-check-circle-outline text-lg"></i>
-                            </button>
-
-                            <!-- PAY -->
-                            <button
-                                v-if="status === 'payment' && topup.status === 'approved'"
-                                class="text-green-600 hover:text-green-800"
+                                v-if="canPay(topup)"
+                                class="ml-2 text-green-600 hover:text-green-800"
                                 title="Pay"
                                 @click="emit('pay', topup)"
                             >
                                 <i class="mdi mdi-cash-check text-lg"></i>
                             </button>
 
-                            <!-- DELETE (REQUESTER ONLY) -->
                             <button
-                                v-if="
-                                    status === 'requested' &&
-                                    authUserId &&
-                                    topup.requested_by === authUserId
-                                "
+                                v-if="canDelete(topup)"
                                 class="text-red-600 hover:text-red-800 ml-2"
                                 title="Delete"
                                 @click="emit('delete', topup)"
@@ -251,7 +202,6 @@ function renderCell(row, col) {
                             </button>
                         </template>
 
-                        <!-- ================= VOUCHER ================= -->
                         <template v-else-if="col === 'voucher'">
                             <Link
                                 v-if="topup.attachment?.url"
@@ -265,14 +215,28 @@ function renderCell(row, col) {
                             <span v-else>-</span>
                         </template>
 
-                        <!-- ================= NORMAL CELL ================= -->
+                        <span
+                            v-else-if="col === 'status'"
+                            class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                            :class="statusBadgeClass(topup)"
+                        >
+                            {{ normalizedStatus(topup) }}
+                        </span>
+
+                        <span
+                            v-else-if="col === 'payment_status'"
+                            class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                            :class="paymentStatusBadgeClass(topup)"
+                        >
+                            {{ paymentStatusText(topup) }}
+                        </span>
+
                         <span v-else>
                             {{ renderCell(topup, col) }}
                         </span>
                     </td>
                 </tr>
 
-                <!-- ================= EMPTY STATE ================= -->
                 <tr v-if="!topups.data.length">
                     <td
                         :colspan="visibleColumns.length"
@@ -282,7 +246,6 @@ function renderCell(row, col) {
                     </td>
                 </tr>
             </tbody>
-
         </table>
     </div>
 </template>

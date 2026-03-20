@@ -28,7 +28,7 @@ function submit() {
         <div class="absolute inset-0 bg-black bg-opacity-40"></div>
 
         <div class="bg-white rounded-lg shadow-lg w-full max-w-md z-10 p-6">
-            <h3 class="text-lg font-semibold mb-4">
+            <h3 class="text-base font-semibold mb-3">
                 Create Claim (Draft)
             </h3>
 
@@ -43,7 +43,7 @@ function submit() {
                     <label class="text-sm font-medium">Project</label>
                     <select
                         v-model="form.project_id"
-                        class="w-full border rounded px-3 py-2"
+                        class="h-9 w-full rounded-lg border border-slate-300 px-2.5 text-xs focus:border-indigo-500 focus:ring-indigo-500"
                     >
                         <option value="">Others / No Project</option>
                         <option
@@ -57,11 +57,11 @@ function submit() {
                 </div>
                 <!-- TITLE -->
                 <div>
-                    <label class="text-sm font-medium">TITLE</label>
+                    <label class="text-sm font-medium">Title</label>
                     <input
                         type="text"
                         v-model="form.title"
-                        class="w-full border rounded px-3 py-2"
+                        class="h-9 w-full rounded-lg border border-slate-300 px-2.5 text-xs focus:border-indigo-500 focus:ring-indigo-500"
                         placeholder="UAT Claim"
                     />
                     <div
@@ -79,7 +79,7 @@ function submit() {
                         type="number"
                         step="0.01"
                         v-model="form.total_amount"
-                        class="w-full border rounded px-3 py-2"
+                        class="h-9 w-full rounded-lg border border-slate-300 px-2.5 text-xs focus:border-indigo-500 focus:ring-indigo-500"
                         placeholder="0.00"
                     />
                     <div
@@ -96,14 +96,14 @@ function submit() {
             <div class="mt-6 flex justify-end gap-3">
                 <button
                     @click="emit('close')"
-                    class="px-4 py-2 bg-gray-200 rounded"
+                    class="rounded-md bg-gray-200 px-3 py-1.5 text-xs font-semibold hover:bg-gray-300"
                 >
                     Cancel
                 </button>
 
                 <button
                     @click="submit"
-                    class="px-4 py-2 bg-indigo-600 text-white rounded"
+                    class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
                     :disabled="form.processing"
                 >
                     Create Draft

@@ -27,12 +27,33 @@ use App\Services\AttachmentService;
 
 class ClaimsController extends Controller
 {
+    private const ALLOWED_TABS = [
+        'my_in_progress',
+        'my_rejected',
+        'my_completed',
+        'all_non_draft',
+        Claim::STATUS_DRAFT,
+        Claim::STATUS_SUBMITTED,
+        Claim::STATUS_CHECKED,
+        Claim::STATUS_VERIFIED,
+        Claim::STATUS_APPROVED,
+        'payment',
+        Claim::STATUS_REJECTED,
+    ];
+
+    private const APPROVAL_TRANSITIONS = [
+        Claim::STATUS_SUBMITTED => [Claim::STATUS_DRAFT, Claim::STATUS_CHECKED],
+        Claim::STATUS_CHECKED   => [Claim::STATUS_DRAFT, Claim::STATUS_VERIFIED, Claim::STATUS_REJECTED],
+        Claim::STATUS_VERIFIED  => [Claim::STATUS_DRAFT, Claim::STATUS_CEO_APPROVED, Claim::STATUS_REJECTED],
+        // Keep legacy approved claims transition-safe.
+        Claim::STATUS_APPROVED  => [Claim::STATUS_DRAFT, Claim::STATUS_CEO_APPROVED, Claim::STATUS_REJECTED],
+    ];
+
     public function index(Request $request)
     {
-        $allowedTabs = ['draft', 'submitted', 'checked', 'verified', 'approved', 'payment', 'rejected'];
-        $tab = in_array($request->tab, $allowedTabs, true)
+        $tab = in_array($request->tab, self::ALLOWED_TABS, true)
             ? $request->tab
-            : 'submitted';
+            : Claim::STATUS_SUBMITTED;
 
         $from = $request->from
             ?? Carbon::now()->subMonth()->toDateString();
@@ -55,6 +76,13 @@ class ClaimsController extends Controller
         |--------------------------------------------------------------------------
         */
         $filterQuery = Claim::query()
+            ->where(function ($q) {
+                $q->whereNull('claims.remark')
+                    ->orWhereRaw(
+                        'LOWER(TRIM(claims.remark)) <> ?',
+                        [strtolower(trim(Claim::REMARK_PETTY_CASH_ORIGIN))]
+                    );
+            })
             ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
                 $q->where('claims.branch_id', $this->activeBranchId($request))
             )
@@ -92,6 +120,7 @@ class ClaimsController extends Controller
         |--------------------------------------------------------------------------
         */
         $listQuery = (clone $filterQuery)
+            ->withTrashed()
             ->with([
                 'project:id,name',
                 'issuer:id,name',
@@ -100,24 +129,62 @@ class ClaimsController extends Controller
             ->withSum('items', 'amount')
             ->orderByDesc('claims.created_at');
 
-        $draft       = (clone $listQuery)->where('status', 'draft')->paginate(15)->withQueryString();
-        $submitted   = (clone $listQuery)->where('status', 'submitted')->paginate(15)->withQueryString();
-        $checked     = (clone $listQuery)->where('status', 'checked')->paginate(15)->withQueryString();
-        $verified    = (clone $listQuery)->where('status', 'verified')->paginate(15)->withQueryString();
-        $approved    = (clone $listQuery)->where('status', 'approved')->paginate(15)->withQueryString();
-        $paymentMade = (clone $listQuery)
+        $myBaseQuery = (clone $listQuery)
+            ->where('claims.user_id', (int) auth()->id());
+
+        $draft       = (clone $listQuery)
+            ->whereNull('claims.deleted_at')
+            ->where('status', Claim::STATUS_DRAFT)
+            ->paginate(15)
+            ->withQueryString();
+        $allNonDraft = (clone $listQuery)
             ->where(function ($q) {
-                $q->whereIn('status', ['ceo_approved', 'paid']);
+                $q->where('status', '!=', Claim::STATUS_DRAFT)
+                    ->orWhereNotNull('claims.deleted_at');
+            })
+            ->paginate(15)
+            ->withQueryString();
+        $myInProgress = (clone $myBaseQuery)
+            ->whereNull('claims.deleted_at')
+            ->whereNotIn('status', [Claim::STATUS_REJECTED, Claim::STATUS_PAID])
+            ->paginate(15)
+            ->withQueryString();
+        $myRejected = (clone $myBaseQuery)
+            ->where(function ($q) {
+                $q->where('status', Claim::STATUS_REJECTED)
+                    ->orWhereNotNull('claims.deleted_at');
+            })
+            ->paginate(15)
+            ->withQueryString();
+        $myCompleted = (clone $myBaseQuery)
+            ->whereNull('claims.deleted_at')
+            ->where('status', Claim::STATUS_PAID)
+            ->paginate(15)
+            ->withQueryString();
+        $submitted   = (clone $listQuery)->whereNull('claims.deleted_at')->where('status', Claim::STATUS_SUBMITTED)->paginate(15)->withQueryString();
+        $checked     = (clone $listQuery)->whereNull('claims.deleted_at')->where('status', Claim::STATUS_CHECKED)->paginate(15)->withQueryString();
+        $verified    = (clone $listQuery)->whereNull('claims.deleted_at')->where('status', Claim::STATUS_VERIFIED)->paginate(15)->withQueryString();
+        $approved    = (clone $listQuery)->whereNull('claims.deleted_at')->where('status', Claim::STATUS_APPROVED)->paginate(15)->withQueryString();
+        $paymentMade = (clone $listQuery)
+            ->whereNull('claims.deleted_at')
+            ->where(function ($q) {
+                $q->whereIn('status', Claim::paymentStatuses());
             })
             ->when($paymentState === 'pending', fn ($q) =>
-                $q->where('status', 'ceo_approved')
+                $q->where('status', Claim::STATUS_CEO_APPROVED)
             )
             ->when($paymentState === 'paid', fn ($q) =>
-                $q->where('status', 'paid')
+                $q->where('status', Claim::STATUS_PAID)
             )
             ->paginate(15)
             ->withQueryString();
-        $rejected    = (clone $listQuery)->where('status', 'rejected')->paginate(15)->withQueryString();
+        $rejected    = (clone $listQuery)
+            ->where(function ($q) {
+                $q->where('status', Claim::STATUS_REJECTED)
+                    ->orWhereNotNull('claims.deleted_at');
+            })
+            ->paginate(15)
+            ->withQueryString();
 
         /*
         |--------------------------------------------------------------------------
@@ -125,17 +192,25 @@ class ClaimsController extends Controller
         |--------------------------------------------------------------------------
         */
         $countsRaw = (clone $filterQuery)
-            ->whereIn('status', ['submitted', 'checked', 'verified', 'approved', 'ceo_approved'])
+            ->whereIn('status', [
+                Claim::STATUS_SUBMITTED,
+                Claim::STATUS_CHECKED,
+                Claim::STATUS_VERIFIED,
+                Claim::STATUS_APPROVED,
+                Claim::STATUS_CEO_APPROVED,
+                Claim::STATUS_PAID,
+            ])
             ->select('status', DB::raw('COUNT(*) as total'))
             ->groupBy('status')
             ->pluck('total', 'status');
 
         $counts = [
-            'submitted' => (int) ($countsRaw['submitted'] ?? 0),
-            'checked'   => (int) ($countsRaw['checked'] ?? 0),
-            'verified'  => (int) ($countsRaw['verified'] ?? 0),
-            'approved'  => (int) ($countsRaw['approved'] ?? 0),
-            'payment'   => (int) ($countsRaw['ceo_approved'] ?? 0),
+            'submitted' => (int) ($countsRaw[Claim::STATUS_SUBMITTED] ?? 0),
+            'checked'   => (int) ($countsRaw[Claim::STATUS_CHECKED] ?? 0),
+            'verified'  => (int) ($countsRaw[Claim::STATUS_VERIFIED] ?? 0),
+            'approved'  => (int) ($countsRaw[Claim::STATUS_APPROVED] ?? 0),
+            'payment'   => (int) ($countsRaw[Claim::STATUS_CEO_APPROVED] ?? 0)
+                         + (int) ($countsRaw[Claim::STATUS_PAID] ?? 0),
         ];
 
         /*
@@ -146,8 +221,30 @@ class ClaimsController extends Controller
         $projectDonutRaw = (clone $filterQuery)
             ->leftJoin('projects', 'projects.id', '=', 'claims.project_id')
             ->when($tab === 'payment', function ($q) {
-                $q->whereIn('claims.status', ['ceo_approved', 'paid']);
-            }, fn ($q) => $q->where('claims.status', $tab))
+                $q->whereIn('claims.status', Claim::paymentStatuses());
+            }, function ($q) use ($tab) {
+                if ($tab === 'my_in_progress') {
+                    $q->where('claims.user_id', (int) auth()->id())
+                        ->whereNotIn('claims.status', [Claim::STATUS_REJECTED, Claim::STATUS_PAID]);
+                    return;
+                }
+
+                if ($tab === 'my_rejected') {
+                    $q->where('claims.user_id', (int) auth()->id())
+                        ->where('claims.status', Claim::STATUS_REJECTED);
+                    return;
+                }
+
+                if ($tab === 'my_completed') {
+                    $q->where('claims.user_id', (int) auth()->id())
+                        ->where('claims.status', Claim::STATUS_PAID);
+                    return;
+                }
+
+                if (!in_array($tab, ['my_in_progress', 'my_rejected', 'my_completed'], true)) {
+                    $q->where('claims.status', $tab);
+                }
+            })
             ->select(
                 DB::raw('COALESCE(claims.project_id, 0) as project_key'),
                 DB::raw('SUM(claims.total_amount) as total')
@@ -190,8 +287,30 @@ class ClaimsController extends Controller
                 $q->whereDate('claims.created_at', '<=', $to)
             )
             ->when($tab === 'payment', function ($q) {
-                $q->whereIn('claims.status', ['ceo_approved', 'paid']);
-            }, fn ($q) => $q->where('claims.status', $tab))
+                $q->whereIn('claims.status', Claim::paymentStatuses());
+            }, function ($q) use ($tab) {
+                if ($tab === 'my_in_progress') {
+                    $q->where('claims.user_id', (int) auth()->id())
+                        ->whereNotIn('claims.status', [Claim::STATUS_REJECTED, Claim::STATUS_PAID]);
+                    return;
+                }
+
+                if ($tab === 'my_rejected') {
+                    $q->where('claims.user_id', (int) auth()->id())
+                        ->where('claims.status', Claim::STATUS_REJECTED);
+                    return;
+                }
+
+                if ($tab === 'my_completed') {
+                    $q->where('claims.user_id', (int) auth()->id())
+                        ->where('claims.status', Claim::STATUS_PAID);
+                    return;
+                }
+
+                if (!in_array($tab, ['my_in_progress', 'my_rejected', 'my_completed'], true)) {
+                    $q->where('claims.status', $tab);
+                }
+            })
             ->select(
                 DB::raw('COALESCE(claim_types.name, claim_items.claim_type) as label'),
                 DB::raw('SUM(claim_items.amount) as amount')
@@ -230,6 +349,10 @@ class ClaimsController extends Controller
 
         return Inertia::render('Transactions/Claims/Index', [
             'claims' => [
+                'all_non_draft' => $allNonDraft,
+                'my_in_progress' => $myInProgress,
+                'my_rejected'    => $myRejected,
+                'my_completed'   => $myCompleted,
                 'draft'     => $draft,
                 'submitted' => $submitted,
                 'checked'   => $checked,
@@ -260,6 +383,7 @@ class ClaimsController extends Controller
             'activeTab' => $tab,
             'projects'  => $projects,
             'issuers'   => $issuers,
+            'canBrowseAllClaims' => $this->canBrowseAllClaims($request),
         ]);
     }
 
@@ -285,7 +409,7 @@ class ClaimsController extends Controller
             'project_id'   => $validated['project_id'] ?? null,
             'branch_id'    => $this->activeBranchId($request),
             'total_amount' => $validated['total_amount'],
-            'status'       => 'draft',
+            'status'       => Claim::STATUS_DRAFT,
         ]);
 
         return redirect()->route('claims.edit', $claim->uuid);
@@ -295,7 +419,7 @@ class ClaimsController extends Controller
     {
         $claim = $this->claimByUuidOrFail($request, $uuid);
 
-        if ($claim->status !== 'draft') {
+        if ($claim->status !== Claim::STATUS_DRAFT) {
             abort(403);
         }
 
@@ -315,7 +439,7 @@ class ClaimsController extends Controller
             ])
             ->firstOrFail();
 
-        if ($claim->status !== 'draft') {
+        if ($claim->status !== Claim::STATUS_DRAFT) {
             abort(403, 'Claim is no longer editable');
         }
 
@@ -359,7 +483,7 @@ class ClaimsController extends Controller
         /* ------------------------------------------------
         Lock enforcement
         ------------------------------------------------ */
-        if ($claim->status !== 'draft') {
+        if ($claim->status !== Claim::STATUS_DRAFT) {
             abort(403, 'This claim is locked and cannot be edited.');
         }
 
@@ -367,7 +491,7 @@ class ClaimsController extends Controller
         Base validation (draft-safe)
         ------------------------------------------------ */
         $baseRules = [
-            'status' => ['required', Rule::in(['draft', 'submitted'])],
+            'status' => ['required', Rule::in([Claim::STATUS_DRAFT, Claim::STATUS_SUBMITTED])],
             'total_amount' => ['nullable', 'numeric', 'min:0'],
             'items' => ['nullable', 'array'],
             'items.*.id' => ['nullable', 'integer'],
@@ -408,7 +532,7 @@ class ClaimsController extends Controller
             'total_amount' => ['required', 'numeric', 'min:0.01'],
         ];
 
-        $rules = $request->status === 'submitted'
+        $rules = $request->status === Claim::STATUS_SUBMITTED
             ? array_merge($baseRules, $submitRules)
             : $baseRules;
 
@@ -417,7 +541,7 @@ class ClaimsController extends Controller
         /* ------------------------------------------------
         Total vs item sum check (submit only)
         ------------------------------------------------ */
-        if ($validated['status'] === 'submitted') {
+        if ($validated['status'] === Claim::STATUS_SUBMITTED) {
             $itemsSum = collect($validated['items'])
                 ->sum(fn ($item) => (float) ($item['amount'] ?? 0));
 
@@ -435,7 +559,7 @@ class ClaimsController extends Controller
         DB::transaction(function () use ($claim, $validated, $request) {
 
             /* -------- Generate claim number on submit -------- */
-            if ($validated['status'] === 'submitted') {
+            if ($validated['status'] === Claim::STATUS_SUBMITTED) {
                 if (!$claim->claim_no) {
                     $claim->claim_no = RunningNumberService::next(documentType: 'claim');
                 }
@@ -511,7 +635,7 @@ class ClaimsController extends Controller
                 $newFiles = Arr::wrap($request->file("items.$index.attachment"));
 
                 /* Submit-only attachment rules */
-                if ($validated['status'] === 'submitted') {
+                if ($validated['status'] === Claim::STATUS_SUBMITTED) {
                     $existingCount = count($keepAttachmentIds);
                     $newCount = count(array_filter($newFiles));
 
@@ -561,7 +685,7 @@ class ClaimsController extends Controller
             ->route('claims.index')
             ->with(
                 'success',
-                $validated['status'] === 'submitted'
+                $validated['status'] === Claim::STATUS_SUBMITTED
                     ? 'Claim submitted successfully.'
                     : 'Draft saved successfully.'
             );
@@ -569,7 +693,8 @@ class ClaimsController extends Controller
 
     public function show(Request $request, string $uuid)
     {
-        $claim = Claim::where('uuid', $uuid)
+        $claim = Claim::withTrashed()
+            ->where('uuid', $uuid)
             ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
                 $q->where('branch_id', $this->activeBranchId($request))
             )
@@ -588,6 +713,7 @@ class ClaimsController extends Controller
             ->firstOrFail();
 
         $company = CompanyProfile::first();
+        $claim->setAttribute('is_petty_cash_origin', $claim->isPettyCashOrigin());
 
         return response()->json([
             'claim'   => $claim,
@@ -597,89 +723,56 @@ class ClaimsController extends Controller
 
     public function approval(Request $request, string $uuid)
     {
-        // =========================
-        // VALIDATION
-        // =========================
         $request->validate([
-            'status' => 'required|in:draft,checked,verified,approved,ceo_approved,rejected',
+            'status' => ['required', Rule::in($this->approvalTargetStatuses())],
             'remark' => 'nullable|string|max:1000',
         ]);
 
-        // =========================
-        // LOCK CLAIM (ANTI DOUBLE-SUBMIT)
-        // =========================
-        $claim = Claim::where('uuid', $uuid)
-            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
-                $q->where('branch_id', $this->activeBranchId($request))
-            )
-            ->lockForUpdate()
-            ->firstOrFail();
+        $status = DB::transaction(function () use ($request, $uuid) {
+            $claim = Claim::where('uuid', $uuid)
+                ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                    $q->where('branch_id', $this->activeBranchId($request))
+                )
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        // =========================
-        // SAFETY CHECK
-        // =========================
-        $allowedTransitions = [
-            'submitted' => ['draft', 'checked'],
-            'checked'   => ['draft', 'verified', 'rejected'],
-            'verified'  => ['draft', 'approved', 'rejected'],
-            'approved'  => ['draft', 'ceo_approved', 'rejected'],
-        ];
+            $current = (string) $claim->status;
+            $next = (string) $request->status;
 
-        $current = (string) $claim->status;
-        $next = (string) $request->status;
+            if (!in_array($next, self::APPROVAL_TRANSITIONS[$current] ?? [], true)) {
+                abort(403, 'Invalid claim status transition.');
+            }
 
-        if (!in_array($next, $allowedTransitions[$current] ?? [], true)) {
-            abort(403, 'Invalid claim status transition.');
-        }
-
-        // =========================
-        // TRANSACTION
-        // =========================
-        DB::transaction(function () use ($claim, $request) {
-
+            $actorId = (int) auth()->id();
             $fromStatus = (string) $claim->status;
-            $claim->status = $request->status;
+            $requestedStatus = (string) $request->status;
+            $finalStatus = $this->resolveApprovalStatus($claim, $requestedStatus);
 
-            if ($request->status === 'draft') {
-                $claim->checked_by = null;
-                $claim->checked_at = null;
-                $claim->approved_by = null;
-                $claim->approved_at = null;
-            }
-
-            if ($request->status === 'checked') {
-                $claim->checked_by = auth()->id();
-                $claim->checked_at = now();
-            }
-
-            if ($request->status === 'approved') {
-                $claim->approved_by = null;
-                $claim->approved_at = null;
-            }
-
-            if ($request->status === 'ceo_approved') {
-                $claim->approved_by = auth()->id();
-                $claim->approved_at = now();
-            }
+            $claim->status = $finalStatus;
+            $this->applyApprovalSideEffects(
+                claim: $claim,
+                requestedStatus: $requestedStatus,
+                finalStatus: $finalStatus,
+                actorId: $actorId,
+            );
 
             $claim->remark_log = $this->appendRemarkLog(
                 existing: $claim->remark_log,
                 fromStatus: $fromStatus,
-                toStatus: (string) $request->status,
+                toStatus: $finalStatus,
                 remark: $request->remark,
-                userId: auth()->id(),
+                userId: $actorId,
                 userName: (string) (auth()->user()?->name ?? 'System'),
             );
 
             $claim->save();
+
+            return (string) $claim->status;
         });
 
-        // =========================
-        // RESPONSE
-        // =========================
         return response()->json([
             'success' => true,
-            'status'  => $claim->status,
+            'status'  => $status,
         ]);
     }
 
@@ -706,8 +799,12 @@ class ClaimsController extends Controller
             FLOW GUARD
             ========================== */
 
-            if ($claim->status !== 'ceo_approved') {
+            if ($claim->status !== Claim::STATUS_CEO_APPROVED) {
                 abort(422, 'Only CEO-approved claims can be marked as paid.');
+            }
+
+            if ($claim->isPettyCashOrigin()) {
+                abort(422, 'Petty cash claims are auto-paid after CEO / GM approval.');
             }
 
             $slip = PaymentSlip::where('id', $request->payment_slip_id)
@@ -724,7 +821,7 @@ class ClaimsController extends Controller
             }
 
             $claim->update([
-                'status'       => 'paid',
+                'status'       => Claim::STATUS_PAID,
                 'payment_ref_no'  => $request->payment_ref,
                 'payment_slip_no' => $claim->payment_slip_no ?? $slip->slip_no,
                 'company_bank_account_id' => $claim->company_bank_account_id ?? $slip->company_bank_account_id,
@@ -766,8 +863,12 @@ class ClaimsController extends Controller
 
         $claim = $this->claimByUuidOrFail($request, $uuid);
 
-        if ($claim->status !== 'ceo_approved') {
+        if ($claim->status !== Claim::STATUS_CEO_APPROVED) {
             abort(422, 'Only CEO-approved claims can generate a payment slip.');
+        }
+
+        if ($claim->isPettyCashOrigin()) {
+            abort(422, 'Petty cash claims do not use payment slips. Please use top-up request payment flow.');
         }
 
         $slip = $claim->paymentSlip ?? new PaymentSlip();
@@ -844,6 +945,76 @@ class ClaimsController extends Controller
     private function shouldScopeToActiveBranch(Request $request): bool
     {
         return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
+
+    private function canBrowseAllClaims(Request $request): bool
+    {
+        return (bool) ($request->user()?->is_superadmin || $request->user()?->is_general_manager);
+    }
+
+    private function approvalTargetStatuses(): array
+    {
+        return array_values(
+            array_unique(
+                array_merge(...array_values(self::APPROVAL_TRANSITIONS))
+            )
+        );
+    }
+
+    private function resolveApprovalStatus(Claim $claim, string $requestedStatus): string
+    {
+        if (
+            $requestedStatus === Claim::STATUS_CEO_APPROVED
+            && $claim->isPettyCashOrigin()
+        ) {
+            return Claim::STATUS_PAID;
+        }
+
+        return $requestedStatus;
+    }
+
+    private function applyApprovalSideEffects(
+        Claim $claim,
+        string $requestedStatus,
+        string $finalStatus,
+        int $actorId,
+    ): void {
+        if ($requestedStatus === Claim::STATUS_DRAFT) {
+            $claim->checked_by = null;
+            $claim->checked_at = null;
+            $claim->approved_by = null;
+            $claim->approved_at = null;
+            $claim->paid_by = null;
+            $claim->paid_at = null;
+            return;
+        }
+
+        if ($finalStatus === Claim::STATUS_CHECKED) {
+            $claim->checked_by = $actorId;
+            $claim->checked_at = now();
+            return;
+        }
+
+        if ($finalStatus === Claim::STATUS_APPROVED) {
+            $claim->approved_by = null;
+            $claim->approved_at = null;
+            return;
+        }
+
+        if ($finalStatus === Claim::STATUS_CEO_APPROVED) {
+            $claim->approved_by = $actorId;
+            $claim->approved_at = now();
+            $claim->paid_by = null;
+            $claim->paid_at = null;
+            return;
+        }
+
+        if ($finalStatus === Claim::STATUS_PAID) {
+            $claim->approved_by = $actorId;
+            $claim->approved_at = now();
+            $claim->paid_by = $actorId;
+            $claim->paid_at = now();
+        }
     }
 
     private function appendRemarkLog(

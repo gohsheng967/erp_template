@@ -3,9 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\SubCon;
+use App\Models\SubConClaim;
+use App\Models\Project;
 use App\Models\SubConTask;
 use App\Models\SubConTaskUpdate;
+use App\Services\RunningNumberService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -25,6 +29,15 @@ class SubConPortalController extends Controller
             ->where('sub_con_id', $subCon->id)
             ->orderByDesc('id')
             ->get();
+        $claims = SubConClaim::query()
+            ->with(['project:id,uuid,code,name,status'])
+            ->where('sub_con_id', $subCon->id)
+            ->orderByDesc('id')
+            ->get();
+        $claimProjects = $subCon->projects()
+            ->orderBy('projects.code')
+            ->orderBy('projects.name')
+            ->get(['projects.uuid', 'projects.code', 'projects.name']);
 
         $mainTasks = $tasks->whereNull('parent_id');
 
@@ -32,9 +45,14 @@ class SubConPortalController extends Controller
             'total' => $mainTasks->count(),
             'draft' => $mainTasks->where('status', 'draft')->count(),
             'submitted' => $mainTasks->where('status', 'submitted')->count(),
-            'contra_verified' => $mainTasks->whereIn('status', ['contra_verified', 'verified'])->count(),
-            'invoiced' => $mainTasks->where('status', 'invoiced')->count(),
-            'payment' => $mainTasks->whereIn('status', ['approved', 'justified', 'certified', 'paid'])->count(),
+            'verified' => $mainTasks->whereIn('status', ['verified', 'contra_verified', 'invoiced', 'approved', 'justified', 'certified', 'paid'])->count(),
+        ];
+        $claimStats = [
+            'total' => $claims->count(),
+            'pending_decision' => $claims->where('status', 'ceo_gm_approved')->count(),
+            'appealed' => $claims->where('status', 'appealed')->count(),
+            'pending_real_invoice_upload' => $claims->where('status', 'pending_real_invoice_upload')->count(),
+            'completed' => $claims->where('status', 'real_invoice_uploaded')->count(),
         ];
 
         return Inertia::render('SubCon/Portal', [
@@ -47,7 +65,96 @@ class SubConPortalController extends Controller
             ],
             'stats' => $stats,
             'tasks' => $tasks,
+            'claimProjects' => $claimProjects,
+            'claimStats' => $claimStats,
+            'claims' => $claims->map(function (SubConClaim $claim) {
+                return [
+                    'uuid' => $claim->uuid,
+                    'claim_no' => $claim->claim_no,
+                    'title' => $claim->title,
+                    'status' => $claim->status,
+                    'claimed_amount' => (float) ($claim->claimed_amount ?? 0),
+                    'approved_amount' => $claim->approved_amount !== null ? (float) $claim->approved_amount : null,
+                    'payment_slip_no' => $claim->payment_slip_no,
+                    'appeal_round' => (int) ($claim->appeal_round ?? 0),
+                    'proforma_invoice_name' => $claim->proforma_invoice_name,
+                    'real_invoice_name' => $claim->real_invoice_name,
+                    'project' => $claim->project ? [
+                        'uuid' => $claim->project->uuid,
+                        'name' => $claim->project->name,
+                        'code' => $claim->project->code,
+                    ] : null,
+                    'created_at' => optional($claim->created_at)?->toDateTimeString(),
+                    'updated_at' => optional($claim->updated_at)?->toDateTimeString(),
+                    'remark_log' => is_array($claim->remark_log) ? $claim->remark_log : [],
+                ];
+            })->values(),
         ]);
+    }
+
+    public function storeClaim(Request $request)
+    {
+        $subCon = $this->getAuthenticatedSubCon($request);
+
+        $validated = $request->validate([
+            'project_uuid' => ['required', 'string'],
+            'title' => ['required', 'string', 'max:255'],
+            'claimed_amount' => ['required', 'numeric', 'min:0'],
+            'proforma_invoice' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'remark' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $project = Project::query()
+            ->where('uuid', $validated['project_uuid'])
+            ->whereHas('subCons', fn ($q) => $q->where('sub_cons.id', $subCon->id))
+            ->first();
+
+        if (!$project) {
+            return back()->withErrors([
+                'project_uuid' => 'Selected project is not available for your account.',
+            ]);
+        }
+
+        $branchSlug = DB::table('branches')
+            ->where('id', (int) $project->branch_id)
+            ->value('slug');
+
+        if (!$branchSlug) {
+            return back()->withErrors([
+                'project_uuid' => 'Project branch is invalid. Please contact admin.',
+            ]);
+        }
+
+        $file = $request->file('proforma_invoice');
+        $path = $file->store('sub-con-claims/proforma', 'public');
+
+        $claim = SubConClaim::create([
+            'claim_no' => RunningNumberService::next(
+                'sub_con_claim',
+                null,
+                (int) $project->branch_id,
+                (string) $branchSlug
+            ),
+            'project_id' => $project->id,
+            'sub_con_id' => $subCon->id,
+            'title' => $validated['title'],
+            'status' => 'submitted',
+            'claimed_amount' => (float) $validated['claimed_amount'],
+            'proforma_invoice_path' => $path,
+            'proforma_invoice_name' => $file->getClientOriginalName(),
+            'submitted_at' => now(),
+        ]);
+
+        $this->appendClaimLog(
+            $claim,
+            from: null,
+            to: 'submitted',
+            action: 'submit',
+            by: $subCon->name,
+            remark: $validated['remark'] ?? null
+        );
+
+        return back()->with('success', 'Claim submitted successfully.');
     }
 
     public function storeUpdate(Request $request, string $taskUuid)
@@ -266,6 +373,145 @@ class SubConPortalController extends Controller
         return Storage::disk('public')->download($update->attachment_path, $name);
     }
 
+    public function decideClaim(Request $request, string $claimUuid)
+    {
+        $subCon = $this->getAuthenticatedSubCon($request);
+
+        $claim = SubConClaim::query()
+            ->where('uuid', $claimUuid)
+            ->where('sub_con_id', $subCon->id)
+            ->firstOrFail();
+
+        if ($claim->status !== 'ceo_gm_approved') {
+            return back()->withErrors([
+                'status' => 'This claim is not waiting for Sub Con decision.',
+            ]);
+        }
+
+        $validated = $request->validate([
+            'decision' => ['required', 'in:accept,appeal'],
+            'remark' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        if ($validated['decision'] === 'appeal' && empty(trim((string) ($validated['remark'] ?? '')))) {
+            return back()->withErrors([
+                'remark' => 'Appeal remark is required.',
+            ]);
+        }
+
+        $to = $validated['decision'] === 'accept' ? 'accepted_by_subcon' : 'appealed';
+
+        $claim->update([
+            'status' => $to,
+            'appeal_round' => $to === 'appealed' ? ((int) $claim->appeal_round + 1) : $claim->appeal_round,
+            'subcon_decided_at' => now(),
+        ]);
+
+        $this->appendClaimLog(
+            $claim,
+            from: 'ceo_gm_approved',
+            to: $to,
+            action: 'subcon_' . $validated['decision'],
+            by: $subCon->name,
+            remark: $validated['remark'] ?? null
+        );
+
+        return back()->with('success', $to === 'accepted_by_subcon'
+            ? 'You accepted the approved amount.'
+            : 'Appeal submitted. Our team will review again.');
+    }
+
+    public function uploadClaimRealInvoice(Request $request, string $claimUuid)
+    {
+        $subCon = $this->getAuthenticatedSubCon($request);
+
+        $claim = SubConClaim::query()
+            ->where('uuid', $claimUuid)
+            ->where('sub_con_id', $subCon->id)
+            ->firstOrFail();
+
+        if ($claim->status !== 'pending_real_invoice_upload') {
+            return back()->withErrors([
+                'status' => 'Real invoice upload is not open yet for this claim.',
+            ]);
+        }
+
+        $validated = $request->validate([
+            'real_invoice_no' => ['required', 'string', 'max:100'],
+            'real_invoice_date' => ['required', 'date'],
+            'real_invoice_amount' => ['required', 'numeric', 'min:0'],
+            'real_invoice' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'remark' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        if (!empty($claim->real_invoice_path)) {
+            Storage::disk('public')->delete($claim->real_invoice_path);
+        }
+
+        $file = $request->file('real_invoice');
+        $path = $file->store('sub-con-claims/real-invoice', 'public');
+
+        $claim->update([
+            'status' => 'real_invoice_uploaded',
+            'real_invoice_no' => $validated['real_invoice_no'],
+            'real_invoice_date' => $validated['real_invoice_date'],
+            'real_invoice_amount' => (float) $validated['real_invoice_amount'],
+            'real_invoice_path' => $path,
+            'real_invoice_name' => $file->getClientOriginalName(),
+            'real_invoice_uploaded_at' => now(),
+        ]);
+
+        $this->appendClaimLog(
+            $claim,
+            from: 'pending_real_invoice_upload',
+            to: 'real_invoice_uploaded',
+            action: 'upload_real_invoice',
+            by: $subCon->name,
+            remark: $validated['remark'] ?? null,
+            amounts: ['real_invoice_amount' => (float) $validated['real_invoice_amount']]
+        );
+
+        return back()->with('success', 'Real invoice uploaded successfully.');
+    }
+
+    public function downloadClaimProforma(Request $request, string $claimUuid)
+    {
+        $subCon = $this->getAuthenticatedSubCon($request);
+
+        $claim = SubConClaim::query()
+            ->where('uuid', $claimUuid)
+            ->where('sub_con_id', $subCon->id)
+            ->firstOrFail();
+
+        if (!$claim->proforma_invoice_path || !Storage::disk('public')->exists($claim->proforma_invoice_path)) {
+            abort(404, 'Proforma invoice not found.');
+        }
+
+        return Storage::disk('public')->download(
+            $claim->proforma_invoice_path,
+            $claim->proforma_invoice_name ?: basename($claim->proforma_invoice_path)
+        );
+    }
+
+    public function downloadClaimRealInvoice(Request $request, string $claimUuid)
+    {
+        $subCon = $this->getAuthenticatedSubCon($request);
+
+        $claim = SubConClaim::query()
+            ->where('uuid', $claimUuid)
+            ->where('sub_con_id', $subCon->id)
+            ->firstOrFail();
+
+        if (!$claim->real_invoice_path || !Storage::disk('public')->exists($claim->real_invoice_path)) {
+            abort(404, 'Real invoice not found.');
+        }
+
+        return Storage::disk('public')->download(
+            $claim->real_invoice_path,
+            $claim->real_invoice_name ?: basename($claim->real_invoice_path)
+        );
+    }
+
     private function getAuthenticatedSubCon(Request $request): SubCon
     {
         $subConId = (int) $request->session()->get('sub_con_auth_id');
@@ -273,6 +519,29 @@ class SubConPortalController extends Controller
         return SubCon::query()
             ->where('id', $subConId)
             ->firstOrFail();
+    }
+
+    private function appendClaimLog(
+        SubConClaim $claim,
+        ?string $from,
+        string $to,
+        string $action,
+        string $by,
+        ?string $remark = null,
+        array $amounts = []
+    ): void {
+        $log = is_array($claim->remark_log) ? $claim->remark_log : [];
+        $log[] = [
+            'from' => $from,
+            'to' => $to,
+            'action' => $action,
+            'remark' => $remark,
+            'by' => $by,
+            'at' => now()->toDateTimeString(),
+            'amounts' => $amounts,
+        ];
+
+        $claim->forceFill(['remark_log' => $log])->save();
     }
 }
 

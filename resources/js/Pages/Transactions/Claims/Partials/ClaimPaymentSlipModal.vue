@@ -35,7 +35,7 @@ function closeModal() {
         v-if="show && slip"
         class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center no-print"
     >
-        <div class="bg-gray-100 w-full h-full md:h-[90vh] md:w-[90vw] rounded shadow-xl overflow-hidden">
+        <div class="bg-gray-100 w-full h-full md:h-[90vh] md:w-[96vw] rounded shadow-xl overflow-hidden">
             <div class="sticky top-0 bg-white border-b px-6 py-3 flex items-center">
                 <h2 class="font-semibold text-lg">
                     Payment Slip - {{ slip.slip_no ?? '-' }}
@@ -50,7 +50,7 @@ function closeModal() {
             </div>
 
             <div class="flex h-[calc(100%-56px)] gap-6 p-6">
-                <div class="flex-1 overflow-auto">
+                <div class="flex-1 overflow-auto flex items-start justify-center">
                     <ClaimPaymentSlipA4
                         v-if="slip && !printing"
                         :slip="slip"

@@ -9,6 +9,17 @@ use Illuminate\Support\Facades\Storage;
 
 class InventoryItem extends Model
 {
+    public const TYPE_VEHICLE = 'vehicle';
+
+    public const OWNERSHIP_COMPANY = 'company';
+    public const OWNERSHIP_INDIVIDUAL = 'individual';
+
+    public const STATUS_ACTIVE = 'active';
+    public const STATUS_INACTIVE = 'inactive';
+    public const STATUS_DISPOSED = 'disposed';
+
+    public const SAMAN_STATUS_UNPAID = 'unpaid';
+
     protected $fillable = [
         'uuid',
         'public_uuid',
@@ -87,10 +98,27 @@ class InventoryItem extends Model
         return $this->hasMany(InventoryService::class);
     }
 
+    public function vehicleLogs(): HasMany
+    {
+        return $this->hasMany(InventoryVehicleLog::class);
+    }
+
+    public function latestVehicleMileageLog(): HasOne
+    {
+        return $this->hasOne(InventoryVehicleLog::class)
+            ->whereNotNull('mileage')
+            ->latest('trip_date');
+    }
+
     public function unpaidSamans(): HasMany
     {
         return $this->hasMany(InventorySaman::class)
-            ->where('status', 'unpaid');
+            ->where('status', self::SAMAN_STATUS_UNPAID);
+    }
+
+    public function scopeVehicle($query)
+    {
+        return $query->where('type', self::TYPE_VEHICLE);
     }
 
     /* =========================

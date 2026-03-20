@@ -32,6 +32,7 @@ const form = reactive({
     required_date: '',
     department_id: null,
     project_id: null,
+    is_subcon_purchase_request: false,
     requester_remark: '',
 })
 
@@ -120,8 +121,10 @@ function close() {
 function resetForm() {
     form.title = ''
     form.purpose = ''
+    form.required_date = ''
     form.department_id = null
     form.project_id = null
+    form.is_subcon_purchase_request = false
     form.requester_remark = ''
     errors.value = {}
 }
@@ -235,6 +238,20 @@ function resetForm() {
             <div v-if="errors.project_id" class="text-xs text-red-600 mt-1">
                 {{ errors.project_id }}
             </div>
+        </div>
+
+        <div>
+            <label class="inline-flex items-center gap-2 text-sm font-medium">
+                <input
+                    v-model="form.is_subcon_purchase_request"
+                    type="checkbox"
+                    class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                This is Sub Con Purchase Request
+            </label>
+            <p class="mt-1 text-xs text-gray-500">
+                If checked, quotation section will use Sub Con list.
+            </p>
         </div>
 
         <!-- REMARK -->

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, inject, ref } from "vue";
+import { computed, inject, onBeforeUnmount, onMounted, ref } from "vue";
 import { router } from "@inertiajs/vue3";
 
 const props = defineProps({
@@ -11,9 +11,21 @@ const props = defineProps({
         type: Object,
         required: true,
     },
+    claimStats: {
+        type: Object,
+        default: () => ({}),
+    },
+    claimProjects: {
+        type: Array,
+        default: () => [],
+    },
     tasks: {
         type: Array,
         required: true,
+    },
+    claims: {
+        type: Array,
+        default: () => [],
     },
 });
 
@@ -39,30 +51,85 @@ const invoiceForm = ref({
 
 const canSubmitStatuses = ["draft"];
 const activeStage = ref("all");
+const activePanel = ref("tasks");
+const taskQuery = ref("");
+const claimQuery = ref("");
 const selectedTaskHasChildren = computed(() => (selectedTask.value?.children?.length ?? 0) > 0);
+const activeClaimStage = ref("all");
+const showClaimDecisionModal = ref(false);
+const showClaimInvoiceModal = ref(false);
+const selectedClaim = ref(null);
+const claimDecisionForm = ref({
+    decision: "accept",
+    remark: "",
+});
+const claimCreateForm = ref({
+    project_uuid: "",
+    title: "",
+    claimed_amount: "",
+    proforma_invoice: null,
+    remark: "",
+});
+const claimInvoiceForm = ref({
+    real_invoice_no: "",
+    real_invoice_date: "",
+    real_invoice_amount: "",
+    real_invoice: null,
+    remark: "",
+});
+const scrollMemoryKey = "subcon-portal:scroll-y";
+
+function saveScrollPosition() {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(scrollMemoryKey, String(window.scrollY || 0));
+}
+
+function restoreScrollPosition() {
+    if (typeof window === "undefined") return;
+    const raw = window.sessionStorage.getItem(scrollMemoryKey);
+    const y = Number(raw ?? 0);
+    if (!Number.isFinite(y) || y <= 0) return;
+    window.requestAnimationFrame(() => {
+        window.scrollTo({ top: y, left: 0, behavior: "auto" });
+    });
+}
+
+onMounted(() => {
+    restoreScrollPosition();
+    window.addEventListener("scroll", saveScrollPosition, { passive: true });
+});
+
+onBeforeUnmount(() => {
+    saveScrollPosition();
+    window.removeEventListener("scroll", saveScrollPosition);
+});
 
 const stageTabs = [
     { key: "all", label: "All" },
     { key: "draft", label: "In Progress" },
     { key: "submitted", label: "Submitted" },
-    { key: "contra_verified", label: "Project Verified" },
-    { key: "invoiced", label: "Invoiced" },
-    { key: "payment", label: "Payment" },
+    { key: "verified", label: "Verified" },
 ];
 
 const stageHints = {
     all: "All main tasks across every stage.",
     draft: "Continue submitting progress until task completion.",
     submitted: "Task is complete and waiting Project Department review.",
-    contra_verified: "Project Department verified (Project Verified). You may submit invoice.",
-    invoiced: "Invoice submitted and pending CEO / GM approval.",
-    payment: "After approval, continue follow-up in Payment tab.",
+    verified: "Project Department has verified completion.",
 };
+
+const claimStageTabs = [
+    { key: "all", label: "All Claims" },
+    { key: "ceo_gm_approved", label: "Pending Decision" },
+    { key: "appealed", label: "Appealed" },
+    { key: "accepted_by_subcon", label: "Accepted" },
+    { key: "pending_real_invoice_upload", label: "Pending Real Invoice Upload" },
+    { key: "real_invoice_uploaded", label: "Uploaded" },
+];
 
 function normalizedStatus(task) {
     const status = (task?.status || "").toLowerCase();
-    if (status === "verified") return "contra_verified";
-    if (["approved", "justified", "certified", "paid"].includes(status)) return "payment";
+    if (["verified", "contra_verified", "invoiced", "approved", "justified", "certified", "paid"].includes(status)) return "verified";
     return status;
 }
 
@@ -84,8 +151,26 @@ const stageCounts = computed(() => {
 
 const filteredTasks = computed(() => {
     const mainTasks = (props.tasks ?? []).filter((task) => !task.parent_id);
-    if (activeStage.value === "all") return mainTasks;
-    return mainTasks.filter((task) => normalizedStatus(task) === activeStage.value);
+    const stageFiltered =
+        activeStage.value === "all"
+            ? mainTasks
+            : mainTasks.filter((task) => normalizedStatus(task) === activeStage.value);
+
+    const q = taskQuery.value.trim().toLowerCase();
+    if (!q) return stageFiltered;
+
+    return stageFiltered.filter((task) => {
+        const haystacks = [
+            task?.title,
+            task?.task_no,
+            task?.project?.code,
+            task?.project?.name,
+        ]
+            .filter(Boolean)
+            .map((v) => String(v).toLowerCase());
+
+        return haystacks.some((text) => text.includes(q));
+    });
 });
 
 const groupedTasks = computed(() => {
@@ -105,6 +190,44 @@ const groupedTasks = computed(() => {
 });
 
 const activeStageHint = computed(() => stageHints[activeStage.value] ?? "");
+const filteredClaims = computed(() => {
+    const list = props.claims ?? [];
+    const stageFiltered =
+        activeClaimStage.value === "all"
+            ? list
+            : list.filter((claim) => (claim.status || "") === activeClaimStage.value);
+
+    const q = claimQuery.value.trim().toLowerCase();
+    if (!q) return stageFiltered;
+
+    return stageFiltered.filter((claim) => {
+        const haystacks = [
+            claim?.claim_no,
+            claim?.title,
+            claim?.project?.code,
+            claim?.project?.name,
+        ]
+            .filter(Boolean)
+            .map((v) => String(v).toLowerCase());
+
+        return haystacks.some((text) => text.includes(q));
+    });
+});
+
+const claimStageCounts = computed(() => {
+    const base = { all: (props.claims ?? []).length };
+    claimStageTabs.forEach((tab) => {
+        if (tab.key !== "all") base[tab.key] = 0;
+    });
+
+    (props.claims ?? []).forEach((claim) => {
+        const key = claim?.status || "";
+        if (base[key] === undefined) base[key] = 0;
+        base[key] += 1;
+    });
+
+    return base;
+});
 
 function logout() {
     router.post(route("sub-con.logout"));
@@ -114,20 +237,8 @@ function statusClass(status) {
     switch ((status || "").toLowerCase()) {
         case "submitted":
             return "bg-amber-100 text-amber-700";
-        case "contra_verified":
-            return "bg-indigo-100 text-indigo-700";
         case "verified":
             return "bg-indigo-100 text-indigo-700";
-        case "invoiced":
-            return "bg-violet-100 text-violet-700";
-        case "approved":
-            return "bg-emerald-100 text-emerald-700";
-        case "justified":
-            return "bg-emerald-100 text-emerald-700";
-        case "certified":
-            return "bg-sky-100 text-sky-700";
-        case "paid":
-            return "bg-emerald-200 text-emerald-800";
         default:
             return "bg-gray-100 text-gray-700";
     }
@@ -136,8 +247,7 @@ function statusClass(status) {
 function statusLabel(status) {
     const value = (status || "").toLowerCase();
     if (value === "draft") return "In Progress";
-    if (value === "contra_verified" || value === "verified") return "Project Verified";
-    if (value === "justified") return "Approved";
+    if (["verified", "contra_verified", "invoiced", "approved", "justified", "certified", "paid"].includes(value)) return "Verified";
     return value
         .split("_")
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -155,6 +265,29 @@ function formatMoney(value) {
 function formatDateTime(value) {
     if (!value) return "-";
     return new Date(value).toLocaleString();
+}
+
+function claimStatusLabel(status) {
+    const map = {
+        submitted: "Submitted",
+        project_verified: "Project Verified",
+        contra_verified: "Contra Verified",
+        ceo_gm_approved: "Pending Your Decision",
+        appealed: "Appealed",
+        accepted_by_subcon: "Accepted",
+        pending_real_invoice_upload: "Pending Real Invoice Upload",
+        real_invoice_uploaded: "Real Invoice Uploaded",
+    };
+    return map[status] || status || "-";
+}
+
+function claimStatusClass(status) {
+    if (status === "ceo_gm_approved") return "bg-amber-100 text-amber-700";
+    if (status === "appealed") return "bg-orange-100 text-orange-700";
+    if (status === "accepted_by_subcon") return "bg-cyan-100 text-cyan-700";
+    if (status === "pending_real_invoice_upload") return "bg-teal-100 text-teal-700";
+    if (status === "real_invoice_uploaded") return "bg-emerald-100 text-emerald-700";
+    return "bg-gray-100 text-gray-700";
 }
 
 function taskReference(task) {
@@ -304,23 +437,168 @@ function submitInvoice() {
         },
     });
 }
+
+function openClaimDecision(claim, decision = "accept") {
+    selectedClaim.value = claim;
+    claimDecisionForm.value = {
+        decision,
+        remark: "",
+    };
+    showClaimDecisionModal.value = true;
+}
+
+function submitClaimDecision() {
+    if (!selectedClaim.value?.uuid) return;
+    if (claimDecisionForm.value.decision === "appeal" && !claimDecisionForm.value.remark.trim()) {
+        toast?.value?.show("Appeal remark is required.", "error");
+        return;
+    }
+
+    router.post(
+        route("sub-con.claims.decision", { claim: selectedClaim.value.uuid }),
+        {
+            decision: claimDecisionForm.value.decision,
+            remark: claimDecisionForm.value.remark || null,
+        },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                toast?.value?.show(
+                    claimDecisionForm.value.decision === "accept"
+                        ? "Accepted successfully."
+                        : "Appeal submitted.",
+                    "success"
+                );
+                showClaimDecisionModal.value = false;
+                selectedClaim.value = null;
+                router.reload({ only: ["claims", "claimStats"], preserveScroll: true });
+            },
+            onError: (errors) => {
+                const message = errors?.status || errors?.remark || "Failed to submit decision.";
+                toast?.value?.show(message, "error");
+            },
+        }
+    );
+}
+
+function openClaimInvoiceUpload(claim) {
+    selectedClaim.value = claim;
+    claimInvoiceForm.value = {
+        real_invoice_no: "",
+        real_invoice_date: "",
+        real_invoice_amount: String(claim?.approved_amount ?? claim?.claimed_amount ?? 0),
+        real_invoice: null,
+        remark: "",
+    };
+    showClaimInvoiceModal.value = true;
+}
+
+function handleClaimInvoiceFile(event) {
+    claimInvoiceForm.value.real_invoice = event.target.files?.[0] ?? null;
+}
+
+function submitClaimInvoiceUpload() {
+    if (!selectedClaim.value?.uuid) return;
+    if (!claimInvoiceForm.value.real_invoice) {
+        toast?.value?.show("Please upload real invoice file.", "error");
+        return;
+    }
+
+    const fd = new FormData();
+    fd.append("real_invoice_no", claimInvoiceForm.value.real_invoice_no || "");
+    fd.append("real_invoice_date", claimInvoiceForm.value.real_invoice_date || "");
+    fd.append("real_invoice_amount", claimInvoiceForm.value.real_invoice_amount || "");
+    fd.append("real_invoice", claimInvoiceForm.value.real_invoice);
+    fd.append("remark", claimInvoiceForm.value.remark || "");
+
+    router.post(
+        route("sub-con.claims.real-invoice.upload", { claim: selectedClaim.value.uuid }),
+        fd,
+        {
+            forceFormData: true,
+            preserveScroll: true,
+            onSuccess: () => {
+                toast?.value?.show("Real invoice uploaded.", "success");
+                showClaimInvoiceModal.value = false;
+                selectedClaim.value = null;
+                router.reload({ only: ["claims", "claimStats"], preserveScroll: true });
+            },
+            onError: (errors) => {
+                const message =
+                    errors?.status ||
+                    errors?.real_invoice_no ||
+                    errors?.real_invoice_date ||
+                    errors?.real_invoice_amount ||
+                    errors?.real_invoice ||
+                    "Failed to upload real invoice.";
+                toast?.value?.show(message, "error");
+            },
+        }
+    );
+}
+
+function handleClaimProformaFile(event) {
+    claimCreateForm.value.proforma_invoice = event.target.files?.[0] ?? null;
+}
+
+function submitClaimFromPortal() {
+    if (!claimCreateForm.value.proforma_invoice) {
+        toast?.value?.show("Please upload proforma invoice.", "error");
+        return;
+    }
+
+    const fd = new FormData();
+    fd.append("project_uuid", claimCreateForm.value.project_uuid || "");
+    fd.append("title", claimCreateForm.value.title || "");
+    fd.append("claimed_amount", claimCreateForm.value.claimed_amount || "");
+    fd.append("proforma_invoice", claimCreateForm.value.proforma_invoice);
+    fd.append("remark", claimCreateForm.value.remark || "");
+
+    router.post(route("sub-con.claims.store"), fd, {
+        forceFormData: true,
+        preserveScroll: true,
+        onSuccess: () => {
+            toast?.value?.show("Claim submitted successfully.", "success");
+            claimCreateForm.value = {
+                project_uuid: "",
+                title: "",
+                claimed_amount: "",
+                proforma_invoice: null,
+                remark: "",
+            };
+            router.reload({ only: ["claims", "claimStats"], preserveScroll: true });
+        },
+        onError: (errors) => {
+            const message =
+                errors?.project_uuid ||
+                errors?.title ||
+                errors?.claimed_amount ||
+                errors?.proforma_invoice ||
+                "Failed to submit claim.";
+            toast?.value?.show(message, "error");
+        },
+    });
+}
 </script>
 
 <template>
     <div class="min-h-screen bg-slate-100">
-        <header class="bg-white border-b">
+        <header class="bg-gradient-to-r from-indigo-600 to-violet-600 border-b border-indigo-700">
             <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
                 <div>
-                    <div class="text-sm font-medium text-indigo-600">Sub Con Portal</div>
-                    <h1 class="text-xl font-semibold text-gray-900">
+                    <div class="text-xs font-semibold uppercase tracking-wider text-indigo-100">Sub Con Portal</div>
+                    <h1 class="text-xl font-semibold text-white">
                         {{ subCon?.name }}<span v-if="subCon?.company_name"> - {{ subCon.company_name }}</span>
                     </h1>
+                    <div class="text-xs text-indigo-100 mt-0.5">
+                        Track task progress and respond to claim decisions in one place.
+                    </div>
                 </div>
 
                 <div class="flex items-center gap-4">
-                    <div class="text-sm text-gray-600">{{ subCon?.login_identity_no }}</div>
+                    <div class="text-sm text-indigo-100">{{ subCon?.login_identity_no }}</div>
                     <button
-                        class="px-3 py-2 text-sm bg-red-50 text-red-700 rounded border border-red-200 hover:bg-red-100"
+                        class="px-3 py-1.5 text-xs bg-white/10 text-white rounded border border-white/20 hover:bg-white/20"
                         @click="logout"
                     >
                         Logout
@@ -330,7 +608,7 @@ function submitInvoice() {
         </header>
 
         <main class="max-w-7xl mx-auto px-4 py-6 space-y-6">
-            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div class="bg-white border rounded-lg p-3 shadow-sm">
                     <div class="text-xs uppercase tracking-wide text-gray-500">Total</div>
                     <div class="mt-1 text-xl font-semibold text-gray-900">{{ stats.total }}</div>
@@ -344,21 +622,35 @@ function submitInvoice() {
                     <div class="mt-1 text-xl font-semibold text-amber-700">{{ stats.submitted }}</div>
                 </div>
                 <div class="bg-white border rounded-lg p-3 shadow-sm">
-                    <div class="text-xs uppercase tracking-wide text-gray-500">Project Verified</div>
-                    <div class="mt-1 text-xl font-semibold text-indigo-700">{{ stats.contra_verified }}</div>
-                </div>
-                <div class="bg-white border rounded-lg p-3 shadow-sm">
-                    <div class="text-xs uppercase tracking-wide text-gray-500">Invoiced</div>
-                    <div class="mt-1 text-xl font-semibold text-violet-700">{{ stats.invoiced }}</div>
-                </div>
-                <div class="bg-white border rounded-lg p-3 shadow-sm">
-                    <div class="text-xs uppercase tracking-wide text-gray-500">Payment</div>
-                    <div class="mt-1 text-xl font-semibold text-emerald-700">{{ stats.payment }}</div>
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Verified</div>
+                    <div class="mt-1 text-xl font-semibold text-indigo-700">{{ stats.verified }}</div>
                 </div>
             </div>
 
+            <div class="bg-white border rounded-lg p-3">
+                <div class="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        class="px-3 py-1.5 text-xs rounded-full border font-semibold"
+                        :class="activePanel === 'tasks' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-300 text-gray-700 hover:border-indigo-300'"
+                        @click="activePanel = 'tasks'"
+                    >
+                        Task Workspace
+                    </button>
+                    <button
+                        type="button"
+                        class="px-3 py-1.5 text-xs rounded-full border font-semibold"
+                        :class="activePanel === 'claims' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-300 text-gray-700 hover:border-indigo-300'"
+                        @click="activePanel = 'claims'"
+                    >
+                        Claims Workspace
+                    </button>
+                </div>
+            </div>
+
+            <div v-if="activePanel === 'tasks'" class="space-y-6">
             <div class="bg-white border rounded-lg px-4 py-3">
-                <div class="flex flex-wrap gap-2">
+                <div class="flex flex-wrap gap-2 items-center">
                     <button
                         v-for="tab in stageTabs"
                         :key="tab.key"
@@ -375,6 +667,14 @@ function submitInvoice() {
                             {{ stageCounts[tab.key] ?? 0 }}
                         </span>
                     </button>
+                    <div class="ml-auto w-full md:w-64">
+                        <input
+                            v-model="taskQuery"
+                            type="text"
+                            placeholder="Search task / project / ref"
+                            class="w-full border border-gray-300 rounded-md px-3 py-1.5 text-xs"
+                        />
+                    </div>
                 </div>
                 <p class="mt-2 text-xs text-gray-500">
                     {{ activeStageHint }}
@@ -439,10 +739,7 @@ function submitInvoice() {
                                     </span>
                                 </td>
                                 <td class="px-4 py-3">
-                                    <div v-if="activeStage === 'payment'" class="text-center text-xs text-gray-400">
-                                        Status only
-                                    </div>
-                                    <div v-else class="flex justify-center gap-2">
+                                    <div class="flex justify-center gap-2">
                                         <button
                                             v-if="canSubmitStatuses.includes(task.status)"
                                             class="px-2 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700"
@@ -451,27 +748,11 @@ function submitInvoice() {
                                             Submit Progress
                                         </button>
                                         <button
-                                            v-if="['contra_verified', 'verified'].includes(task.status)"
-                                            class="px-2 py-1 text-xs rounded bg-violet-600 text-white hover:bg-violet-700"
-                                            @click="openInvoice(task)"
-                                        >
-                                            Submit Invoice
-                                        </button>
-                                        <button
                                             class="px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
                                             @click="openHistory(task)"
                                         >
                                             History
                                         </button>
-                                        <a
-                                            v-if="task.invoice_attachment_path"
-                                            :href="route('sub-con.tasks.invoice.download', { task: task.uuid })"
-                                            class="px-2 py-1 text-xs rounded bg-violet-100 text-violet-700 hover:bg-violet-200"
-                                            target="_blank"
-                                            rel="noopener"
-                                        >
-                                            Invoice File
-                                        </a>
                                     </div>
                                 </td>
                             </tr>
@@ -486,6 +767,248 @@ function submitInvoice() {
             >
                 <div class="text-sm font-semibold text-gray-700">No tasks for this stage</div>
                 <div class="mt-1 text-xs text-gray-500">Try switching tabs to view other task statuses.</div>
+            </div>
+            </div>
+
+            <div v-if="activePanel === 'claims'" class="space-y-6">
+            <div class="bg-white border rounded-lg overflow-hidden">
+                <div class="px-5 py-4 border-b bg-gradient-to-r from-indigo-50 via-violet-50 to-white">
+                    <div class="text-sm font-semibold text-gray-900">Submit New Claim</div>
+                    <div class="text-xs text-gray-600 mt-0.5">
+                        Submit proforma invoice from portal. Appeal and real invoice upload are also handled here.
+                    </div>
+                </div>
+
+                <div class="p-5 space-y-4">
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Project</label>
+                            <select
+                                v-model="claimCreateForm.project_uuid"
+                                class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                            >
+                                <option value="">Select Project</option>
+                                <option v-for="project in claimProjects" :key="project.uuid" :value="project.uuid">
+                                    {{ project.code || "-" }} - {{ project.name }}
+                                </option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Claim Title</label>
+                            <input
+                                v-model="claimCreateForm.title"
+                                type="text"
+                                class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                                placeholder="Work done / claim purpose"
+                            />
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Claimed Amount (RM)</label>
+                            <input
+                                v-model="claimCreateForm.claimed_amount"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                                placeholder="0.00"
+                            />
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
+                        <div class="lg:col-span-2">
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Proforma Invoice</label>
+                            <label class="block rounded-lg border-2 border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-4 cursor-pointer hover:bg-indigo-50 transition">
+                                <input
+                                    type="file"
+                                    class="hidden"
+                                    @change="handleClaimProformaFile"
+                                />
+                                <div class="text-sm font-medium text-indigo-700">
+                                    {{ claimCreateForm.proforma_invoice ? claimCreateForm.proforma_invoice.name : "Click to upload proforma invoice" }}
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    PDF / JPG / PNG, maximum 10MB
+                                </div>
+                            </label>
+                        </div>
+
+                        <div>
+                            <button
+                                type="button"
+                                class="w-full px-4 py-2.5 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 font-medium shadow-sm"
+                                @click="submitClaimFromPortal"
+                            >
+                                Submit Claim
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Remark (optional)</label>
+                        <textarea
+                            v-model="claimCreateForm.remark"
+                            rows="2"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                            placeholder="Any context for reviewer"
+                        ></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div class="bg-white border rounded-lg p-3 shadow-sm">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Claims Total</div>
+                    <div class="mt-1 text-xl font-semibold text-gray-900">{{ claimStats.total ?? 0 }}</div>
+                </div>
+                <div class="bg-white border rounded-lg p-3 shadow-sm">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Pending Decision</div>
+                    <div class="mt-1 text-xl font-semibold text-amber-700">{{ claimStats.pending_decision ?? 0 }}</div>
+                </div>
+                <div class="bg-white border rounded-lg p-3 shadow-sm">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Appealed</div>
+                    <div class="mt-1 text-xl font-semibold text-orange-700">{{ claimStats.appealed ?? 0 }}</div>
+                </div>
+                <div class="bg-white border rounded-lg p-3 shadow-sm">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Pending Upload</div>
+                    <div class="mt-1 text-xl font-semibold text-teal-700">{{ claimStats.pending_real_invoice_upload ?? 0 }}</div>
+                </div>
+                <div class="bg-white border rounded-lg p-3 shadow-sm">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Uploaded</div>
+                    <div class="mt-1 text-xl font-semibold text-emerald-700">{{ claimStats.completed ?? 0 }}</div>
+                </div>
+            </div>
+
+            <div class="bg-white border rounded-lg overflow-hidden">
+                <div class="px-4 py-3 border-b bg-gray-50">
+                    <div class="text-sm font-semibold text-gray-800">Sub Con Claims</div>
+                    <div class="text-xs text-gray-500 mt-0.5">
+                        Accept or appeal CEO/GM approved claims here. Real invoice upload is enabled after payment slip is prepared by internal team.
+                    </div>
+                </div>
+
+                <div class="px-4 py-3 border-b">
+                    <div class="flex flex-wrap gap-2 items-center">
+                        <button
+                            v-for="tab in claimStageTabs"
+                            :key="tab.key"
+                            class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+                            :class="
+                                activeClaimStage === tab.key
+                                    ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                                    : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'
+                            "
+                            @click="activeClaimStage = tab.key"
+                        >
+                            <span>{{ tab.label }}</span>
+                            <span class="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] text-gray-700">
+                                {{ claimStageCounts[tab.key] ?? 0 }}
+                            </span>
+                        </button>
+                        <div class="ml-auto w-full md:w-72">
+                            <input
+                                v-model="claimQuery"
+                                type="text"
+                                placeholder="Search claim / project / claim no"
+                                class="w-full border border-gray-300 rounded-md px-3 py-1.5 text-xs"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-white">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs uppercase text-gray-500">Claim</th>
+                                <th class="px-4 py-3 text-left text-xs uppercase text-gray-500">Project</th>
+                                <th class="px-4 py-3 text-left text-xs uppercase text-gray-500">Amount</th>
+                                <th class="px-4 py-3 text-left text-xs uppercase text-gray-500">Status</th>
+                                <th class="px-4 py-3 text-left text-xs uppercase text-gray-500">Files</th>
+                                <th class="px-4 py-3 text-center text-xs uppercase text-gray-500">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            <tr v-for="claim in filteredClaims" :key="claim.uuid">
+                                <td class="px-4 py-3 text-sm">
+                                    <div class="font-medium text-gray-800">{{ claim.claim_no || "-" }}</div>
+                                    <div class="text-gray-700">{{ claim.title }}</div>
+                                    <div v-if="(claim.appeal_round ?? 0) > 0" class="text-xs text-orange-600 mt-0.5">
+                                        Appeal round: {{ claim.appeal_round }}
+                                    </div>
+                                </td>
+                                <td class="px-4 py-3 text-sm">
+                                    <div class="font-medium text-gray-800">{{ claim.project?.code || "-" }}</div>
+                                    <div class="text-xs text-gray-600">{{ claim.project?.name || "-" }}</div>
+                                </td>
+                                <td class="px-4 py-3 text-sm">
+                                    <div>Claimed: {{ formatMoney(claim.claimed_amount || 0) }}</div>
+                                    <div>Approved: {{ formatMoney(claim.approved_amount || 0) }}</div>
+                                </td>
+                                <td class="px-4 py-3">
+                                    <span class="inline-flex px-2 py-1 rounded-full text-xs font-semibold" :class="claimStatusClass(claim.status)">
+                                        {{ claimStatusLabel(claim.status) }}
+                                    </span>
+                                </td>
+                                <td class="px-4 py-3 text-xs">
+                                    <div class="flex flex-col gap-1">
+                                        <a
+                                            :href="route('sub-con.claims.proforma.download', { claim: claim.uuid })"
+                                            class="text-indigo-600 hover:text-indigo-800"
+                                            target="_blank"
+                                            rel="noopener"
+                                        >
+                                            Proforma
+                                        </a>
+                                        <a
+                                            v-if="claim.real_invoice_name"
+                                            :href="route('sub-con.claims.real-invoice.download', { claim: claim.uuid })"
+                                            class="text-emerald-600 hover:text-emerald-800"
+                                            target="_blank"
+                                            rel="noopener"
+                                        >
+                                            Real Invoice
+                                        </a>
+                                    </div>
+                                </td>
+                                <td class="px-4 py-3">
+                                    <div class="flex justify-center gap-2">
+                                        <button
+                                            v-if="claim.status === 'ceo_gm_approved'"
+                                            class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                                            @click="openClaimDecision(claim, 'accept')"
+                                        >
+                                            Accept
+                                        </button>
+                                        <button
+                                            v-if="claim.status === 'ceo_gm_approved'"
+                                            class="px-2 py-1 text-xs rounded bg-amber-500 text-white hover:bg-amber-600"
+                                            @click="openClaimDecision(claim, 'appeal')"
+                                        >
+                                            Appeal
+                                        </button>
+                                        <button
+                                            v-if="claim.status === 'pending_real_invoice_upload'"
+                                            class="px-2 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                                            @click="openClaimInvoiceUpload(claim)"
+                                        >
+                                            Upload Real Invoice
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <tr v-if="filteredClaims.length === 0">
+                                <td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500">
+                                    No claims in this stage.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
             </div>
         </main>
     </div>
@@ -767,5 +1290,158 @@ function submitInvoice() {
             </div>
         </div>
     </div>
+
+    <div v-if="showClaimDecisionModal" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-xl overflow-hidden">
+            <div class="px-6 py-4 border-b bg-gradient-to-r from-emerald-50 to-teal-50 flex items-center justify-between">
+                <div>
+                    <h3 class="text-base font-semibold text-gray-900">
+                        {{ claimDecisionForm.decision === "accept" ? "Accept Claim Decision" : "Appeal Claim Decision" }}
+                    </h3>
+                    <p class="text-xs text-gray-600 mt-0.5">Review summary before confirming your decision.</p>
+                </div>
+                <button
+                    class="h-7 w-7 rounded-full border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-white"
+                    @click="showClaimDecisionModal = false"
+                >
+                    x
+                </button>
+            </div>
+
+            <div class="px-6 py-5 space-y-4">
+                <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Claim Summary</div>
+                    <div class="mt-1 text-sm font-semibold text-gray-800">
+                        {{ selectedClaim?.claim_no || "-" }} - {{ selectedClaim?.title || "-" }}
+                    </div>
+                    <div class="mt-1 text-sm text-gray-700">
+                        Approved Amount: <span class="font-semibold text-gray-900">{{ formatMoney(selectedClaim?.approved_amount || 0) }}</span>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">
+                        Remark {{ claimDecisionForm.decision === "appeal" ? "(required)" : "(optional)" }}
+                    </label>
+                    <textarea
+                        v-model="claimDecisionForm.remark"
+                        rows="4"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                        placeholder="Enter formal reason / note for this decision"
+                    ></textarea>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t bg-gray-50 flex justify-end gap-2.5">
+                <button
+                    class="px-3 py-1.5 text-xs font-medium bg-white border border-gray-300 rounded-md hover:bg-gray-100"
+                    @click="showClaimDecisionModal = false"
+                >
+                    Cancel
+                </button>
+                <button
+                    class="px-3 py-1.5 text-xs font-medium text-white rounded-md"
+                    :class="claimDecisionForm.decision === 'accept' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-500 hover:bg-amber-600'"
+                    @click="submitClaimDecision"
+                >
+                    Confirm Decision
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="showClaimInvoiceModal" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden">
+            <div class="px-6 py-4 border-b bg-gradient-to-r from-indigo-50 to-violet-50 flex items-center justify-between">
+                <div>
+                    <h3 class="text-base font-semibold text-gray-900">Upload Real Invoice</h3>
+                    <p class="text-xs text-gray-600 mt-0.5">Complete all mandatory fields and attach the official invoice.</p>
+                </div>
+                <button
+                    class="h-7 w-7 rounded-full border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-white"
+                    @click="showClaimInvoiceModal = false"
+                >
+                    x
+                </button>
+            </div>
+
+            <div class="px-6 py-5 space-y-5">
+                <div class="rounded-lg border border-indigo-100 bg-indigo-50/60 p-3">
+                    <div class="text-xs uppercase tracking-wide text-indigo-700 font-semibold">Claim Reference</div>
+                    <div class="mt-1 text-sm font-semibold text-gray-900">
+                        {{ selectedClaim?.claim_no || "-" }} - {{ selectedClaim?.title || "-" }}
+                    </div>
+                    <div class="text-xs text-gray-600 mt-1">
+                        Approved Amount: {{ formatMoney(selectedClaim?.approved_amount || 0) }}
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Invoice No</label>
+                        <input
+                            v-model="claimInvoiceForm.real_invoice_no"
+                            type="text"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                            placeholder="e.g. RI-2026-001"
+                        />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Invoice Date</label>
+                        <input
+                            v-model="claimInvoiceForm.real_invoice_date"
+                            type="date"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                        />
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Invoice Amount</label>
+                        <input
+                            v-model="claimInvoiceForm.real_invoice_amount"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                        />
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Invoice File</label>
+                        <label class="block rounded-lg border-2 border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-4 cursor-pointer hover:bg-indigo-50 transition">
+                            <input type="file" class="hidden" @change="handleClaimInvoiceFile" />
+                            <div class="text-sm font-medium text-indigo-700">
+                                {{ claimInvoiceForm.real_invoice ? claimInvoiceForm.real_invoice.name : "Click to upload real invoice" }}
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">PDF / JPG / PNG, maximum 10MB</div>
+                        </label>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Remark (optional)</label>
+                        <textarea
+                            v-model="claimInvoiceForm.remark"
+                            rows="3"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                            placeholder="Additional note for your invoice upload"
+                        ></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t bg-gray-50 flex justify-end gap-2.5">
+                <button
+                    class="px-3 py-1.5 text-xs font-medium bg-white border border-gray-300 rounded-md hover:bg-gray-100"
+                    @click="showClaimInvoiceModal = false"
+                >
+                    Cancel
+                </button>
+                <button
+                    class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                    @click="submitClaimInvoiceUpload"
+                >
+                    Upload Invoice
+                </button>
+            </div>
+        </div>
+    </div>
 </template>
+
 

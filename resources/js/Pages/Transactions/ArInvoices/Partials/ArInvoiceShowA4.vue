@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from 'vue'
 import { amountToWords } from '@/helpers/string'
-import SignatureSection from '@/Components/Document/SignatureSection.vue'
 
 const props = defineProps({
     invoice: {
@@ -30,6 +29,24 @@ const watermark = computed(() => {
     }
 })
 
+const invoiceStages = computed(() => [
+    {
+        label: 'Issued by',
+        user: props.invoice.issuer ?? null,
+        at: props.invoice.issued_at ?? null,
+    },
+    {
+        label: 'Approved by',
+        user: props.invoice.approver ?? null,
+        at: props.invoice.approved_at ?? null,
+    },
+    {
+        label: 'Received by',
+        user: props.invoice.receiver ?? null,
+        at: props.invoice.received_at ?? null,
+    },
+])
+
 /* =====================
    HELPERS
 ===================== */
@@ -44,6 +61,28 @@ function formatCurrency(value) {
         currency: 'MYR',
         minimumFractionDigits: 2,
     }).format(value ?? 0)
+}
+
+function signatureUrl(user) {
+    if (!user) return null
+    const raw = user.signature ?? user.signature_url ?? user.signature_path ?? null
+    if (!raw) return null
+
+    const value = String(raw).trim()
+    if (!value) return null
+    if (/^https?:\/\//i.test(value)) return value
+    if (value.startsWith('data:image/')) return value
+    if (value.startsWith('/storage/')) return value
+    if (value.startsWith('storage/')) return `/${value}`
+    return `/storage/${value.replace(/^\/+/, '')}`
+}
+
+function onSignatureImageError(event) {
+    const img = event?.target
+    if (!img) return
+    img.classList.add('hidden')
+    const fallback = img.nextElementSibling
+    if (fallback) fallback.classList.remove('hidden')
 }
 </script>
 
@@ -243,45 +282,31 @@ function formatCurrency(value) {
     <!-- =====================
          SIGNATURES
     ====================== -->
-    <div class="grid grid-cols-3 gap-10 mt-16 text-sm relative z-10">
-        <div>
-            <div class="mb-8 border-b-2 border-gray-300"></div>
-            <div>Issued By</div>
-            <div class="text-xs text-gray-500">
-                {{ invoice.issuer?.name ?? '-' }}
-            </div>
-            <div class="text-xs text-gray-500">
-                {{ formatDate(invoice.issued_at) }}
-            </div>
-        </div>
-
-        <div>
-            <div class="mb-8 border-b-2 border-gray-300"></div>
-            <div>Approved By</div>
-            <div class="text-xs text-gray-500">
-                {{ invoice.approver?.name ?? '-' }}
-            </div>
-            <div class="text-xs text-gray-500">
-                {{ formatDate(invoice.approved_at) }}
-            </div>
-        </div>
-
-        <div>
-            <div class="mb-8 border-b-2 border-gray-300"></div>
-            <div>Received By</div>
-            <div class="text-xs text-gray-500">
-                {{ invoice.receiver?.name ?? '-' }}
-            </div>
-            <div class="text-xs text-gray-500">
-                {{ formatDate(invoice.received_at) }}
+    <div class="mt-16 text-sm relative z-10">
+        <div
+            class="grid gap-4"
+            :style="{ gridTemplateColumns: `repeat(${invoiceStages.length}, minmax(0, 1fr))` }"
+        >
+            <div v-for="stage in invoiceStages" :key="stage.label">
+                <div class="h-10 mb-1 flex items-end">
+                    <template v-if="signatureUrl(stage.user)">
+                        <img
+                            :src="signatureUrl(stage.user)"
+                            :alt="`${stage.label} signature`"
+                            class="h-8 max-w-[120px] object-contain"
+                            @error="onSignatureImageError"
+                        >
+                        <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
+                    </template>
+                    <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
+                </div>
+                <div class="mb-3 border-b-2 border-gray-300"></div>
+                <div>{{ stage.label }}</div>
+                <div class="text-xs text-gray-500">{{ stage.user?.name ?? '-' }}</div>
+                <div class="text-xs text-gray-500">{{ stage.at ? formatDate(stage.at) : '-' }}</div>
             </div>
         </div>
     </div>
-
-    <SignatureSection
-        class="relative z-10"
-        title="Prepared Signature"
-    />
 
     <!-- =====================
          FOOTER

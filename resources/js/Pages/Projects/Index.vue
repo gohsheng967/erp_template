@@ -102,7 +102,7 @@ function loadMore(statusKey) {
 
                 <Link
                     :href="route('projects.create')"
-                    class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 shadow"
+                    class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-indigo-700"
                 >
                     + Create Project
                 </Link>
@@ -127,7 +127,7 @@ function loadMore(statusKey) {
                             v-model="search"
                             type="text"
                             placeholder="Project Name / Code"
-                            class="border rounded-md px-3 py-2 w-full"
+                            class="h-9 w-full rounded-lg border border-slate-300 px-2.5 text-xs focus:border-indigo-500 focus:ring-indigo-500"
                             @keyup.enter="applyFilters"
                         />
                     </div>
@@ -137,7 +137,7 @@ function loadMore(statusKey) {
                         <label class="block text-sm font-medium text-gray-700">Client</label>
                         <select
                             v-model="clientFilter"
-                            class="border rounded-md px-3 py-2 w-full"
+                            class="h-9 w-full rounded-lg border border-slate-300 px-2.5 text-xs focus:border-indigo-500 focus:ring-indigo-500"
                         >
                             <option value="">All</option>
                             <option v-for="c in clients" :key="c.id" :value="c.id">
@@ -151,7 +151,7 @@ function loadMore(statusKey) {
                         <label class="block text-sm font-medium text-gray-700">Status</label>
                         <select
                             v-model="statusFilter"
-                            class="border rounded-md px-3 py-2 w-full"
+                            class="h-9 w-full rounded-lg border border-slate-300 px-2.5 text-xs focus:border-indigo-500 focus:ring-indigo-500"
                         >
                             <option value="">All</option>
                             <option value="incoming">Incoming</option>
@@ -168,7 +168,7 @@ function loadMore(statusKey) {
                         <input
                             type="date"
                             v-model="dateFrom"
-                            class="border rounded-md px-3 py-2"
+                            class="h-9 w-full rounded-lg border border-slate-300 px-2.5 text-xs focus:border-indigo-500 focus:ring-indigo-500"
                         />
                     </div>
 
@@ -178,7 +178,7 @@ function loadMore(statusKey) {
                         <input
                             type="date"
                             v-model="dateTo"
-                            class="border rounded-md px-3 py-2"
+                            class="h-9 w-full rounded-lg border border-slate-300 px-2.5 text-xs focus:border-indigo-500 focus:ring-indigo-500"
                         />
                     </div>
             </StandardFilterBar>
@@ -254,7 +254,7 @@ function loadMore(statusKey) {
                             <button
                                 v-if="canLoadMore(column.key)"
                                 type="button"
-                                class="w-full text-xs px-3 py-2 border border-dashed rounded-md text-gray-600 hover:bg-gray-100"
+                                class="w-full rounded-md border border-dashed px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100"
                                 @click="loadMore(column.key)"
                             >
                                 Load more

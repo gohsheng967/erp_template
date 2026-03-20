@@ -26,6 +26,10 @@ const props = defineProps({
         type: Boolean,
         required: true,
     },
+    isSubConPurchaseRequest: {
+        type: Boolean,
+        default: false,
+    },
 })
 
 /* =========================
@@ -61,7 +65,10 @@ onMounted(loadSuppliers)
 
 async function loadSuppliers() {
     try {
-        const res = await axios.get(route('suppliers.simple-list'))
+        const listRoute = props.isSubConPurchaseRequest
+            ? route('sub-cons.simple-list')
+            : route('suppliers.simple-list')
+        const res = await axios.get(listRoute)
         suppliers.value = res.data ?? []
     } catch (e) {
         console.error(e)
@@ -85,6 +92,16 @@ watch(selectedSupplierId, async (supplierUuid) => {
     await loadSupplierQuotations(supplierUuid)
 })
 
+watch(
+    () => props.isSubConPurchaseRequest,
+    async () => {
+        selectedSupplierId.value = null
+        selectedQuotationId.value = null
+        availableQuotations.value = []
+        await loadSuppliers()
+    }
+)
+
 /* =========================
    MUTUAL EXCLUSION
 ========================= */
@@ -105,7 +122,10 @@ watch(selectedQuotationId, (val) => {
 ========================= */
 async function attachQuotation() {
     if (!selectedSupplierId.value) {
-        toast?.value?.show('Please select supplier', 'error')
+        toast?.value?.show(
+            props.isSubConPurchaseRequest ? 'Please select Sub Con' : 'Please select supplier',
+            'error'
+        )
         return
     }
 
@@ -118,7 +138,11 @@ async function attachQuotation() {
     }
 
     const formData = new FormData()
-    formData.append('supplier_uuid', selectedSupplierId.value)
+    if (props.isSubConPurchaseRequest) {
+        formData.append('sub_con_uuid', selectedSupplierId.value)
+    } else {
+        formData.append('supplier_uuid', selectedSupplierId.value)
+    }
 
     if (selectedQuotationId.value) {
         // existing quotation
@@ -216,12 +240,16 @@ function clearFile() {
 
 async function loadSupplierQuotations(supplierUuid) {
     try {
-        const res = await axios.get(
-            route('purchase-request.quotations', {
+        const endpoint = props.isSubConPurchaseRequest
+            ? route('purchase-request.subcon-quotations', {
+                uuid: props.pr.uuid,
+                sub_con_uuid: supplierUuid,
+            })
+            : route('purchase-request.quotations', {
                 uuid: props.pr.uuid,
                 supplier_uuid: supplierUuid,
             })
-        )
+        const res = await axios.get(endpoint)
         availableQuotations.value = res.data ?? []
     } catch (e) {
         console.error(e)
@@ -251,11 +279,12 @@ function resetQuotationDraft() {
     <!-- HEADER -->
     <div class="flex justify-between items-center">
         <h3 class="font-semibold text-lg">
-            Suppliers & Quotations
+            {{ isSubConPurchaseRequest ? 'Sub Con & Quotations' : 'Suppliers & Quotations' }}
         </h3>
 
         <button
             v-if="isDraft"
+            v-show="!isSubConPurchaseRequest"
             @click="showSupplierModal = true"
             class="px-3 py-1 bg-indigo-600 text-white rounded text-sm"
         >
@@ -270,23 +299,28 @@ function resetQuotationDraft() {
     >
         <!-- SUPPLIER -->
         <div>
-            <label class="text-sm font-medium">Supplier</label>
+            <label class="text-sm font-medium">{{ isSubConPurchaseRequest ? 'Sub Con' : 'Supplier' }}</label>
             <select
                 v-model="selectedSupplierId"
                 class="w-full border rounded px-3 py-2"
             >
-                <option :value="null">Select supplier</option>
+                <option :value="null">{{ isSubConPurchaseRequest ? 'Select sub con' : 'Select supplier' }}</option>
                 <option
                     v-for="s in suppliers"
-                    :key="s.id"
+                    :key="s.uuid"
                     :value="s.uuid"
                 >
-                    {{ s.company_name }}
+                    {{ s.company_name || s.name }}
                 </option>
             </select>
 
             <p class="text-xs text-gray-500 mt-1">
-                If you just created a supplier, please select it from the list.
+                <span v-if="isSubConPurchaseRequest">
+                    Select a Sub Con to attach quotation.
+                </span>
+                <span v-else>
+                    If you just created a supplier, please select it from the list.
+                </span>
             </p>
         </div>
 
@@ -425,7 +459,7 @@ function resetQuotationDraft() {
         <table class="min-w-full text-sm border">
             <thead class="bg-gray-100">
                 <tr>
-                    <th class="border px-3 py-2 text-left">Supplier</th>
+                    <th class="border px-3 py-2 text-left">{{ isSubConPurchaseRequest ? 'Sub Con / Supplier' : 'Supplier' }}</th>
                     <th class="border px-3 py-2 text-left">Quotation No</th>
                     <th class="border px-3 py-2 text-right">Amount</th>
                     <th class="border px-3 py-2 text-right">Delivery Days</th>
@@ -434,7 +468,7 @@ function resetQuotationDraft() {
             </thead>
             <tbody>
                 <tr v-for="q in quotations" :key="q.id">
-                    <td class="border px-3 py-2">{{ q.supplier?.company_name }}</td>
+                    <td class="border px-3 py-2">{{ q.supplier?.company_name || q.supplier_name || '-' }}</td>
                     <td class="border px-3 py-2">{{ q.quotation_no }}</td>
                     <td class="border px-3 py-2 text-right">{{ q.amount }}</td>
                     <td class="border px-3 py-2 text-right">{{ q.delivery_time }}</td>

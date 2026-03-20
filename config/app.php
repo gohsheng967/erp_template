@@ -56,6 +56,17 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Public Vehicle Logbook PIN
+    |--------------------------------------------------------------------------
+    |
+    | Optional PIN required for QR-based public vehicle logbook submissions.
+    | Leave empty to disable PIN verification.
+    |
+    */
+    'vehicle_logbook_pin' => env('VEHICLE_LOGBOOK_PIN'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Timezone
     |--------------------------------------------------------------------------
     |

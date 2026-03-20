@@ -52,9 +52,13 @@ const amountDueLabel = computed(() => props.slip.amount_due_label || 'Amount Due
 const paymentRecord = computed(() =>
     props.invoice?.payments?.find((payment) => payment.payment_slip_no === props.slip?.slip_no) ?? null
 )
-const preparedBy = computed(() => props.slip?.creator?.name ?? props.invoice?.creator?.name ?? '-')
-const approvedBy = computed(() => props.slip?.approved_by?.name ?? '-')
-const paidBy = computed(() => paymentRecord.value?.created_by?.name ?? '-')
+const preparedByUser = computed(() => props.slip?.creator ?? null)
+const apStageSigners = computed(() => [
+    { label: 'Invoice Created by', user: props.invoice?.creator ?? null },
+    { label: 'Prepared by', user: preparedByUser.value },
+    { label: 'Slip Approved by', user: props.slip?.approved_by ?? null },
+    { label: 'Done by', user: paymentRecord.value?.created_by ?? null },
+])
 
 function signatureUrl(user) {
     if (!user) return null
@@ -234,51 +238,24 @@ function formatLess(value) {
             </div>
 
             <div class="border-t border-gray-400 p-2 text-xs">
-                <div class="grid grid-cols-3 gap-6">
-                    <div>
+                <div
+                    class="grid gap-4"
+                    :style="{ gridTemplateColumns: `repeat(${apStageSigners.length}, minmax(0, 1fr))` }"
+                >
+                    <div v-for="stage in apStageSigners" :key="stage.label">
                         <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(slip.creator ?? invoice.creator)">
+                            <template v-if="signatureUrl(stage.user)">
                                 <img
-                                    :src="signatureUrl(slip.creator ?? invoice.creator)"
-                                    alt="Prepared by signature"
+                                    :src="signatureUrl(stage.user)"
+                                    :alt="`${stage.label} signature`"
                                     class="h-12 object-contain"
                                     @error="onSignatureImageError"
                                 />
                                 <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
                             </template>
                         </div>
-                        <div class="font-medium">Prepared by</div>
-                        <div class="text-gray-500">{{ preparedBy }}</div>
-                    </div>
-                    <div>
-                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(slip.approved_by)">
-                                <img
-                                    :src="signatureUrl(slip.approved_by)"
-                                    alt="Approved by signature"
-                                    class="h-12 object-contain"
-                                    @error="onSignatureImageError"
-                                />
-                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                            </template>
-                        </div>
-                        <div class="font-medium">Approved by</div>
-                        <div class="text-gray-500">{{ approvedBy }}</div>
-                    </div>
-                    <div>
-                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(paymentRecord?.created_by)">
-                                <img
-                                    :src="signatureUrl(paymentRecord?.created_by)"
-                                    alt="Paid by signature"
-                                    class="h-12 object-contain"
-                                    @error="onSignatureImageError"
-                                />
-                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                            </template>
-                        </div>
-                        <div class="font-medium">Paid by</div>
-                        <div class="text-gray-500">{{ paidBy }}</div>
+                        <div class="font-medium">{{ stage.label }}</div>
+                        <div class="text-gray-500">{{ stage.user?.name ?? '-' }}</div>
                     </div>
                 </div>
                 <div class="mt-4 text-xs text-gray-500">

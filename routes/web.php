@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProfileBankAccountController;
@@ -21,11 +21,14 @@ use App\Http\Controllers\ClaimTypeController;
 use App\Http\Controllers\PublicInventoryController;
 use App\Http\Controllers\BranchContextController;
 use App\Http\Controllers\BranchController;
+use App\Http\Controllers\Settings\SiteController;
+use App\Http\Controllers\Settings\StockCategoryController;
 
 use App\Http\Controllers\Project\ProjectController;
 use App\Http\Controllers\Project\ProjectDocumentController;
 use App\Http\Controllers\Project\ProjectMilestoneController;
 use App\Http\Controllers\Project\ProjectTaskController;
+use App\Http\Controllers\Project\SubConClaimController;
 use App\Http\Controllers\Project\SubConTaskController;
 
 use App\Http\Controllers\Project\MilestoneController;
@@ -40,6 +43,7 @@ use App\Http\Controllers\Transactions\ApInvoiceController;
 use App\Http\Controllers\PettyCash\PettyCashController;
 use App\Http\Controllers\PettyCash\PettyCashUsageController;
 use App\Http\Controllers\PettyCash\PettyCashTopupController;
+use App\Http\Controllers\PettyCash\PettyCashClaimController;
 use App\Http\Controllers\PettyCash\PettyCashWalletController;
 use App\Http\Controllers\PettyCash\PettyCashStatementController;
 
@@ -77,10 +81,15 @@ Route::middleware('auth.subcon')->prefix('sub-con')->name('sub-con.')->group(fun
     Route::post('/password/change', [SubConAuthenticatedSessionController::class, 'updatePassword'])
         ->name('password.update');
     Route::get('/portal', [SubConPortalController::class, 'index'])->name('portal');
+    Route::post('/claims', [SubConPortalController::class, 'storeClaim'])->name('claims.store');
     Route::post('/tasks/{task}/updates', [SubConPortalController::class, 'storeUpdate'])->name('tasks.updates.store');
     Route::get('/tasks/{task}/updates/{update}/download', [SubConPortalController::class, 'downloadUpdate'])->name('tasks.updates.download');
     Route::post('/tasks/{task}/invoice', [SubConPortalController::class, 'storeInvoice'])->name('tasks.invoice.store');
     Route::get('/tasks/{task}/invoice/download', [SubConPortalController::class, 'downloadInvoice'])->name('tasks.invoice.download');
+    Route::post('/claims/{claim}/decision', [SubConPortalController::class, 'decideClaim'])->name('claims.decision');
+    Route::post('/claims/{claim}/real-invoice', [SubConPortalController::class, 'uploadClaimRealInvoice'])->name('claims.real-invoice.upload');
+    Route::get('/claims/{claim}/proforma/download', [SubConPortalController::class, 'downloadClaimProforma'])->name('claims.proforma.download');
+    Route::get('/claims/{claim}/real-invoice/download', [SubConPortalController::class, 'downloadClaimRealInvoice'])->name('claims.real-invoice.download');
 });
 
 Route::prefix('public')->name('public.')->group(function () {
@@ -88,6 +97,20 @@ Route::prefix('public')->name('public.')->group(function () {
     Route::get('/vehicles/{publicUuid}', 
         [PublicInventoryController::class, 'vehicle']
     )->name('vehicles.show');
+
+    Route::get('/vehicles/{publicUuid}/logbook',
+        [PublicInventoryController::class, 'vehicleLogbook']
+    )->name('vehicles.logbook');
+
+    Route::post('/vehicles/{publicUuid}/logbook',
+        [PublicInventoryController::class, 'storeVehicleLogbook']
+    )->middleware('throttle:60,1')->name('vehicles.logbook.store');
+    Route::post('/vehicles/{publicUuid}/logbook/start',
+        [PublicInventoryController::class, 'startVehicleLogbook']
+    )->middleware('throttle:60,1')->name('vehicles.logbook.start');
+    Route::post('/vehicles/{publicUuid}/logbook/end',
+        [PublicInventoryController::class, 'endVehicleLogbook']
+    )->middleware('throttle:60,1')->name('vehicles.logbook.end');
 
     // future
     // Route::get('/equipment/{publicUuid}', ...)->name('equipment.show');
@@ -176,7 +199,7 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
     Route::delete('/roles/{role}', [RoleController::class, 'destroy'])->name('roles.destroy');
 
     if (class_exists(\App\Http\Controllers\PermissionController::class)) {
-        // Permission Management (view roles â†’ assign permissions)
+        // Permission Management (view roles → assign permissions)
         Route::get('/permissions', [PermissionController::class, 'index'])
             ->name('permissions.index');
 
@@ -199,6 +222,16 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
     Route::post('/claim-types', [ClaimTypeController::class, 'store'])->name('claim-types.store');
     Route::patch('/claim-types/{claimType}', [ClaimTypeController::class, 'update'])->name('claim-types.update');
     Route::delete('/claim-types/{claimType}', [ClaimTypeController::class, 'destroy'])->name('claim-types.destroy');
+
+    Route::get('/sites', [SiteController::class, 'index'])->name('sites.index');
+    Route::post('/sites', [SiteController::class, 'store'])->name('sites.store');
+    Route::patch('/sites/{site}', [SiteController::class, 'update'])->name('sites.update');
+    Route::delete('/sites/{site}', [SiteController::class, 'destroy'])->name('sites.destroy');
+
+    Route::get('/stock-categories', [StockCategoryController::class, 'index'])->name('stock-categories.index');
+    Route::post('/stock-categories', [StockCategoryController::class, 'store'])->name('stock-categories.store');
+    Route::patch('/stock-categories/{stockCategory}', [StockCategoryController::class, 'update'])->name('stock-categories.update');
+    Route::delete('/stock-categories/{stockCategory}', [StockCategoryController::class, 'destroy'])->name('stock-categories.destroy');
 
 
     Route::get('/projects', [ProjectController::class, 'index'])
@@ -238,15 +271,25 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
 
     Route::prefix('projects/{project}/sub-con-tasks')->middleware('branch.context')->name('projects.sub-con-tasks.')->group(function () {
         Route::post('/', [SubConTaskController::class, 'store'])->name('store');
+        Route::post('/generate-from-po', [SubConTaskController::class, 'generateFromPo'])->name('generate-from-po');
         Route::patch('/{task}', [SubConTaskController::class, 'update'])->name('update');
         Route::delete('/{task}', [SubConTaskController::class, 'destroy'])->name('destroy');
         Route::post('/{task}/updates', [SubConTaskController::class, 'storeUpdate'])->name('updates.store');
         Route::get('/{task}/updates/{update}/download', [SubConTaskController::class, 'downloadUpdate'])->name('updates.download');
         Route::post('/{task}/verify', [SubConTaskController::class, 'verify'])->name('verify');
-        Route::post('/{task}/justify-payment', [SubConTaskController::class, 'justify'])->name('justify');
-        Route::post('/{task}/payment-cert', [SubConTaskController::class, 'certify'])->name('certify');
-        Route::post('/{task}/mark-paid', [SubConTaskController::class, 'paid'])->name('paid');
         Route::get('/{task}/invoice/download', [SubConTaskController::class, 'downloadInvoice'])->name('invoice.download');
+    });
+
+    Route::prefix('projects/{project}/sub-con-claims')->middleware('branch.context')->name('projects.sub-con-claims.')->group(function () {
+        Route::post('/', [SubConClaimController::class, 'store'])->name('store');
+        Route::post('/{claim}/verify-project', [SubConClaimController::class, 'verifyProject'])->name('verify-project');
+        Route::post('/{claim}/verify-contra', [SubConClaimController::class, 'verifyContra'])->name('verify-contra');
+        Route::post('/{claim}/approve', [SubConClaimController::class, 'approve'])->name('approve');
+        Route::post('/{claim}/sub-con-decision', [SubConClaimController::class, 'subConDecision'])->name('sub-con-decision');
+        Route::post('/{claim}/prepare-payment-slip', [SubConClaimController::class, 'preparePaymentSlip'])->name('prepare-payment-slip');
+        Route::post('/{claim}/real-invoice', [SubConClaimController::class, 'uploadRealInvoice'])->name('real-invoice.upload');
+        Route::get('/{claim}/proforma/download', [SubConClaimController::class, 'downloadProforma'])->name('proforma.download');
+        Route::get('/{claim}/real-invoice/download', [SubConClaimController::class, 'downloadRealInvoice'])->name('real-invoice.download');
     });
 
     Route::prefix('projects/{project}/sub-cons')->middleware('branch.context')->name('projects.sub-cons.')->group(function () {
@@ -431,6 +474,7 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
     Route::prefix('petty-cash')->middleware('branch.context')->name('petty-cash.')->group(function () {
         Route::get('/', [PettyCashController::class, 'index'])->name('index');
         Route::post('/usage', [PettyCashUsageController::class, 'store'])->name('usage.store');
+        Route::get('/claims', [PettyCashClaimController::class, 'index'])->name('claims.index');
 
         Route::get('/topups', [PettyCashTopupController::class, 'index'])->name('topups.index');
         Route::post('/topups', [PettyCashTopupController::class, 'store'])->name('topups.store');
@@ -455,6 +499,9 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
     // STAKEHOLDERS
     // ------------------------------
     Route::resource('clients', ClientController::class)->except(['create', 'edit']);
+    Route::get('sub-cons/simple-list/options', [SubConController::class, 'list'])->name('sub-cons.simple-list');
+    Route::post('sub-cons/{subCon}/purchase-quotations/upload', [SubConController::class, 'uploadQuotation'])->name('sub-cons.purchase-quotations.upload');
+    Route::delete('sub-cons/{subCon}/purchase-quotations/{quotation}', [SubConController::class, 'destroyQuotation'])->name('sub-cons.purchase-quotations.destroy');
     Route::resource('sub-cons', SubConController::class)->except(['create', 'edit']);
 
     Route::prefix('suppliers')->name('suppliers.')->group(function () {
@@ -489,6 +536,7 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
         Route::put('{uuid}', [PurchaseRequestController::class, 'update'])->name('update');
         Route::post('{uuid}/submit', [PurchaseRequestController::class, 'submit'])->name('submit');
         Route::get('{uuid}/supplier/{supplier_uuid}/quotations', [PurchaseRequestController::class, 'quotations'])->name('quotations');
+        Route::get('{uuid}/sub-con/{sub_con_uuid}/quotations', [PurchaseRequestController::class, 'subConQuotations'])->name('subcon-quotations');
         Route::post('/{uuid}/quotations/attach', [PurchaseRequestController::class, 'attachQuotation'])->name('quotations.attach');
         Route::delete('/{uuid}/quotations/{quotationUuid}', [PurchaseRequestController::class, 'detachQuotation'])->name('detach-quotation');
 
@@ -533,6 +581,8 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
             Route::post('{uuid}/services', [VehicleController::class, 'storeService'])->name('services.store');
             Route::patch('{uuid}/services/{service}', [VehicleController::class, 'updateService'])->name('services.update');
             Route::delete('{uuid}/services/{service}', [VehicleController::class, 'destroyService'])->name('services.destroy');
+            Route::post('{uuid}/logbooks', [VehicleController::class, 'storeLogbook'])->name('logbooks.store');
+            Route::delete('{uuid}/logbooks/{logbook}', [VehicleController::class, 'destroyLogbook'])->name('logbooks.destroy');
 
             Route::post('{uuid}/roadtax', [VehicleController::class, 'storeRoadtax'])->name('roadtax.store');
             Route::post('{uuid}/roadtax/{roadtax}', [VehicleController::class, 'updateRoadtax'])->name('roadtax.update');
@@ -546,6 +596,8 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
         Route::prefix('stocks')->name('stocks.')->group(function () {
             Route::get('/', [StockController::class, 'index'])->name('index');
             Route::get('/movements', [StockController::class, 'movements'])->name('movements');
+            Route::get('/browse', [StockController::class, 'browse'])->name('browse');
+            Route::get('/browse/export', [StockController::class, 'exportBrowse'])->name('browse.export');
             Route::post('/issue', [StockController::class, 'issue'])->name('issue');
             Route::post('/transfer', [StockController::class, 'transfer'])->name('transfer');
             Route::post('/adjust', [StockController::class, 'adjust'])->name('adjust');
@@ -571,7 +623,7 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
 
 
     // ----------------------------------------
-    // MILESTONE â†’ TASKS
+    // MILESTONE → TASKS
     // ----------------------------------------
     if (class_exists(\App\Http\Controllers\Project\ProjectTaskController::class)) {
         Route::post('/milestones/{milestone}/tasks', [ProjectTaskController::class, 'store'])
@@ -725,4 +777,6 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
 });
 
 require __DIR__ . '/auth.php';
+
+
 

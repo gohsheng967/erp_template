@@ -1,6 +1,6 @@
 ﻿<script setup>
 import { ref, computed } from 'vue'
-import { Link, router, useForm } from '@inertiajs/vue3'
+import { Link, router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import { useFormat } from '@/Composables/useFormat'
 import CreateClaimModal from './Partials/CreateClaimModal.vue'
@@ -20,7 +20,7 @@ const props = defineProps({
 /* =========================
    FORMAT
 ========================= */
-const { capitalize, formatDate } = useFormat()
+const { formatDate } = useFormat()
 const monthLabel = computed(() => props.period.month)
 
 /* =========================
@@ -71,7 +71,6 @@ function openCreateClaim() {
 
 function closeCreateClaim() {
     showCreateClaim.value = false
-    claimForm.reset()
 }
 </script>
 
@@ -86,7 +85,7 @@ function closeCreateClaim() {
                         :href="route('petty-cash.wallets.index')"
                         class="text-sm text-gray-600 hover:text-gray-900"
                     >
-                        â† Back
+                        &larr; Back
                     </Link>
 
                     <div>
@@ -115,7 +114,7 @@ function closeCreateClaim() {
             <!-- ================= PERIOD ================= -->
             <div class="flex items-center justify-between bg-white p-4 rounded border">
                 <button @click="prevMonth" class="text-sm text-gray-600 hover:text-gray-900">
-                    â—€ Previous
+                    &larr; Previous
                 </button>
 
                 <div class="text-sm font-semibold">
@@ -123,7 +122,7 @@ function closeCreateClaim() {
                 </div>
 
                 <button @click="nextMonth" class="text-sm text-gray-600 hover:text-gray-900">
-                    Next â–¶
+                    Next &rarr;
                 </button>
             </div>
 
@@ -171,7 +170,7 @@ function closeCreateClaim() {
                         <button
                             v-if="!period.is_locked"
                             @click="openCreateClaim"
-                            class="px-3 py-1.5 text-sm rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                            class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
                         >
                             + Create Claim
                         </button>
@@ -209,14 +208,16 @@ function closeCreateClaim() {
                             class="border-t even:bg-gray-50 hover:bg-indigo-50/40"
                         >
                             <td class="px-4 py-2">{{ formatDate(tx.date) }}</td>
-                            <td class="px-4 py-2 font-mono text-xs">{{ tx.code ?? 'â€”' }}</td>
-                            <td class="px-4 py-2 font-mono text-xs">{{ tx.reference ?? 'â€”' }}</td>
-                            <td class="px-4 py-2">{{ tx.title ?? '—' }}</td>\r\n                            <td class="px-4 py-2">{{ tx.description ?? '—' }}</td>\r\n                            <td class="px-4 py-2">{{ tx.title ?? '—' }}</td>\r\n                            <td class="px-4 py-2">{{ tx.description ?? '—' }}</td>\r\n                            <td class="px-4 py-2 capitalize">{{ tx.type }}</td>
+                            <td class="px-4 py-2 font-mono text-xs">{{ tx.code ?? '-' }}</td>
+                            <td class="px-4 py-2 font-mono text-xs">{{ tx.reference ?? '-' }}</td>
+                            <td class="px-4 py-2">{{ tx.title ?? '-' }}</td>
+                            <td class="px-4 py-2">{{ tx.description ?? '-' }}</td>
+                            <td class="px-4 py-2 capitalize">{{ tx.type }}</td>
                             <td class="px-4 py-2 text-right text-green-600">
-                                {{ tx.amount_in ? tx.amount_in.toFixed(2) : 'â€”' }}
+                                {{ tx.amount_in ? tx.amount_in.toFixed(2) : '-' }}
                             </td>
                             <td class="px-4 py-2 text-right text-red-600">
-                                {{ tx.amount_out ? tx.amount_out.toFixed(2) : 'â€”' }}
+                                {{ tx.amount_out ? tx.amount_out.toFixed(2) : '-' }}
                             </td>
                             <td class="px-4 py-2 text-right font-semibold">
                                 {{ tx.balance_after.toFixed(2) }}

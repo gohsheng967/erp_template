@@ -11,10 +11,17 @@ class InventoryMovement extends Model
         'purchase_order_item_id',
         'type',
         'quantity',
+        'serial_number',
+        'stock_category',
+        'issue_destination_type',
+        'project_id',
+        'site_id',
+        'issued_by',
         'balance_after',
         'reference_type',
         'reference_id',
         'remark',
+        'purpose',
     ];
 
     protected $casts = [
@@ -48,5 +55,20 @@ class InventoryMovement extends Model
     public function reference()
     {
         return $this->morphTo();
+    }
+
+    public function issueUser()
+    {
+        return $this->belongsTo(User::class, 'issued_by');
+    }
+
+    public function project()
+    {
+        return $this->belongsTo(Project::class);
+    }
+
+    public function site()
+    {
+        return $this->belongsTo(Site::class);
     }
 }

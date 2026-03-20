@@ -176,16 +176,16 @@ class PettyCashStatementController extends Controller
                 'claim_no'     => RunningNumberService::next(documentType: 'claim'),
                 'title'        => $data['title'],
                 'description'  => $data['description'] ?? null,
-                'status'       => 'paid',
+                'status'       => Claim::STATUS_SUBMITTED,
                 'project_id'   => $projectId,
                 'branch_id'    => $wallet->project?->branch_id ?? $this->activeBranchId($request),
                 'total_amount' => $data['amount'],
-                'remark'       => 'Created from Petty Cash',
+                'remark'       => Claim::REMARK_PETTY_CASH_ORIGIN,
                 'submitted_at' => now(),
                 'approved_by'  => null,
-                'approved_at'  => now(),
+                'approved_at'  => null,
                 'paid_by'      => null,
-                'paid_at'      => now(),
+                'paid_at'      => null,
             ]);
 
             $claimItem = $claim->items()->create([

@@ -8,6 +8,7 @@ use App\Models\CompanyProfile;
 use App\Models\PurchaseDelivery;
 use App\Models\PurchaseDeliveryItem;
 use App\Models\PurchaseOrder;
+use App\Models\StockCategory;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\InventoryService;
@@ -264,10 +265,15 @@ class PurchaseOrderController extends Controller
             ->orderBy('title')
             ->get();
 
+        $stockCategories = StockCategory::query()
+            ->orderBy('name')
+            ->pluck('name');
+
         return inertia('Transactions/PurchaseOrder/Deliveries/Index', [
             'purchaseOrder' => $purchaseOrder,
             'deliveries' => $deliveries,
             'warehouses' => $warehouses,
+            'stockCategories' => $stockCategories,
         ]);
     }
 
@@ -295,6 +301,8 @@ class PurchaseOrderController extends Controller
             'items' => ['array'],
             'items.*.purchase_order_item_id' => ['required', 'exists:purchase_order_items,id'],
             'items.*.quantity' => ['required', 'numeric', 'min:0'],
+            'items.*.serial_number' => ['nullable', 'string', 'max:255'],
+            'items.*.stock_category' => ['nullable', 'string', 'max:100', 'exists:stock_categories,name'],
             'items.*.destination' => ['nullable', 'string'],
             'items.*.remark' => ['nullable', 'string'],
             'attachments.*' => ['file', 'max:10240'],
@@ -348,10 +356,26 @@ class PurchaseOrderController extends Controller
                         ]);
                     }
 
+                    $serialNumber = trim((string) ($itemData['serial_number'] ?? ''));
+                    if ($serialNumber === '') {
+                        throw ValidationException::withMessages([
+                            'serial_number' => "Serial number is required for delivered item {$poItem->item_name}.",
+                        ]);
+                    }
+
+                    $stockCategory = trim((string) ($itemData['stock_category'] ?? ''));
+                    if ($stockCategory === '') {
+                        throw ValidationException::withMessages([
+                            'stock_category' => "Stock category is required for delivered item {$poItem->item_name}.",
+                        ]);
+                    }
+
                     $deliveryItem = PurchaseDeliveryItem::create([
                         'purchase_delivery_id' => $delivery->id,
                         'purchase_order_item_id' => $poItem->id,
                         'quantity' => $itemData['quantity'],
+                        'serial_number' => $serialNumber,
+                        'stock_category' => $stockCategory,
                         'destination' => $validated['warehouse_id'] ?? null,
                         'remark' => $itemData['remark'] ?? null,
                     ]);
@@ -361,6 +385,8 @@ class PurchaseOrderController extends Controller
                         'warehouse_id' => $validated['warehouse_id'],
                         'purchase_order_item_id' => $poItem->id,
                         'quantity' => $itemData['quantity'],
+                        'serial_number' => $serialNumber,
+                        'stock_category' => $stockCategory,
                         'reference_type' => PurchaseDeliveryItem::class,
                         'reference_id' => $deliveryItem->id,
                         'remark' => 'Purchase delivery',
@@ -426,6 +452,8 @@ class PurchaseOrderController extends Controller
                         'warehouse_id' => $item->destination,
                         'purchase_order_item_id' => $item->purchase_order_item_id,
                         'quantity' => $item->quantity,
+                        'serial_number' => $item->serial_number,
+                        'stock_category' => $item->stock_category,
                         'reference_type' => PurchaseDeliveryItem::class,
                         'reference_id' => $item->id,
                         'remark' => 'Delivery cancelled',

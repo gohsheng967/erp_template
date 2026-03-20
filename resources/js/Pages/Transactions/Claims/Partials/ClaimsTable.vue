@@ -26,6 +26,46 @@ const props = defineProps({
 ========================= */
 
 const columnsByStatus = {
+    all_non_draft: [
+        'claim_no',
+        'title',
+        'project',
+        'status',
+        'total_amount',
+        'submitted_at',
+        'action',
+    ],
+
+    my_in_progress: [
+        'claim_no',
+        'title',
+        'project',
+        'status',
+        'total_amount',
+        'submitted_at',
+        'action',
+    ],
+
+    my_rejected: [
+        'claim_no',
+        'title',
+        'project',
+        'status',
+        'total_amount',
+        'submitted_at',
+        'action',
+    ],
+
+    my_completed: [
+        'claim_no',
+        'title',
+        'project',
+        'status',
+        'total_amount',
+        'submitted_at',
+        'action',
+    ],
+
     draft: [
         'title',
         'project',
@@ -94,6 +134,7 @@ const columnLabels = {
     title: 'Title',
     project: 'Project',
     total_amount: 'Total Amount',
+    status: 'Status',
     items_progress: 'Items / Total',
     submitted_at: 'Submitted At',
     approved_by: 'Approved By',
@@ -196,15 +237,55 @@ function printClaim(claim = null) {
 ========================= */
 
 function rowClass(row) {
+    if (row.deleted_at) {
+        return 'bg-rose-50 hover:bg-rose-100'
+    }
+
     // ✅ draft highlight when items == total
     if (
-        props.status === 'draft' &&
+        ['draft', 'my_in_progress'].includes(props.status) &&
+        row.status === 'draft' &&
         Number(row.items_total) === Number(row.total_amount)
     ) {
         return 'bg-green-50 hover:bg-green-100'
     }
 
     return 'hover:bg-gray-50'
+}
+
+function statusText(row) {
+    if (row.deleted_at) return 'Cancelled'
+
+    return String(row.status ?? '')
+        .replaceAll('_', ' ')
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function statusBadgeClass(row) {
+    if (row.deleted_at) return 'bg-rose-100 text-rose-700 border border-rose-200'
+
+    const status = String(row.status ?? '')
+    if (status === 'draft') return 'bg-slate-100 text-slate-700 border border-slate-200'
+    if (status === 'submitted') return 'bg-amber-100 text-amber-700 border border-amber-200'
+    if (status === 'checked') return 'bg-sky-100 text-sky-700 border border-sky-200'
+    if (status === 'verified') return 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+    if (status === 'approved' || status === 'ceo_approved') return 'bg-violet-100 text-violet-700 border border-violet-200'
+    if (status === 'paid') return 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+    if (status === 'rejected') return 'bg-red-100 text-red-700 border border-red-200'
+
+    return 'bg-gray-100 text-gray-700 border border-gray-200'
+}
+
+function paymentStatusText(row) {
+    return row.status === 'paid' ? 'Paid' : 'Pending Payment'
+}
+
+function paymentStatusBadgeClass(row) {
+    if (row.status === 'paid') {
+        return 'bg-emerald-100 text-emerald-700 border border-emerald-200'
+    }
+
+    return 'bg-amber-100 text-amber-700 border border-amber-200'
 }
 
 function renderCell(row, col) {
@@ -217,6 +298,9 @@ function renderCell(row, col) {
 
         case 'project':
             return row.project?.name ?? '-'
+
+        case 'status':
+            return statusText(row)
 
         case 'total_amount':
             return formatCurrency(row.total_amount)
@@ -237,7 +321,7 @@ function renderCell(row, col) {
             return row.paid_at ?? '-'
 
         case 'payment_status':
-            return row.status === 'paid' ? 'Paid' : 'Pending Payment'
+            return paymentStatusText(row)
 
         case 'payment_ref':
             return row.payment_ref_no ?? '-'
@@ -296,6 +380,22 @@ function renderCell(row, col) {
                         />
 
                         <!-- NORMAL CELL -->
+                        <span
+                            v-else-if="col === 'status'"
+                            class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                            :class="statusBadgeClass(claim)"
+                        >
+                            {{ statusText(claim) }}
+                        </span>
+
+                        <span
+                            v-else-if="col === 'payment_status'"
+                            class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                            :class="paymentStatusBadgeClass(claim)"
+                        >
+                            {{ paymentStatusText(claim) }}
+                        </span>
+
                         <span v-else>
                             {{ renderCell(claim, col) }}
                         </span>
@@ -347,6 +447,7 @@ function renderCell(row, col) {
         <ClaimShowModal
             v-if="showViewModal"
             :claim="viewingClaim"
+            :hide-approval-actions="status.startsWith('my_')"
             @close="closeView"
             @refresh="refreshList"
             @print="printClaim"

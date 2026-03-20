@@ -9,6 +9,7 @@ use App\Models\PurchaseQuotation;
 use App\Models\Project;
 use App\Models\CompanyProfile;
 use App\Models\Supplier;
+use App\Models\SubCon;
 use App\Models\User;
 use App\Http\Controllers\Controller;
 use App\Services\RunningNumberService;
@@ -144,78 +145,57 @@ class PurchaseRequestController extends Controller
         | 3️⃣ Tabs Data
         |--------------------------------------------------------------------------
         */
-        $purchaseRequests = [
-            'draft' => (clone $listQuery)
-                ->where('status', 'draft')
-                ->latest()
-                ->paginate(10),
-
-            'submitted' => (clone $listQuery)
-                ->where('status', 'submitted')
-                ->latest('updated_at')
-                ->paginate(10),
-
-            'verified_own_department' => (clone $listQuery)
-                ->where('status', 'verified_own_department')
-                ->latest('updated_at')
-                ->paginate(10),
-
-            'verified_project_department' => (clone $listQuery)
-                ->where('status', 'verified_project_department')
-                ->latest('updated_at')
-                ->paginate(10),
-
-            'verified_purchasing_department' => (clone $listQuery)
-                ->where('status', 'verified_purchasing_department')
-                ->latest('updated_at')
-                ->paginate(10),
-
-            'rejected' => (clone $listQuery)
-                ->where('status', 'rejected')
-                ->latest('updated_at')
-                ->paginate(10),
-
-            'po' => (clone $listQuery)
-                ->where('status', 'po')
-                ->latest('updated_at')
-                ->paginate(10),
-
-            'payment' => (clone $listQuery)
-                ->where('status', 'payment')
-                ->latest('updated_at')
-                ->paginate(10),
+        $statuses = [
+            'draft',
+            'submitted',
+            'verified_own_department',
+            'verified_project_department',
+            'verified_purchasing_department',
+            'rejected',
+            'po',
+            'payment',
         ];
+
+        $purchaseRequests = [];
+        foreach ($statuses as $status) {
+            $purchaseRequests[$status] = (clone $listQuery)
+                ->where('status', $status)
+                ->latest($status === 'draft' ? 'created_at' : 'updated_at')
+                ->paginate(10, ['*'], "all_{$status}_page");
+        }
+
+        $myListQuery = (clone $listQuery)
+            ->where('requested_by', auth()->id());
+
+        $myPurchaseRequests = [];
+        foreach ($statuses as $status) {
+            $myPurchaseRequests[$status] = (clone $myListQuery)
+                ->where('status', $status)
+                ->latest($status === 'draft' ? 'created_at' : 'updated_at')
+                ->paginate(10, ['*'], "my_{$status}_page");
+        }
 
         /*
         |--------------------------------------------------------------------------
         | 4️⃣ Tab Counters (FAST & SAFE)
         |--------------------------------------------------------------------------
         */
-        $counts = [
-            'submitted' => (clone $filterQuery)
-                ->where('status', 'submitted')
-                ->count(),
+        $counts = [];
+        foreach ($statuses as $status) {
+            $counts[$status] = (clone $filterQuery)
+                ->where('status', $status)
+                ->count();
+        }
 
-            'verified_own_department' => (clone $filterQuery)
-                ->where('status', 'verified_own_department')
-                ->count(),
+        $myFilterQuery = (clone $filterQuery)
+            ->where('requested_by', auth()->id());
 
-            'verified_project_department' => (clone $filterQuery)
-                ->where('status', 'verified_project_department')
-                ->count(),
-
-            'verified_purchasing_department' => (clone $filterQuery)
-                ->where('status', 'verified_purchasing_department')
-                ->count(),
-
-            'po' => (clone $filterQuery)
-                ->where('status', 'po')
-                ->count(),
-
-            'payment' => (clone $filterQuery)
-                ->where('status', 'payment')
-                ->count(),
-        ];
+        $myCounts = [];
+        foreach ($statuses as $status) {
+            $myCounts[$status] = (clone $myFilterQuery)
+                ->where('status', $status)
+                ->count();
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -224,7 +204,9 @@ class PurchaseRequestController extends Controller
         */
         return Inertia::render('Transactions/PurchaseRequest/Index', [
             'purchaseRequests' => $purchaseRequests,
+            'myPurchaseRequests' => $myPurchaseRequests,
             'counts'           => $counts,
+            'myCounts'         => $myCounts,
             'filters'          => $filters,
             'activeTab'        => $tab,
             'filterOptions'    => [
@@ -261,6 +243,7 @@ class PurchaseRequestController extends Controller
             'purpose'          => 'nullable|string',
             'department_id'    => 'nullable|exists:departments,id',
             'project_id'       => 'nullable|exists:projects,id',
+            'is_subcon_purchase_request' => 'nullable|boolean',
             'required_date'    => 'required|date',
             'requester_remark' => 'nullable|string',
         ]);
@@ -281,6 +264,7 @@ class PurchaseRequestController extends Controller
                 'required_date'    => $data['required_date'] ?? null,
                 'department_id'    => $data['department_id'] ?? null,
                 'project_id'       => $data['project_id'] ?? null,
+                'is_subcon_purchase_request' => (bool) ($data['is_subcon_purchase_request'] ?? false),
                 'branch_id'        => $this->activeBranchId($request),
                 'requested_by'     => auth()->id(),
                 'status'           => 'draft',
@@ -453,19 +437,25 @@ class PurchaseRequestController extends Controller
             ->firstOrFail();
         $supplier = Supplier::where('uuid', $supplierUuid)->firstOrFail();
 
-        return PurchaseQuotation::query()
-            ->where('supplier_id', $supplier->id)
-            ->whereDoesntHave('purchaseRequests', function ($q) use ($pr) {
-                $q->where('purchase_request_id', $pr->id);
-            })
-            ->orderByDesc('created_at')
-            ->get([
-                'id',
-                'uuid',
-                'quotation_no',
-                'amount',
-                'delivery_time',
-            ]);
+        return $this->availableQuotationsForSupplier($pr, $supplier->id);
+    }
+
+    public function subConQuotations(Request $request, string $prUuid, string $subConUuid)
+    {
+        $pr = PurchaseRequest::where('uuid', $prUuid)
+            ->when($this->shouldScopeToActiveBranch($request), fn ($q) =>
+                $q->where('branch_id', $this->activeBranchId($request))
+            )
+            ->firstOrFail();
+
+        $subCon = SubCon::where('uuid', $subConUuid)->firstOrFail();
+        $supplier = $this->resolveSupplierForSubCon($subCon, false);
+
+        if (!$supplier) {
+            return collect();
+        }
+
+        return $this->availableQuotationsForSupplier($pr, $supplier->id);
     }
 
     public function attachQuotation(Request $request, string $uuid)
@@ -477,7 +467,8 @@ class PurchaseRequestController extends Controller
             ->firstOrFail();
 
         $data = $request->validate([
-            'supplier_uuid' => ['required', 'exists:suppliers,uuid'],
+            'supplier_uuid' => ['nullable', 'exists:suppliers,uuid'],
+            'sub_con_uuid' => ['nullable', 'exists:sub_cons,uuid'],
 
             // existing quotation
             'quotation_id' => ['nullable', 'exists:purchase_quotations,id'],
@@ -498,12 +489,17 @@ class PurchaseRequestController extends Controller
             ], 422);
         }
 
-        $supplier = Supplier::where('uuid', $data['supplier_uuid'])->firstOrFail();
+        $supplier = $this->resolveAttachSupplier($pr, $data);
 
         DB::transaction(function () use ($data, $request, $pr, $supplier) {
 
             if (!empty($data['quotation_id'])) {
                 $quotation = PurchaseQuotation::findOrFail($data['quotation_id']);
+                if ((int) $quotation->supplier_id !== (int) $supplier->id) {
+                    throw ValidationException::withMessages([
+                        'quotation_id' => 'Selected quotation does not belong to selected vendor.',
+                    ]);
+                }
             } else {
                 $quotation = PurchaseQuotation::create([
                     'supplier_id'   => $supplier->id,
@@ -531,6 +527,83 @@ class PurchaseRequestController extends Controller
         return response()->json([
             'message' => 'Quotation attached successfully',
         ]);
+    }
+
+    private function resolveAttachSupplier(PurchaseRequest $pr, array $data): Supplier
+    {
+        if ((bool) $pr->is_subcon_purchase_request) {
+            $subConUuid = trim((string) ($data['sub_con_uuid'] ?? ''));
+            if ($subConUuid === '') {
+                throw ValidationException::withMessages([
+                    'sub_con_uuid' => 'Sub Con is required for Sub Con purchase request.',
+                ]);
+            }
+
+            $subCon = SubCon::where('uuid', $subConUuid)->firstOrFail();
+
+            return $this->resolveSupplierForSubCon($subCon, true);
+        }
+
+        $supplierUuid = trim((string) ($data['supplier_uuid'] ?? ''));
+        if ($supplierUuid === '') {
+            throw ValidationException::withMessages([
+                'supplier_uuid' => 'Supplier is required.',
+            ]);
+        }
+
+        return Supplier::where('uuid', $supplierUuid)->firstOrFail();
+    }
+
+    private function resolveSupplierForSubCon(SubCon $subCon, bool $createIfMissing): ?Supplier
+    {
+        $companyName = trim((string) ($subCon->company_name ?? ''));
+        if ($companyName === '') {
+            $companyName = trim((string) ($subCon->name ?? ''));
+        }
+
+        if ($companyName === '') {
+            if ($createIfMissing) {
+                throw ValidationException::withMessages([
+                    'sub_con_uuid' => 'Selected Sub Con has no company/name to map quotation supplier.',
+                ]);
+            }
+
+            return null;
+        }
+
+        $supplier = Supplier::query()
+            ->whereRaw('LOWER(company_name) = ?', [strtolower($companyName)])
+            ->first();
+
+        if ($supplier || !$createIfMissing) {
+            return $supplier;
+        }
+
+        return Supplier::create([
+            'company_name' => $companyName,
+            'contact_person' => $subCon->name ?: null,
+            'contact_phone' => $subCon->phone ?: null,
+            'email' => $subCon->email ?: null,
+            'address' => $subCon->address ?: null,
+            'status' => 'active',
+        ]);
+    }
+
+    private function availableQuotationsForSupplier(PurchaseRequest $pr, int $supplierId)
+    {
+        return PurchaseQuotation::query()
+            ->where('supplier_id', $supplierId)
+            ->whereDoesntHave('purchaseRequests', function ($q) use ($pr) {
+                $q->where('purchase_request_id', $pr->id);
+            })
+            ->orderByDesc('created_at')
+            ->get([
+                'id',
+                'uuid',
+                'quotation_no',
+                'amount',
+                'delivery_time',
+            ]);
     }
 
     public function detachQuotation(Request $request, string $uuid, string $quotationUuid)
@@ -585,6 +658,7 @@ class PurchaseRequestController extends Controller
             'purpose' => 'nullable|string',
             'department_id' => 'nullable|exists:departments,id',
             'project_id' => 'nullable|exists:projects,id',
+            'is_subcon_purchase_request' => 'nullable|boolean',
             'requester_remark' => 'nullable|string',
             'required_date' => 'nullable|date',
             'items' => 'nullable|array',
@@ -937,13 +1011,16 @@ class PurchaseRequestController extends Controller
             }
 
             if ($nextStatus === 'verified_purchasing_department') {
+                $isSubConRequest = (bool) $pr->is_subcon_purchase_request;
                 $deliveryPeriod = trim((string) ($data['delivery_period'] ?? ''));
                 $paymentTerms = trim((string) ($data['payment_terms'] ?? ''));
                 $siteContactUserId = (int) ($data['site_contact_user_id'] ?? 0);
 
-                if ($deliveryPeriod === '' || $paymentTerms === '' || $siteContactUserId <= 0) {
+                if ((!$isSubConRequest && $deliveryPeriod === '') || $paymentTerms === '' || $siteContactUserId <= 0) {
                     throw ValidationException::withMessages([
-                        'delivery_period' => 'Delivery period, payment terms, and site contact person are required before purchasing verification.',
+                        'delivery_period' => $isSubConRequest
+                            ? 'Payment terms and site contact person are required before purchasing verification.'
+                            : 'Delivery period, payment terms, and site contact person are required before purchasing verification.',
                     ]);
                 }
             }
@@ -996,12 +1073,15 @@ class PurchaseRequestController extends Controller
 
             $quotation = PurchaseQuotation::where('id', $quotationId)->firstOrFail();
 
+            $isSubConRequest = (bool) $pr->is_subcon_purchase_request;
             $deliveryPeriod = trim((string) ($data['delivery_period'] ?? $pr->delivery_period ?? ''));
             $paymentTerms = trim((string) ($data['payment_terms'] ?? $pr->payment_terms ?? ''));
             $siteContactUserId = (int) ($data['site_contact_user_id'] ?? $pr->site_contact_user_id ?? 0);
-            if ($deliveryPeriod === '' || $paymentTerms === '' || $siteContactUserId <= 0) {
+            if ((!$isSubConRequest && $deliveryPeriod === '') || $paymentTerms === '' || $siteContactUserId <= 0) {
                 throw ValidationException::withMessages([
-                    'delivery_period' => 'Missing purchasing verification terms. Please complete verify-to-purchasing step first.',
+                    'delivery_period' => $isSubConRequest
+                        ? 'Missing purchasing verification terms. Please complete terms & condition and site contact person first.'
+                        : 'Missing purchasing verification terms. Please complete verify-to-purchasing step first.',
                 ]);
             }
 
@@ -1061,12 +1141,15 @@ class PurchaseRequestController extends Controller
 
         $quotation = PurchaseQuotation::where('id', $quotationId)->firstOrFail();
 
+        $isSubConRequest = (bool) $pr->is_subcon_purchase_request;
         $deliveryPeriod = trim((string) ($data['delivery_period'] ?? $pr->delivery_period ?? ''));
         $paymentTerms = trim((string) ($data['payment_terms'] ?? $pr->payment_terms ?? ''));
         $siteContactUserId = (int) ($data['site_contact_user_id'] ?? $pr->site_contact_user_id ?? 0);
-        if ($deliveryPeriod === '' || $paymentTerms === '' || $siteContactUserId <= 0) {
+        if ((!$isSubConRequest && $deliveryPeriod === '') || $paymentTerms === '' || $siteContactUserId <= 0) {
             throw ValidationException::withMessages([
-                'delivery_period' => 'Missing purchasing verification terms. Please complete verify-to-purchasing step first.',
+                'delivery_period' => $isSubConRequest
+                    ? 'Missing purchasing verification terms. Please complete terms & condition and site contact person first.'
+                    : 'Missing purchasing verification terms. Please complete verify-to-purchasing step first.',
             ]);
         }
 
@@ -1189,5 +1272,3 @@ class PurchaseRequestController extends Controller
         ], $extra));
     }
 }
-
-

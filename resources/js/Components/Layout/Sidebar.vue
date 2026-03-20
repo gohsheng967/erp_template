@@ -52,6 +52,8 @@ const menuStakeholders = [
 // ---------------- SETTINGS SUBMENU ----------------
 const settingsMenu = [
     { name: "Company Profile", route: "company.profile", active: () => route().current("company.profile") },
+    { name: "Sites", route: "sites.index", active: () => route().current("sites.*") },
+    { name: "Stock Categories", route: "stock-categories.index", active: () => route().current("stock-categories.*") },
     { name: "Warehouse", route: "warehouses.index", active: () => route().current("warehouses.index") },
     { name: "File Categories", route: "file-categories.index", active: () => route().current("file-categories.index") },
     { name: "Claim Types", route: "claim-types.index", active: () => route().current("claim-types.*") },

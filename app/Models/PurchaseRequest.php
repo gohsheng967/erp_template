@@ -13,6 +13,7 @@ class PurchaseRequest extends Model
         'purpose',
         'department_id',
         'project_id',
+        'is_subcon_purchase_request',
         'branch_id',
         'requested_by',
         'submitted_at',
@@ -31,6 +32,7 @@ class PurchaseRequest extends Model
 
     protected $casts = [
         'remark_log' => 'array',
+        'is_subcon_purchase_request' => 'boolean',
     ];
     
     protected static function booted()

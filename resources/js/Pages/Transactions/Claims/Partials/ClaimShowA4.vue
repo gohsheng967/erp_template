@@ -29,6 +29,13 @@ const watermark = computed(() => {
     }
 })
 
+const claimStages = computed(() => [
+    { label: 'Submitted by', user: props.claim.issuer ?? null, at: props.claim.submitted_at ?? null },
+    { label: 'Checked by', user: props.claim.checker ?? null, at: props.claim.checked_at ?? null },
+    { label: 'Approved by', user: props.claim.approver ?? null, at: props.claim.approved_at ?? null },
+    { label: 'Done by', user: props.claim.payer ?? null, at: props.claim.paid_at ?? null },
+])
+
 /* =====================
    HELPERS
 ===================== */
@@ -262,96 +269,32 @@ function onSignatureImageError(event) {
     <!-- =====================
          APPROVALS
     ====================== -->
-    <div class="grid grid-cols-4 gap-6 mt-16 text-sm relative z-10">
-        <div>
-            <div class="h-10 mb-1 flex items-end">
-                <template v-if="signatureUrl(claim.issuer)">
-                    <img
-                        :src="signatureUrl(claim.issuer)"
-                        alt="Prepared by signature"
-                        class="h-8 max-w-[120px] object-contain"
-                        @error="onSignatureImageError"
-                    >
-                    <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                </template>
-                <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
-            </div>
-            <div class="mb-3 border-b-2 border-gray-300"></div>
-            <div>Prepared By</div>
-            <div class="text-xs text-gray-500">
-                {{ claim.issuer?.name ?? '-' }}
-            </div>
-            <div class="text-xs text-gray-500">
-                {{ formatDate(claim.submitted_at) }}
-            </div>
-        </div>
-
-        <div>
-            <div class="h-10 mb-1 flex items-end">
-                <template v-if="signatureUrl(claim.checker)">
-                    <img
-                        :src="signatureUrl(claim.checker)"
-                        alt="Checked by signature"
-                        class="h-8 max-w-[120px] object-contain"
-                        @error="onSignatureImageError"
-                    >
-                    <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                </template>
-                <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
-            </div>
-            <div class="mb-3 border-b-2 border-gray-300"></div>
-            <div>Checked By</div>
-            <div class="text-xs text-gray-500">
-                {{ claim.checker?.name ?? '-' }}
-            </div>
-            <div class="text-xs text-gray-500">
-                {{ formatDate(claim.checked_at) }}
-            </div>
-        </div>
-
-        <div>
-            <div class="h-10 mb-1 flex items-end">
-                <template v-if="signatureUrl(claim.approver)">
-                    <img
-                        :src="signatureUrl(claim.approver)"
-                        alt="Approved by signature"
-                        class="h-8 max-w-[120px] object-contain"
-                        @error="onSignatureImageError"
-                    >
-                    <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                </template>
-                <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
-            </div>
-            <div class="mb-3 border-b-2 border-gray-300"></div>
-            <div>Approved By</div>
-            <div class="text-xs text-gray-500">
-                {{ claim.approver?.name ?? '-' }}
-            </div>
-            <div class="text-xs text-gray-500">
-                {{ formatDate(claim.approved_at) }}
-            </div>
-        </div>
-
-        <div>
-            <div class="h-10 mb-1 flex items-end">
-                <template v-if="signatureUrl(claim.payer)">
-                    <img
-                        :src="signatureUrl(claim.payer)"
-                        alt="Paid by signature"
-                        class="h-8 max-w-[120px] object-contain"
-                        @error="onSignatureImageError"
-                    >
-                    <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                </template>
-                <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
-            </div>
-            <div class="mb-3 border-b-2 border-gray-300"></div>
-            <div>Paid By</div>
-            <div class="text-xs text-gray-500">
-                {{ claim.payer?.name ?? '-' }}
-            </div>
-            <div class="text-xs text-gray-500">
-                {{ formatDate(claim.paid_at) }}
+    <div class="mt-16 text-sm relative z-10">
+        <div
+            class="grid gap-4"
+            :style="{ gridTemplateColumns: `repeat(${claimStages.length}, minmax(0, 1fr))` }"
+        >
+            <div v-for="stage in claimStages" :key="stage.label">
+                <div class="h-10 mb-1 flex items-end">
+                    <template v-if="signatureUrl(stage.user)">
+                        <img
+                            :src="signatureUrl(stage.user)"
+                            :alt="`${stage.label} signature`"
+                            class="h-8 max-w-[120px] object-contain"
+                            @error="onSignatureImageError"
+                        >
+                        <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
+                    </template>
+                    <div v-else class="text-[11px] text-gray-400 italic">No signature</div>
+                </div>
+                <div class="mb-3 border-b-2 border-gray-300"></div>
+                <div>{{ stage.label }}</div>
+                <div class="text-xs text-gray-500">
+                    {{ stage.user?.name ?? '-' }}
+                </div>
+                <div class="text-xs text-gray-500">
+                    {{ stage.at ? formatDate(stage.at) : '-' }}
+                </div>
             </div>
         </div>
     </div>

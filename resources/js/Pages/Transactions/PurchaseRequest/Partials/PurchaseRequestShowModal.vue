@@ -26,6 +26,54 @@ const selectedQuotationId = ref(null)
 const canSelectQuotation = computed(() => {
   return fullRequest.value?.status === 'verified_purchasing_department'
 })
+const isPendingPurchasingVerifyStage = computed(() => {
+  if (!fullRequest.value) return false
+
+  return (
+    fullRequest.value.status === 'verified_project_department' ||
+    (fullRequest.value.status === 'verified_own_department' && !fullRequest.value.project_id)
+  )
+})
+const pendingPurchasingVerifyNote = computed(() => {
+  if (fullRequest.value?.is_subcon_purchase_request) {
+    return 'Fill Terms & Condition and Site Contact Person in Edit form, then verify to proceed to CEO / GM approve stage.'
+  }
+
+  return 'Fill Delivery Period, Terms & Condition, and Site Contact Person in Edit form, then verify to proceed to CEO / GM approve stage.'
+})
+
+function displayStatusLabel(status, isProjectLinked = false) {
+  switch (status) {
+    case 'draft':
+      return 'Draft'
+    case 'submitted':
+      return 'Pending Check'
+    case 'verified_own_department':
+      return isProjectLinked
+        ? 'Pending Project Dept Verify'
+        : 'Pending Purchasing Dept Verify'
+    case 'verified_project_department':
+      return 'Pending Purchasing Dept Verify'
+    case 'verified_purchasing_department':
+      return 'Pending CEO / GM Approve'
+    case 'po':
+      return 'PO'
+    case 'payment':
+      return 'Payment'
+    case 'rejected':
+      return 'Rejected'
+    default:
+      return String(status ?? '-').replaceAll('_', ' ')
+  }
+}
+
+const currentStatusLabel = computed(() => {
+  return displayStatusLabel(
+    fullRequest.value?.status,
+    !!fullRequest.value?.project_id
+  )
+})
+
 const stageRemarks = computed(() => {
   const logs = fullRequest.value?.remark_log ?? []
   if (!Array.isArray(logs)) return []
@@ -33,7 +81,7 @@ const stageRemarks = computed(() => {
   return logs
     .map((row, index) => ({
       key: `${index}-${row?.at ?? ''}`,
-      label: `${(row?.from ?? '-').toUpperCase()} -> ${(row?.to ?? '-').toUpperCase()}`,
+      label: `${displayStatusLabel(row?.from, !!fullRequest.value?.project_id)} -> ${displayStatusLabel(row?.to, !!fullRequest.value?.project_id)}`,
       value: row?.remark || '-',
       meta: `${row?.user_name ?? 'System'} - ${row?.at ?? '-'}`,
     }))
@@ -210,8 +258,8 @@ function closeModal() {
         <!-- STATUS -->
         <div>
           <div class="text-xs text-gray-500">Status</div>
-          <div class="font-semibold uppercase">
-            {{ fullRequest.status }}
+          <div class="font-semibold">
+            {{ currentStatusLabel }}
           </div>
         </div>
 
@@ -308,14 +356,16 @@ function closeModal() {
           ].includes(fullRequest.status)"
           class="space-y-3"
         >
-          <label class="text-sm font-medium">Stage Remark</label>
+          <template v-if="!isPendingPurchasingVerifyStage">
+            <label class="text-sm font-medium">Stage Remark</label>
 
-          <textarea
-            v-model="approvalRemark"
-            rows="4"
-            class="w-full border rounded px-3 py-2 text-sm"
-            placeholder="Stage remark (optional)"
-          />
+            <textarea
+              v-model="approvalRemark"
+              rows="4"
+              class="w-full border rounded px-3 py-2 text-sm"
+              placeholder="Stage remark (optional)"
+            />
+          </template>
 
           <button
             v-if="fullRequest.status === 'submitted'"
@@ -326,8 +376,17 @@ function closeModal() {
             Verify & Next Stage
           </button>
 
+          <button
+            v-if="fullRequest.status === 'verified_own_department' && !!fullRequest.project_id"
+            class="w-full py-2 bg-blue-600 text-white rounded"
+            :disabled="submitting"
+            @click="submitDecision('verify')"
+          >
+            Verify & Next Stage
+          </button>
+
           <a
-            v-if="['verified_own_department', 'verified_project_department'].includes(fullRequest.status)"
+            v-if="isPendingPurchasingVerifyStage"
             :href="route('purchase-request.edit', fullRequest.uuid)"
             class="block w-full py-2 bg-blue-600 text-white text-center rounded"
           >
@@ -335,15 +394,15 @@ function closeModal() {
           </a>
 
           <div
-            v-if="['verified_own_department', 'verified_project_department'].includes(fullRequest.status)"
+            v-if="isPendingPurchasingVerifyStage"
             class="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700"
           >
-            PIC must fill Delivery Period, Terms & Condition, and Site Contact Person in Edit form before proceeding to Purchasing Verify.
+            {{ pendingPurchasingVerifyNote }}
           </div>
 
           <template v-if="fullRequest.status === 'verified_purchasing_department'">
             <div class="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 space-y-1">
-              <div><span class="font-semibold">Delivery Period:</span> {{ fullRequest.delivery_period || '-' }}</div>
+              <div v-if="!fullRequest.is_subcon_purchase_request"><span class="font-semibold">Delivery Period:</span> {{ fullRequest.delivery_period || '-' }}</div>
               <div><span class="font-semibold">Terms & Condition:</span> {{ fullRequest.payment_terms || '-' }}</div>
               <div><span class="font-semibold">Site Contact:</span> {{ fullRequest.site_contact?.name || '-' }}</div>
             </div>

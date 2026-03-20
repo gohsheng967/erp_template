@@ -101,4 +101,15 @@ class Project extends Model
         return $this->belongsToMany(SubCon::class, 'project_sub_cons', 'project_id', 'sub_con_id')
             ->withTimestamps();
     }
+
+    public function subConClaims()
+    {
+        return $this->hasMany(SubConClaim::class, 'project_id');
+    }
+
+    public function sites()
+    {
+        return $this->belongsToMany(Site::class, 'project_site')
+            ->withTimestamps();
+    }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Project;
 
 use App\Http\Controllers\Controller;
 use App\Models\Project;
+use App\Models\PurchaseOrder;
 use App\Models\SubConTask;
 use App\Models\SubConTaskUpdate;
 use App\Models\PaymentSlip;
@@ -182,7 +183,7 @@ class SubConTaskController extends Controller
         }
 
         $task->update([
-            'status' => 'contra_verified',
+            'status' => 'verified',
             'verified_at' => now(),
             'verified_remark' => $validated['remark'] ?? null,
             'verified_reject_remark' => null,
@@ -190,7 +191,85 @@ class SubConTaskController extends Controller
 
         SubConTask::refreshParentProgressFor($task->parent_id);
 
-        return back()->with('success', 'Progress contra verified.');
+        return back()->with('success', 'Progress verified.');
+    }
+
+    public function generateFromPo(Request $request, string $projectUuid)
+    {
+        $this->ensureInternalUser($request);
+
+        $project = $this->resolveProject($request, $projectUuid);
+
+        $validated = $request->validate([
+            'purchase_order_id' => ['required', 'integer', Rule::exists('purchase_orders', 'id')],
+            'sub_con_id' => ['required', 'integer', Rule::exists('sub_cons', 'id')],
+        ]);
+
+        $isBound = $project->subCons()
+            ->where('sub_cons.id', $validated['sub_con_id'])
+            ->exists();
+
+        if (!$isBound) {
+            return back()->withErrors([
+                'sub_con_id' => 'Selected Sub Con is not bound to this project.',
+            ]);
+        }
+
+        $po = PurchaseOrder::query()
+            ->with('items:id,purchase_order_id,item_name,description,quantity,unit_price')
+            ->whereKey($validated['purchase_order_id'])
+            ->where(function ($query) {
+                $query->whereNotNull('confirmed_at')
+                    ->orWhere('status', 'confirmed');
+            })
+            ->whereHas('purchaseRequest', function ($query) use ($project) {
+                $query->where('project_id', $project->id);
+            })
+            ->first();
+
+        if (!$po) {
+            return back()->withErrors([
+                'purchase_order_id' => 'Selected PO must be confirmed and belong to this project.',
+            ]);
+        }
+
+        if ($po->items->isEmpty()) {
+            return back()->withErrors([
+                'purchase_order_id' => 'Selected PO has no items to generate tasks.',
+            ]);
+        }
+
+        $created = 0;
+
+        foreach ($po->items as $item) {
+            $title = trim((string) ($item->item_name ?? ''));
+            if ($title === '') {
+                $title = 'PO Item #' . $item->id;
+            }
+
+            $amount = (float) $item->quantity * (float) $item->unit_price;
+            $description = trim((string) ($item->description ?? ''));
+
+            SubConTask::create([
+                'task_no' => RunningNumberService::next('sub_con_task'),
+                'project_id' => $project->id,
+                'sub_con_id' => $validated['sub_con_id'],
+                'parent_id' => null,
+                'title' => sprintf(
+                    '[%s] %s%s',
+                    (string) ($po->code ?? ('PO-' . $po->id)),
+                    $title,
+                    $description !== '' ? (' - ' . $description) : ''
+                ),
+                'amount' => max(0, $amount),
+                'status' => 'draft',
+                'progress_percent' => 0,
+            ]);
+
+            $created++;
+        }
+
+        return back()->with('success', "Generated {$created} task(s) from PO {$po->code}.");
     }
 
     public function justify(Request $request, string $projectUuid, string $taskUuid)

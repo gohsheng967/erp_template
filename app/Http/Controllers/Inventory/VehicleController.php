@@ -7,13 +7,16 @@ use App\Models\InventoryItem;
 use App\Models\InventoryVehicle;
 use App\Models\InventoryAllocation;
 use App\Models\InventoryInsurance;
-use App\Models\InventoryService;
+use App\Models\InventoryRoadtax;
 use App\Models\User;
 use App\Models\Project;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use App\Models\Attachment;
 use App\Services\QrCodeService;
@@ -35,7 +38,7 @@ class VehicleController extends Controller
         ];
 
         $vehicles = InventoryItem::query()
-            ->where('type', 'vehicle')
+            ->vehicle()
 
             ->when($filters['search'], function ($q) use ($filters) {
                 $q->where(function ($qq) use ($filters) {
@@ -56,17 +59,18 @@ class VehicleController extends Controller
                 'activeAllocation.allocatable',
                 'latestInsurance',
                 'latestRoadtax',
+                'latestVehicleMileageLog',
                 'attachment', // ✅ single image
             ])
 
             ->withSum([
                 'samans as unpaid_saman_total' => fn ($q) =>
-                    $q->where('status', 'unpaid')
+                    $q->where('status', InventoryItem::SAMAN_STATUS_UNPAID)
             ], 'amount')
 
             ->when($filters['has_unpaid_saman'], fn ($q) =>
                 $q->whereHas('samans', fn ($s) =>
-                    $s->where('status', 'unpaid')
+                    $s->where('status', InventoryItem::SAMAN_STATUS_UNPAID)
                 )
             )
 
@@ -104,10 +108,17 @@ class VehicleController extends Controller
             'engine_cc'      => 'nullable|integer|min:50',
             'plate_number'   => 'required|string|max:20|unique:inventory_vehicles,plate_number',
 
-            'ownership_type' => ['required', Rule::in(['company', 'individual'])],
+            'ownership_type' => ['required', Rule::in([
+                InventoryItem::OWNERSHIP_COMPANY,
+                InventoryItem::OWNERSHIP_INDIVIDUAL,
+            ])],
             'owner_name'     => 'nullable|string|max:255',
 
-            'status'         => ['required', Rule::in(['active', 'inactive', 'disposed'])],
+            'status'         => ['required', Rule::in([
+                InventoryItem::STATUS_ACTIVE,
+                InventoryItem::STATUS_INACTIVE,
+                InventoryItem::STATUS_DISPOSED,
+            ])],
             'remark'         => 'nullable|string',
 
             'image'          => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
@@ -118,7 +129,7 @@ class VehicleController extends Controller
             $item = InventoryItem::create([
                 'uuid'           => (string) Str::uuid(),
                 'public_uuid'    => (string) Str::uuid(),
-                'type'           => 'vehicle',
+                'type'           => InventoryItem::TYPE_VEHICLE,
                 'name'           => "{$data['brand']} {$data['model']}",
                 'brand'          => $data['brand'],
                 'model'          => $data['model'],
@@ -132,17 +143,7 @@ class VehicleController extends Controller
             IMAGE (ONE ONLY)
             ===================== */
             if ($request->hasFile('image')) {
-
-                $file = $request->file('image');
-                $path = $file->store('attachments/inventory/vehicle', 'public');
-
-                $item->attachments()->create([
-                    'uuid'          => (string) Str::uuid(),
-                    'file_path'     => $path,
-                    'original_name' => $file->getClientOriginalName(),
-                    'mime_type'     => $file->getClientMimeType(),
-                    'file_size'     => $file->getSize(),
-                ]);
+                $this->replaceVehicleImage($item, $request->file('image'));
             }
 
             InventoryVehicle::create([
@@ -161,9 +162,7 @@ class VehicleController extends Controller
     ===================================================== */
     public function update(Request $request, string $uuid)
     {
-        $item = InventoryItem::where('uuid', $uuid)
-            ->where('type', 'vehicle')
-            ->firstOrFail();
+        $item = $this->findVehicleItemOrFail($uuid);
 
         $data = $request->validate([
             'brand'          => 'required|string|max:100',
@@ -177,10 +176,17 @@ class VehicleController extends Controller
                     ->ignore($item->vehicle->id),
             ],
 
-            'ownership_type' => ['required', Rule::in(['company', 'individual'])],
+            'ownership_type' => ['required', Rule::in([
+                InventoryItem::OWNERSHIP_COMPANY,
+                InventoryItem::OWNERSHIP_INDIVIDUAL,
+            ])],
             'owner_name'     => 'nullable|string|max:255',
 
-            'status'         => ['required', Rule::in(['active', 'inactive', 'disposed'])],
+            'status'         => ['required', Rule::in([
+                InventoryItem::STATUS_ACTIVE,
+                InventoryItem::STATUS_INACTIVE,
+                InventoryItem::STATUS_DISPOSED,
+            ])],
             'remark'         => 'nullable|string',
 
             'image'          => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
@@ -199,36 +205,12 @@ class VehicleController extends Controller
                 'remark'         => $data['remark'],
             ]);
 
-            /* =====================
-            REMOVE IMAGE
-            ===================== */
             if (!empty($data['remove_image'])) {
-                $item->attachments()->each(function ($att) {
-                    Storage::disk('public')->delete($att->file_path);
-                    $att->delete();
-                });
+                $this->clearAttachments($item);
             }
 
-            /* =====================
-            REPLACE IMAGE
-            ===================== */
             if ($request->hasFile('image')) {
-
-                $item->attachments()->each(function ($att) {
-                    Storage::disk('public')->delete($att->file_path);
-                    $att->delete();
-                });
-
-                $file = $request->file('image');
-                $path = $file->store('attachments/inventory/vehicle', 'public');
-
-                $item->attachments()->create([
-                    'uuid'          => (string) Str::uuid(),
-                    'file_path'     => $path,
-                    'original_name' => $file->getClientOriginalName(),
-                    'mime_type'     => $file->getClientMimeType(),
-                    'file_size'     => $file->getSize(),
-                ]);
+                $this->replaceVehicleImage($item, $request->file('image'));
             }
 
             $item->vehicle->update([
@@ -247,16 +229,10 @@ class VehicleController extends Controller
     ===================================================== */
     public function destroy(string $uuid)
     {
-        $item = InventoryItem::where('uuid', $uuid)
-            ->where('type', 'vehicle')
-            ->firstOrFail();
+        $item = $this->findVehicleItemOrFail($uuid);
 
         DB::transaction(function () use ($item) {
-
-            $item->attachments()->each(function ($att) {
-                Storage::disk('public')->delete($att->file_path);
-                $att->delete();
-            });
+            $this->clearAttachments($item);
 
             $item->delete();
         });
@@ -267,36 +243,44 @@ class VehicleController extends Controller
 
     public function show(string $uuid)
     {
+        $withRelations = [
+            'vehicle',
+            'allocations' => fn ($q) => $q->latest('from_date')->with('allocatable'),
+            'activeAllocation.allocatable',
+            'insurances' => fn ($q) => $q->latest('expiry_date'),
+            'roadtaxes' => fn ($q) => $q->latest('expiry_date'),
+            'samans' => fn ($q) => $q->latest(),
+            'latestVehicleMileageLog',
+            'attachment',
+            'services' => fn ($q) => $q->latest('service_date'),
+        ];
+
+        if (Schema::hasTable('inventory_vehicle_logs')) {
+            $withRelations['vehicleLogs'] = fn ($q) => $q
+                ->latest('trip_date')
+                ->with(['project:id,name', 'driver:id,name', 'creator:id,name']);
+        }
+
         $vehicle = InventoryItem::query()
             ->where('uuid', $uuid)
-            ->where('type', 'vehicle')
-
-            ->with([
-                'vehicle',
-                'allocations' => fn ($q) =>
-                    $q->latest('from_date')->with('allocatable'),
-                'activeAllocation.allocatable',
-
-                // insurance / roadtax
-                'insurances' => fn ($q) => $q->latest('expiry_date'),
-                'roadtaxes'  => fn ($q) => $q->latest('expiry_date'),
-
-                // saman
-                'samans'     => fn ($q) => $q->latest(),
-
-                // ✅ SINGLE image attachment
-                'attachment',
-
-                // services
-                'services' => fn ($q) => $q->latest('service_date'),
-            ])
-
+            ->vehicle()
+            ->with($withRelations)
             ->withSum([
                 'samans as unpaid_saman_total' => fn ($q) =>
-                    $q->where('status', 'unpaid')
+                    $q->where('status', InventoryItem::SAMAN_STATUS_UNPAID)
             ], 'amount')
-
             ->firstOrFail();
+
+        $qr = app(QrCodeService::class);
+        $publicUrl = route('public.vehicles.show', $vehicle->public_uuid);
+        $logbookUrl = route('public.vehicles.logbook', $vehicle->public_uuid);
+        $configuredPin = (string) config('app.vehicle_logbook_pin');
+        $tempPin = preg_match('/^\d{6}$/', $configuredPin) === 1 ? $configuredPin : null;
+
+        $vehicle->setAttribute('qr_image', 'data:image/png;base64,' . base64_encode($qr->generatePng($publicUrl)));
+        $vehicle->setAttribute('qr_logbook_image', 'data:image/png;base64,' . base64_encode($qr->generatePng($logbookUrl)));
+        $vehicle->setAttribute('quick_logbook_url', $logbookUrl);
+        $vehicle->setAttribute('quick_logbook_pin', $tempPin);
 
         return Inertia::render('Inventory/Vehicles/Show', [
             'vehicle' => $vehicle,
@@ -305,9 +289,7 @@ class VehicleController extends Controller
 
     public function storeService(Request $request, string $uuid)
     {
-        $item = InventoryItem::where('uuid', $uuid)
-            ->where('type', 'vehicle')
-            ->firstOrFail();
+        $item = $this->findVehicleItemOrFail($uuid);
 
         $data = $request->validate([
             'service_date' => ['required', 'date'],
@@ -324,9 +306,7 @@ class VehicleController extends Controller
 
     public function updateService(Request $request, string $uuid, int $serviceId)
     {
-        $item = InventoryItem::where('uuid', $uuid)
-            ->where('type', 'vehicle')
-            ->firstOrFail();
+        $item = $this->findVehicleItemOrFail($uuid);
 
         $service = $item->services()->where('id', $serviceId)->firstOrFail();
 
@@ -345,9 +325,7 @@ class VehicleController extends Controller
 
     public function destroyService(string $uuid, int $serviceId)
     {
-        $item = InventoryItem::where('uuid', $uuid)
-            ->where('type', 'vehicle')
-            ->firstOrFail();
+        $item = $this->findVehicleItemOrFail($uuid);
 
         $service = $item->services()->where('id', $serviceId)->firstOrFail();
         $service->delete();
@@ -355,18 +333,101 @@ class VehicleController extends Controller
         return back()->with('success', 'Service record deleted.');
     }
 
-    public function qrCode(string $uuid, QrCodeService $qr)
+    public function storeLogbook(Request $request, string $uuid)
     {
-        $vehicle = InventoryItem::query()
-            ->where('uuid', $uuid)
-            ->where('type', 'vehicle')
-            ->select('public_uuid')
-            ->firstOrFail();
+        if (!Schema::hasTable('inventory_vehicle_logs')) {
+            return back()->with('error', 'Vehicle logbook table is not available yet. Please run migration.');
+        }
 
-        $publicUrl = route('public.vehicles.show', $vehicle->public_uuid);
+        $item = $this->findVehicleItemOrFail($uuid);
+
+        $data = $request->validate([
+            'trip_date' => ['required', 'date'],
+            'mileage' => ['required', 'numeric', 'min:0'],
+            'origin' => ['required', 'string', 'max:255'],
+            'destination' => ['required', 'string', 'max:255'],
+            'purpose' => ['nullable', 'string'],
+            'bound_to_type' => ['required', Rule::in(['office', 'project', 'others'])],
+            'bound_to_project_id' => ['nullable', 'integer', 'exists:projects,id'],
+            'bound_to_label' => ['nullable', 'string', 'max:255'],
+            'driver_user_id' => ['nullable', 'integer', 'exists:users,id'],
+            'driver_name' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        if (($data['bound_to_type'] ?? null) === 'project' && empty($data['bound_to_project_id'])) {
+            throw ValidationException::withMessages([
+                'bound_to_project_id' => 'Project is required when binding to project.',
+            ]);
+        }
+
+        if (($data['bound_to_type'] ?? null) === 'others' && empty($data['bound_to_label'])) {
+            throw ValidationException::withMessages([
+                'bound_to_label' => 'Please specify the binding label.',
+            ]);
+        }
+
+        $boundLabel = null;
+        if ($data['bound_to_type'] === 'office') {
+            $boundLabel = 'Office';
+        } elseif ($data['bound_to_type'] === 'project') {
+            $boundLabel = optional(Project::query()->find($data['bound_to_project_id']))->name;
+        } else {
+            $boundLabel = $data['bound_to_label'] ?? null;
+        }
+
+        $driverName = trim((string) ($data['driver_name'] ?? ''));
+        if (!empty($data['driver_user_id'])) {
+            $driverName = optional(User::query()->find($data['driver_user_id']))->name ?? $driverName;
+        }
+
+        if ($driverName === '') {
+            throw ValidationException::withMessages([
+                'driver_name' => 'Driver name is required.',
+            ]);
+        }
+
+        $item->vehicleLogs()->create([
+            'trip_date' => $data['trip_date'],
+            'mileage' => $data['mileage'],
+            'origin' => $data['origin'],
+            'destination' => $data['destination'],
+            'purpose' => $data['purpose'] ?? null,
+            'bound_to_type' => $data['bound_to_type'],
+            'bound_to_project_id' => $data['bound_to_type'] === 'project' ? $data['bound_to_project_id'] : null,
+            'bound_to_label' => $boundLabel,
+            'driver_user_id' => $data['driver_user_id'] ?? null,
+            'driver_name' => $driverName,
+            'created_by' => auth()->id(),
+        ]);
+
+        return back()->with('success', 'Vehicle logbook entry added.');
+    }
+
+    public function destroyLogbook(string $uuid, int $logbookId)
+    {
+        if (!Schema::hasTable('inventory_vehicle_logs')) {
+            return back()->with('error', 'Vehicle logbook table is not available yet. Please run migration.');
+        }
+
+        $item = $this->findVehicleItemOrFail($uuid);
+
+        $logbook = $item->vehicleLogs()->where('id', $logbookId)->firstOrFail();
+        $logbook->delete();
+
+        return back()->with('success', 'Vehicle logbook entry deleted.');
+    }
+
+    public function qrCode(Request $request, string $uuid, QrCodeService $qr)
+    {
+        $vehicle = $this->findVehicleItemOrFail($uuid, ['uuid', 'public_uuid']);
+
+        $targetUrl = route('public.vehicles.show', $vehicle->public_uuid);
+        if ($request->query('mode') === 'logbook') {
+            $targetUrl = route('public.vehicles.logbook', $vehicle->public_uuid);
+        }
 
         return response(
-            $qr->generatePng($publicUrl),
+            $qr->generatePng($targetUrl),
             200,
             ['Content-Type' => 'image/png']
         );
@@ -375,9 +436,7 @@ class VehicleController extends Controller
 
     public function allocate(Request $request, string $uuid)
     {
-        $item = InventoryItem::where('uuid', $uuid)
-            ->where('type', 'vehicle')
-            ->firstOrFail();
+        $item = $this->findVehicleItemOrFail($uuid);
 
         $request->validate([
             'assign_type' => 'required|in:user,project,others,office',
@@ -403,13 +462,13 @@ class VehicleController extends Controller
                 case 'user':
                     $allocatableType = User::class;
                     $allocatableId   = $request->allocatable_id;
-                    $allocatableName = User::find($allocatableId)?->name;
+                    $allocatableName = optional(User::find($allocatableId))->name;
                     break;
 
                 case 'project':
                     $allocatableType = Project::class;
                     $allocatableId   = $request->allocatable_id;
-                    $allocatableName = Project::find($allocatableId)?->name;
+                    $allocatableName = optional(Project::find($allocatableId))->name;
                     break;
 
                 case 'others':
@@ -465,7 +524,7 @@ class VehicleController extends Controller
 
     public function compliance(string $uuid)
     {
-        $inventoryItem = InventoryItem::where('uuid', $uuid)->firstOrFail();
+        $inventoryItem = $this->findVehicleItemOrFail($uuid);
 
         $insurance = $inventoryItem->insurances()
             ->with('attachment')
@@ -493,7 +552,7 @@ class VehicleController extends Controller
 
     public function storeInsurance(Request $request, string $uuid)
     {
-        $inventoryItem = InventoryItem::where('uuid', $uuid)->firstOrFail();
+        $inventoryItem = $this->findVehicleItemOrFail($uuid);
 
         $isRenew = $request->input('_mode') === 'renew';
 
@@ -565,23 +624,14 @@ class VehicleController extends Controller
             STORE DOCUMENT
             ========================= */
             if ($request->hasFile('document')) {
-                $file = $request->file('document');
-
-                $path = $file->store('insurance-documents', 'public');
-
-                $attachment = Attachment::create([
-                    'category'        => 'inventory_insurance',
-                    'attachable_type' => InventoryInsurance::class,
-                    'attachable_id'   => $insurance->id,
-                    'file_path'       => $path,
-                    'original_name'   => $file->getClientOriginalName(),
-                    'mime_type'       => $file->getClientMimeType(),
-                    'file_size'       => $file->getSize(),
-                    'created_by'      => auth()->id(),
-                ]);
-
                 $insurance->update([
-                    'document_id' => $attachment->id,
+                    'document_id' => $this->storeModelDocument(
+                        $request->file('document'),
+                        'inventory_insurance',
+                        InventoryInsurance::class,
+                        $insurance->id,
+                        'insurance-documents'
+                    )->id,
                 ]);
             }
 
@@ -612,7 +662,7 @@ class VehicleController extends Controller
 
     public function updateInsurance(Request $request, string $uuid, int $insuranceId) 
     {
-        $inventoryItem = InventoryItem::where('uuid', $uuid)->firstOrFail();
+        $inventoryItem = $this->findVehicleItemOrFail($uuid);
 
         $insurance = $inventoryItem->insurances()
             ->where('id', $insuranceId)
@@ -646,22 +696,14 @@ class VehicleController extends Controller
                     );
                 }
 
-                $file = $request->file('document');
-                $path = $file->store('insurance-documents', 'public');
-
-                $attachment = Attachment::create([
-                    'category'        => 'inventory_insurance',
-                    'attachable_type' => InventoryInsurance::class,
-                    'attachable_id'   => $insurance->id,
-                    'file_path'       => $path,
-                    'original_name'   => $file->getClientOriginalName(),
-                    'mime_type'       => $file->getClientMimeType(),
-                    'file_size'       => $file->getSize(),
-                    'created_by'      => auth()->id(),
-                ]);
-
                 $insurance->update([
-                    'document_id' => $attachment->id,
+                    'document_id' => $this->storeModelDocument(
+                        $request->file('document'),
+                        'inventory_insurance',
+                        InventoryInsurance::class,
+                        $insurance->id,
+                        'insurance-documents'
+                    )->id,
                 ]);
             }
 
@@ -687,7 +729,7 @@ class VehicleController extends Controller
 
     public function updateRoadtax(Request $request, string $uuid, int $roadtaxId)
     {
-        $inventoryItem = InventoryItem::where('uuid', $uuid)->firstOrFail();
+        $inventoryItem = $this->findVehicleItemOrFail($uuid);
 
         $roadtax = $inventoryItem->roadtaxes()->findOrFail($roadtaxId);
 
@@ -704,23 +746,14 @@ class VehicleController extends Controller
             $roadtax->update($data);
 
             if ($request->hasFile('document')) {
-                $file = $request->file('document');
-
-                $path = $file->store('roadtax-documents', 'public');
-
-                $attachment = Attachment::create([
-                    'category'        => 'inventory_roadtax',
-                    'attachable_type' => InventoryRoadtax::class,
-                    'attachable_id'   => $roadtax->id,
-                    'file_path'       => $path,
-                    'original_name'   => $file->getClientOriginalName(),
-                    'mime_type'       => $file->getClientMimeType(),
-                    'file_size'       => $file->getSize(),
-                    'created_by'      => auth()->id(),
-                ]);
-
                 $roadtax->update([
-                    'document_id' => $attachment->id,
+                    'document_id' => $this->storeModelDocument(
+                        $request->file('document'),
+                        'inventory_roadtax',
+                        InventoryRoadtax::class,
+                        $roadtax->id,
+                        'roadtax-documents'
+                    )->id,
                 ]);
             }
 
@@ -738,7 +771,7 @@ class VehicleController extends Controller
 
     public function storeRoadtax(Request $request, string $uuid)
     {
-        $inventoryItem = InventoryItem::where('uuid', $uuid)->firstOrFail();
+        $inventoryItem = $this->findVehicleItemOrFail($uuid);
 
         // latest roadtax (for renew validation)
         $previousRoadtax = $inventoryItem->roadtaxes()
@@ -786,23 +819,14 @@ class VehicleController extends Controller
             STORE DOCUMENT
             ========================= */
             if ($request->hasFile('document')) {
-                $file = $request->file('document');
-
-                $path = $file->store('roadtax-documents', 'public');
-
-                $attachment = Attachment::create([
-                    'category'        => 'inventory_roadtax',
-                    'attachable_type' => InventoryRoadtax::class,
-                    'attachable_id'   => $roadtax->id,
-                    'file_path'       => $path,
-                    'original_name'   => $file->getClientOriginalName(),
-                    'mime_type'       => $file->getClientMimeType(),
-                    'file_size'       => $file->getSize(),
-                    'created_by'      => auth()->id(),
-                ]);
-
                 $roadtax->update([
-                    'document_id' => $attachment->id,
+                    'document_id' => $this->storeModelDocument(
+                        $request->file('document'),
+                        'inventory_roadtax',
+                        InventoryRoadtax::class,
+                        $roadtax->id,
+                        'roadtax-documents'
+                    )->id,
                 ]);
             }
 
@@ -821,6 +845,58 @@ class VehicleController extends Controller
         }
     }
 
+    private function findVehicleItemOrFail(string $uuid, array $columns = ['*']): InventoryItem
+    {
+        return InventoryItem::query()
+            ->select($columns)
+            ->where('uuid', $uuid)
+            ->vehicle()
+            ->firstOrFail();
+    }
+
+    private function clearAttachments(InventoryItem $item): void
+    {
+        $item->attachments()->each(function ($attachment) {
+            $this->deleteAttachment($attachment);
+        });
+    }
+
+    private function replaceVehicleImage(InventoryItem $item, UploadedFile $file): void
+    {
+        $this->clearAttachments($item);
+
+        $path = $file->store('attachments/inventory/vehicle', 'public');
+
+        $item->attachments()->create([
+            'uuid'          => (string) Str::uuid(),
+            'file_path'     => $path,
+            'original_name' => $file->getClientOriginalName(),
+            'mime_type'     => $file->getClientMimeType(),
+            'file_size'     => $file->getSize(),
+        ]);
+    }
+
+    private function storeModelDocument(
+        UploadedFile $file,
+        string $category,
+        string $attachableType,
+        int $attachableId,
+        string $directory
+    ): Attachment {
+        $path = $file->store($directory, 'public');
+
+        return Attachment::create([
+            'category'        => $category,
+            'attachable_type' => $attachableType,
+            'attachable_id'   => $attachableId,
+            'file_path'       => $path,
+            'original_name'   => $file->getClientOriginalName(),
+            'mime_type'       => $file->getClientMimeType(),
+            'file_size'       => $file->getSize(),
+            'created_by'      => auth()->id(),
+        ]);
+    }
+
     protected function deleteAttachment(?Attachment $attachment): void
     {
         if (! $attachment) {
@@ -834,3 +910,5 @@ class VehicleController extends Controller
         $attachment->delete();
     }
 }
+
+

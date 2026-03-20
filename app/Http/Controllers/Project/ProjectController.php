@@ -18,7 +18,9 @@ use App\Models\ArInvoice;
 use App\Models\PettyCashTopup;
 use App\Models\PettyCashWallet;
 use App\Models\SubCon;
+use App\Models\SubConClaim;
 use App\Models\SubConTask;
+use App\Models\Site;
 
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -87,6 +89,9 @@ class ProjectController extends Controller
         return Inertia::render('Projects/Create', [
             'clients'  => Client::select('id','name')->orderBy('name')->get(),
             'managers' => $this->branchProjectManagers($request),
+            'sites' => Site::query()
+                ->orderBy('site_name')
+                ->get(['id', 'site_name']),
             'branchManager' => $branchManager
                 ? ['id' => $branchManager->id, 'name' => $branchManager->name]
                 : null,
@@ -109,6 +114,8 @@ class ProjectController extends Controller
             'project_value' => 'nullable|numeric|min:0',
             'manager_id'    => 'nullable|integer|exists:users,id',
             'description'   => 'nullable|string',
+            'site_ids'      => ['nullable', 'array'],
+            'site_ids.*'    => ['integer', 'exists:sites,id'],
         ]);
 
         // Auto generate code if empty
@@ -120,7 +127,13 @@ class ProjectController extends Controller
         $validated['branch_id'] = $this->activeBranchId($request);
         $validated['status'] = $this->resolveProjectStatus($validated, null);
 
-        Project::create($validated);
+        $siteIds = collect($validated['site_ids'] ?? [])->unique()->values()->all();
+        unset($validated['site_ids']);
+
+        $project = Project::create($validated);
+        if (!empty($siteIds)) {
+            $project->sites()->sync($siteIds);
+        }
 
         return redirect()->route('projects.index')
             ->with('success', 'Project created successfully.');
@@ -138,6 +151,7 @@ class ProjectController extends Controller
         $project->load([
             'client',
             'manager',
+            'sites:id,site_name,address,longitude,latitude,image_path',
             'budgetAllocations' => fn ($query) => $query
                 ->with('user:id,name')
                 ->latest()
@@ -164,6 +178,68 @@ class ProjectController extends Controller
             ->where('project_id', $project->id)
             ->orderByDesc('id')
             ->get();
+        $subConClaims = SubConClaim::query()
+            ->with(['subCon:id,uuid,name,company_name', 'creator:id,name', 'updater:id,name'])
+            ->where('project_id', $project->id)
+            ->orderByDesc('id')
+            ->get();
+        $projectPurchaseOrders = PurchaseOrder::query()
+            ->with([
+                'supplier:id,company_name',
+                'purchaseRequest:id,is_subcon_purchase_request',
+                'items:id,purchase_order_id,item_name,description,quantity,unit_price',
+            ])
+            ->whereHas('purchaseRequest', fn ($query) => $query->where('project_id', $project->id))
+            ->where(function ($query) {
+                $query->whereNotNull('confirmed_at')
+                    ->orWhere('status', 'confirmed');
+            })
+            ->orderByDesc('confirmed_at')
+            ->orderByDesc('id')
+            ->get([
+                'id',
+                'uuid',
+                'code',
+                'status',
+                'confirmed_at',
+                'supplier_id',
+                'purchase_request_id',
+            ]);
+
+        $normalizeName = static function (?string $value): string {
+            $value = mb_strtolower(trim((string) $value));
+            return preg_replace('/\s+/', ' ', $value) ?? '';
+        };
+
+        $subConByName = [];
+        foreach ($boundSubCons as $subCon) {
+            $candidates = [
+                $normalizeName($subCon->company_name),
+                $normalizeName($subCon->name),
+            ];
+            foreach ($candidates as $candidate) {
+                if ($candidate !== '' && !isset($subConByName[$candidate])) {
+                    $subConByName[$candidate] = [
+                        'id' => $subCon->id,
+                        'name' => $subCon->name,
+                    ];
+                }
+            }
+        }
+
+        $projectPurchaseOrders = $projectPurchaseOrders
+            ->map(function ($po) use ($normalizeName, $subConByName) {
+                $supplierName = $normalizeName($po->supplier?->company_name);
+                $matchedSubCon = $supplierName !== '' ? ($subConByName[$supplierName] ?? null) : null;
+                $isSubConPo = (bool) ($po->purchaseRequest?->is_subcon_purchase_request ?? false);
+
+                $po->setAttribute('suggested_sub_con_id', $matchedSubCon['id'] ?? null);
+                $po->setAttribute('suggested_sub_con_name', $matchedSubCon['name'] ?? null);
+                $po->setAttribute('is_sub_con_po', $isSubConPo);
+
+                return $po;
+            })
+            ->values();
 
         $projectSubConSummaries = $this->buildProjectSubConSummaries($boundSubCons, $subConTasks);
         $boundSubConIds = $boundSubCons->pluck('id');
@@ -204,6 +280,48 @@ class ProjectController extends Controller
             'bankOptions' => config('banks.malaysia', []),
 
             'subConTasks' => $subConTasks,
+            'subConClaims' => $subConClaims->map(function (SubConClaim $claim) {
+                return [
+                    'id' => $claim->id,
+                    'uuid' => $claim->uuid,
+                    'claim_no' => $claim->claim_no,
+                    'title' => $claim->title,
+                    'status' => $claim->status,
+                    'claimed_amount' => (float) ($claim->claimed_amount ?? 0),
+                    'project_verified_amount' => $claim->project_verified_amount !== null ? (float) $claim->project_verified_amount : null,
+                    'contra_verified_amount' => $claim->contra_verified_amount !== null ? (float) $claim->contra_verified_amount : null,
+                    'approved_amount' => $claim->approved_amount !== null ? (float) $claim->approved_amount : null,
+                    'payment_slip_no' => $claim->payment_slip_no,
+                    'appeal_round' => (int) ($claim->appeal_round ?? 0),
+                    'proforma_invoice_name' => $claim->proforma_invoice_name,
+                    'real_invoice_name' => $claim->real_invoice_name,
+                    'real_invoice_no' => $claim->real_invoice_no,
+                    'real_invoice_date' => optional($claim->real_invoice_date)?->toDateString(),
+                    'real_invoice_amount' => $claim->real_invoice_amount !== null ? (float) $claim->real_invoice_amount : null,
+                    'submitted_at' => optional($claim->submitted_at)?->toDateTimeString(),
+                    'project_verified_at' => optional($claim->project_verified_at)?->toDateTimeString(),
+                    'contra_verified_at' => optional($claim->contra_verified_at)?->toDateTimeString(),
+                    'approved_at' => optional($claim->approved_at)?->toDateTimeString(),
+                    'payment_slip_prepared_at' => optional($claim->payment_slip_prepared_at)?->toDateTimeString(),
+                    'subcon_decided_at' => optional($claim->subcon_decided_at)?->toDateTimeString(),
+                    'real_invoice_uploaded_at' => optional($claim->real_invoice_uploaded_at)?->toDateTimeString(),
+                    'created_at' => optional($claim->created_at)?->toDateTimeString(),
+                    'sub_con' => $claim->subCon ? [
+                        'id' => $claim->subCon->id,
+                        'uuid' => $claim->subCon->uuid,
+                        'name' => $claim->subCon->name,
+                        'company_name' => $claim->subCon->company_name,
+                    ] : null,
+                    'creator' => $claim->creator ? [
+                        'name' => $claim->creator->name,
+                    ] : null,
+                    'updater' => $claim->updater ? [
+                        'name' => $claim->updater->name,
+                    ] : null,
+                    'remark_log' => is_array($claim->remark_log) ? $claim->remark_log : [],
+                ];
+            })->values(),
+            'projectPurchaseOrders' => $projectPurchaseOrders,
         ]);
     }
 
@@ -221,6 +339,10 @@ class ProjectController extends Controller
             'project'  => $project,
             'clients'  => Client::select('id','name')->orderBy('name')->get(),
             'managers' => $this->branchProjectManagers($request, (int) $project->branch_id),
+            'sites' => Site::query()
+                ->orderBy('site_name')
+                ->get(['id', 'site_name']),
+            'selectedSiteIds' => $project->sites()->pluck('sites.id'),
             'branchManager' => $branchManager
                 ? ['id' => $branchManager->id, 'name' => $branchManager->name]
                 : null,
@@ -245,13 +367,19 @@ class ProjectController extends Controller
             'project_value' => 'nullable|numeric|min:0',
             'manager_id'    => 'nullable|integer|exists:users,id',
             'description'   => 'nullable|string',
+            'site_ids'      => ['nullable', 'array'],
+            'site_ids.*'    => ['integer', 'exists:sites,id'],
         ]);
 
         $validated['department_id'] = $this->resolveProjectDepartmentId();
         $validated['branch_id'] = $project->branch_id ?: $this->activeBranchId($request);
         $validated['status'] = $this->resolveProjectStatus($validated, $project);
 
+        $siteIds = collect($validated['site_ids'] ?? [])->unique()->values()->all();
+        unset($validated['site_ids']);
+
         $project->update($validated);
+        $project->sites()->sync($siteIds);
 
         return redirect()->route('projects.index')
             ->with('success', 'Project updated successfully.');

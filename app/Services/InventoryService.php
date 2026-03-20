@@ -57,10 +57,17 @@ class InventoryService
                 'purchase_order_item_id' => $poItemId,
                 'type' => $type,
                 'quantity' => $qty,
+                'serial_number' => $data['serial_number'] ?? null,
+                'stock_category' => $data['stock_category'] ?? null,
+                'issue_destination_type' => $data['issue_destination_type'] ?? null,
+                'project_id' => $data['project_id'] ?? null,
+                'site_id' => $data['site_id'] ?? null,
+                'issued_by' => $data['issued_by'] ?? null,
                 'balance_after' => $newBalance,
                 'reference_type' => $data['reference_type'] ?? null,
                 'reference_id' => $data['reference_id'] ?? null,
                 'remark' => $data['remark'] ?? null,
+                'purpose' => $data['purpose'] ?? null,
             ]);
 
             // 4️⃣ Update stock quantity
@@ -116,9 +123,12 @@ class InventoryService
                 'purchase_order_item_id' => $data['purchase_order_item_id'],
                 'quantity' => $data['quantity'],
                 'type' => InventoryMovement::TYPE_TRANSFER,
+                'serial_number' => $data['serial_number'] ?? null,
                 'reference_type' => $data['reference_type'] ?? null,
                 'reference_id' => $data['reference_id'] ?? null,
-                'remark' => 'Transfer out',
+                'remark' => !empty($data['remark'])
+                    ? 'Transfer out: ' . $data['remark']
+                    : 'Transfer out',
             ]);
 
             // IN to destination warehouse
@@ -127,9 +137,12 @@ class InventoryService
                 'purchase_order_item_id' => $data['purchase_order_item_id'],
                 'quantity' => $data['quantity'],
                 'type' => InventoryMovement::TYPE_IN,
+                'serial_number' => $data['serial_number'] ?? null,
                 'reference_type' => $data['reference_type'] ?? null,
                 'reference_id' => $data['reference_id'] ?? null,
-                'remark' => 'Transfer in',
+                'remark' => !empty($data['remark'])
+                    ? 'Transfer in: ' . $data['remark']
+                    : 'Transfer in',
             ]);
         });
     }

@@ -897,7 +897,7 @@ async function submitMarkPaid() {
                 <div class="text-sm text-gray-500">Payment Slip - {{ selectedSlip?.slip_no ?? '-' }}</div>
                 <button class="text-sm text-indigo-600 hover:text-indigo-700" @click="window.print()">Print / Save PDF</button>
             </div>
-            <div class="max-h-[75vh] overflow-auto border rounded bg-gray-50 p-3">
+            <div class="max-h-[85vh] overflow-auto border rounded bg-gray-50 p-6 flex items-start justify-center">
                 <SubConPaymentSlipA4 v-if="selectedSlip" :slip="selectedSlip" />
             </div>
         </div>
@@ -1122,7 +1122,7 @@ async function submitMarkPaid() {
         v-if="showApprovalModal && selectedSlip"
         class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center no-print"
     >
-        <div class="bg-gray-100 w-full h-full md:h-[90vh] md:w-[90vw] rounded shadow-xl overflow-hidden">
+        <div class="bg-gray-100 w-full h-full md:h-[90vh] md:w-[96vw] rounded shadow-xl overflow-hidden">
             <div class="sticky top-0 bg-white border-b px-6 py-3 flex items-center">
                 <h2 class="font-semibold text-lg">
                     CEO / GM Approval - {{ selectedSlip.slip_no ?? '-' }}
@@ -1137,7 +1137,7 @@ async function submitMarkPaid() {
             </div>
 
             <div class="flex h-[calc(100%-56px)] gap-6 p-6">
-                <div class="flex-1 overflow-auto">
+                <div class="flex-1 overflow-auto flex items-start justify-center">
                     <ApPaymentSlipA4
                         v-if="selectedSlip.source_type?.includes('ApInvoice')"
                         :invoice="selectedSlip.source"
@@ -1157,7 +1157,7 @@ async function submitMarkPaid() {
                     />
                 </div>
 
-                <div class="w-[360px] bg-white border rounded-lg p-4 space-y-6 overflow-auto">
+                <div class="w-[320px] xl:w-[360px] shrink-0 bg-white border rounded-lg p-4 space-y-6 overflow-auto">
                     <div>
                         <div class="text-xs text-gray-500">Status</div>
                         <div class="font-semibold">CEO / GM Approval</div>

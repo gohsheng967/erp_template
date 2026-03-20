@@ -14,6 +14,7 @@ use Inertia\Inertia;
 use App\Services\AttachmentService;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Str;
 
 class PaymentSlipController extends Controller
 {
@@ -43,6 +44,7 @@ class PaymentSlipController extends Controller
                         PettyCashTopup::class => [
                             'wallet.project',
                             'requester:id,name,signature_path',
+                            'verifier:id,name,signature_path',
                             'approver:id,name,signature_path',
                             'payer:id,name,signature_path',
                         ],
@@ -55,6 +57,7 @@ class PaymentSlipController extends Controller
                         Claim::class => [
                             'project',
                             'issuer:id,name,signature_path',
+                            'checker:id,name,signature_path',
                             'approver:id,name,signature_path',
                             'payer:id,name,signature_path',
                         ],
@@ -242,7 +245,16 @@ class PaymentSlipController extends Controller
                     ->orWhere(function ($legacy) {
                         $legacy->whereNull('workflow_status')
                             ->where(function ($sourceQuery) {
-                                $sourceQuery->whereHasMorph('source', [Claim::class], fn ($q) => $q->where('status', 'ceo_approved'))
+                                $sourceQuery->whereHasMorph('source', [Claim::class], function ($q) {
+                                    $q->where('status', 'ceo_approved')
+                                        ->where(function ($claimQuery) {
+                                            $claimQuery->whereNull('remark')
+                                                ->orWhereRaw(
+                                                    'LOWER(TRIM(remark)) <> ?',
+                                                    [Str::lower(trim(Claim::REMARK_PETTY_CASH_ORIGIN))]
+                                                );
+                                        });
+                                })
                                     ->orWhereHasMorph('source', [PettyCashTopup::class], fn ($q) => $q->where('status', 'approved'))
                                     ->orWhereHasMorph('source', [ApInvoice::class], fn ($q) => $q->whereIn('status', ['confirmed', 'partially_paid']))
                                     ->orWhereHasMorph('source', [SubConTask::class], fn ($q) => $q->whereIn('status', ['approved', 'justified', 'certified']));
@@ -328,6 +340,13 @@ class PaymentSlipController extends Controller
 
         $pendingClaimsQuery = Claim::query()
             ->where('status', 'ceo_approved')
+            ->where(function ($q) {
+                $q->whereNull('remark')
+                    ->orWhereRaw(
+                        'LOWER(TRIM(remark)) <> ?',
+                        [Str::lower(trim(Claim::REMARK_PETTY_CASH_ORIGIN))]
+                    );
+            })
             ->whereDoesntHave('paymentSlip', function ($q) {
                 $q->whereNull('cancelled_at')
                     ->where(function ($workflow) {

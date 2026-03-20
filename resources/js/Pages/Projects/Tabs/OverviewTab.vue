@@ -53,6 +53,8 @@ const valueUtilizationPercent = computed(() => {
     return Math.round((projectValueAmount.value / projectBudgetAmount.value) * 100)
 })
 
+const boundSites = computed(() => props.project?.sites ?? [])
+
 const kpi = ref({
     budget: {
         total: 0,
@@ -267,6 +269,36 @@ onMounted(() => {
         </div>
 
         <!-- 2️⃣ KPI CARDS -->
+        <div class="bg-white shadow-md rounded-xl p-6 border">
+            <div class="flex items-center justify-between gap-3">
+                <div>
+                    <h3 class="text-lg font-semibold">Bound Sites</h3>
+                    <p class="text-xs text-gray-500">Linked locations for this project</p>
+                </div>
+                <span class="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+                    {{ boundSites.length }} site<span v-if="boundSites.length !== 1">s</span>
+                </span>
+            </div>
+
+            <div v-if="!boundSites.length" class="mt-4 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">
+                No sites linked yet.
+            </div>
+
+            <div v-else class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div
+                    v-for="site in boundSites"
+                    :key="site.id"
+                    class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3"
+                >
+                    <p class="text-sm font-semibold text-slate-900">{{ site.site_name }}</p>
+                    <p class="mt-1 text-xs text-slate-600 break-words">{{ site.address || "-" }}</p>
+                    <p class="mt-1 text-xs text-slate-500">
+                        {{ site.latitude ?? "-" }}, {{ site.longitude ?? "-" }}
+                    </p>
+                </div>
+            </div>
+        </div>
+
         <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
 
             <div class="bg-white shadow-md rounded-xl p-6 border hover:shadow-lg transition">

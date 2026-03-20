@@ -39,14 +39,14 @@ const emit = defineEmits(['apply', 'reset'])
             <div class="mt-4 flex items-center justify-end gap-2">
                 <button
                     type="button"
-                    class="h-10 rounded-md border border-slate-300 px-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                    class="h-9 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-100"
                     @click="emit('reset')"
                 >
                     {{ resetLabel }}
                 </button>
                 <button
                     type="button"
-                    class="h-10 rounded-md bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-800"
+                    class="h-9 rounded-md bg-slate-900 px-3 text-xs font-medium text-white hover:bg-slate-800"
                     @click="emit('apply')"
                 >
                     {{ applyLabel }}

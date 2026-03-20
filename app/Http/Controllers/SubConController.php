@@ -2,10 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Attachment;
+use App\Models\PurchaseQuotation;
+use App\Models\Supplier;
 use App\Models\SubCon;
 use App\Models\SubConTask;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -15,10 +19,15 @@ class SubConController extends Controller
     public function index(Request $request)
     {
         $banks = config('banks.malaysia', []);
+        $search = trim((string) $request->input('search', ''));
+        $portal = (string) $request->input('portal', 'all');
+        $bankAccount = (string) $request->input('bank_account', 'all');
+        $sort = (string) $request->input('sort', 'latest');
 
         $subCons = SubCon::query()
             ->with('bankAccounts')
-            ->when($request->search, function ($q, $search) {
+            ->withCount('bankAccounts')
+            ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($sub) use ($search) {
                     $sub->where('name', 'like', "%{$search}%")
                         ->orWhere('company_name', 'like', "%{$search}%")
@@ -32,7 +41,42 @@ class SubConController extends Controller
                         });
                 });
             })
-            ->latest()
+            ->when($portal === 'with_portal', function ($q) {
+                $q->whereNotNull('login_identity_no');
+            })
+            ->when($portal === 'active_portal', function ($q) {
+                $q->whereNotNull('login_identity_no')
+                    ->where('login_status', 1);
+            })
+            ->when($portal === 'inactive_portal', function ($q) {
+                $q->whereNotNull('login_identity_no')
+                    ->where('login_status', 0);
+            })
+            ->when($portal === 'no_portal', function ($q) {
+                $q->whereNull('login_identity_no');
+            })
+            ->when($bankAccount === 'yes', function ($q) {
+                $q->has('bankAccounts');
+            })
+            ->when($bankAccount === 'no', function ($q) {
+                $q->doesntHave('bankAccounts');
+            })
+            ->when($sort === 'name_asc', function ($q) {
+                $q->orderBy('name');
+            }, function ($q) use ($sort) {
+                if ($sort === 'name_desc') {
+                    $q->orderByDesc('name');
+                    return;
+                }
+
+                if ($sort === 'company_asc') {
+                    $q->orderBy('company_name')
+                        ->orderBy('name');
+                    return;
+                }
+
+                $q->latest();
+            })
             ->paginate(10)
             ->through(function (SubCon $subCon) {
                 return [
@@ -51,6 +95,7 @@ class SubConController extends Controller
                             'account_no' => $account->account_no,
                         ];
                     })->values(),
+                    'bank_accounts_count' => (int) ($subCon->bank_accounts_count ?? 0),
                     'portal_user' => $subCon->login_identity_no ? [
                         'identity_no' => $subCon->login_identity_no,
                         'email' => $subCon->login_email,
@@ -63,7 +108,12 @@ class SubConController extends Controller
 
         return Inertia::render('SubCons/Index', [
             'subCons' => $subCons,
-            'filters' => $request->only('search'),
+            'filters' => [
+                'search' => $search,
+                'portal' => $portal,
+                'bank_account' => $bankAccount,
+                'sort' => $sort,
+            ],
             'bankOptions' => $banks,
         ]);
     }
@@ -131,7 +181,7 @@ class SubConController extends Controller
         return redirect()->back()->with('success', $message);
     }
 
-    public function show(SubCon $subCon)
+    public function show(Request $request, SubCon $subCon)
     {
         $taskBase = SubConTask::query()
             ->where('sub_con_id', $subCon->id);
@@ -244,6 +294,17 @@ class SubConController extends Controller
             })
             ->values();
 
+        $linkedSupplier = $this->resolveSupplierForSubCon($subCon, false);
+
+        $quotations = PurchaseQuotation::query()
+            ->when($linkedSupplier, fn ($q) => $q->where('supplier_id', $linkedSupplier->id))
+            ->when(!$linkedSupplier, fn ($q) => $q->whereRaw('1 = 0'))
+            ->with(['attachment', 'purchaseRequests:id,uuid,code'])
+            ->withCount('purchaseRequests as pr_count')
+            ->latest()
+            ->paginate(10, ['*'], 'quotation_page')
+            ->withQueryString();
+
         return Inertia::render('SubCons/Show', [
             'subCon' => $subCon->load('bankAccounts'),
             'taskStats' => $taskStats,
@@ -253,9 +314,20 @@ class SubConController extends Controller
                 'status' => (int) $subCon->login_status,
                 'must_change_password' => (bool) $subCon->login_must_change_password,
             ] : null,
+            'quotations' => $quotations,
             'projectSummaries' => $projectSummaries,
             'recentTasks' => $recentTasks,
         ]);
+    }
+
+    public function list()
+    {
+        $list = SubCon::query()
+            ->orderBy('company_name')
+            ->orderBy('name')
+            ->get(['uuid', 'name', 'company_name']);
+
+        return response()->json($list);
     }
 
     public function update(Request $request, SubCon $subCon)
@@ -329,6 +401,76 @@ class SubConController extends Controller
         return redirect()->back()->with('success', 'Sub Con deleted successfully.');
     }
 
+    public function uploadQuotation(Request $request, SubCon $subCon)
+    {
+        $request->validate([
+            'quotations' => ['required', 'array'],
+            'quotations.*.file' => ['required', 'file', 'mimes:pdf', 'max:10240'],
+            'quotations.*.amount' => ['required', 'numeric', 'min:0'],
+            'quotations.*.quotation_no' => ['required', 'string'],
+            'quotations.*.delivery_time' => ['nullable', 'string', 'max:50'],
+            'quotations.*.terms' => ['nullable', 'string'],
+        ]);
+
+        DB::transaction(function () use ($request, $subCon) {
+            $supplier = $this->resolveSupplierForSubCon($subCon, true);
+
+            foreach ($request->input('quotations') as $index => $data) {
+                $file = $request->file("quotations.$index.file");
+
+                $quotation = PurchaseQuotation::create([
+                    'supplier_id'   => $supplier->id,
+                    'amount'        => $data['amount'],
+                    'quotation_no'  => $data['quotation_no'],
+                    'delivery_time' => $data['delivery_time'] ?? null,
+                    'terms'         => $data['terms'] ?? null,
+                ]);
+
+                $path = $file->store('purchase-quotations', 'public');
+
+                Attachment::create([
+                    'category'        => 'purchase_quotation',
+                    'attachable_type' => PurchaseQuotation::class,
+                    'attachable_id'   => $quotation->id,
+                    'file_path'       => $path,
+                    'original_name'   => $file->getClientOriginalName(),
+                ]);
+            }
+        });
+
+        return back()->with('success', 'Quotation(s) uploaded successfully.');
+    }
+
+    public function destroyQuotation(SubCon $subCon, PurchaseQuotation $quotation)
+    {
+        $supplier = $this->resolveSupplierForSubCon($subCon, false);
+        if (!$supplier || $quotation->supplier_id !== $supplier->id) {
+            abort(403, 'Quotation does not belong to this Sub Con.');
+        }
+
+        if ($quotation->purchaseRequests()->exists()) {
+            return response()->json([
+                'message' => 'Quotation is already linked to a Purchase Request.'
+            ], 422);
+        }
+
+        DB::transaction(function () use ($quotation) {
+            if ($quotation->attachment) {
+                if (!empty($quotation->attachment->file_path)) {
+                    Storage::disk('public')->delete($quotation->attachment->file_path);
+                }
+
+                $quotation->attachment->delete();
+            }
+
+            $quotation->delete();
+        });
+
+        return response()->json([
+            'message' => 'Quotation deleted successfully.'
+        ]);
+    }
+
     private function normalizeBankAccounts(array $accounts): array
     {
         return collect($accounts)
@@ -389,5 +531,34 @@ class SubConController extends Controller
         $subCon->save();
 
         return $plainPassword !== '' ? $plainPassword : null;
+    }
+
+    private function resolveSupplierForSubCon(SubCon $subCon, bool $createIfMissing): ?Supplier
+    {
+        $companyName = trim((string) ($subCon->company_name ?? ''));
+        if ($companyName === '') {
+            $companyName = trim((string) ($subCon->name ?? ''));
+        }
+
+        if ($companyName === '') {
+            return null;
+        }
+
+        $supplier = Supplier::query()
+            ->whereRaw('LOWER(company_name) = ?', [strtolower($companyName)])
+            ->first();
+
+        if ($supplier || !$createIfMissing) {
+            return $supplier;
+        }
+
+        return Supplier::create([
+            'company_name' => $companyName,
+            'contact_person' => $subCon->name ?: null,
+            'contact_phone' => $subCon->phone ?: null,
+            'email' => $subCon->email ?: null,
+            'address' => $subCon->address ?: null,
+            'status' => 'active',
+        ]);
     }
 }

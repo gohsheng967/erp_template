@@ -20,6 +20,12 @@ const slip = computed(() => props.slip ?? {});
 const task = computed(() => slip.value?.source ?? {});
 const project = computed(() => task.value?.project ?? {});
 const subCon = computed(() => task.value?.sub_con ?? task.value?.subCon ?? {});
+const subConStageSigners = computed(() => [
+    { label: "Submitted by", user: null, name: subCon.value?.name ?? subCon.value?.company_name ?? "-" },
+    { label: "Prepared by", user: slip.value?.creator ?? null },
+    { label: "Slip Approved by", user: slip.value?.approved_by ?? null },
+    { label: "Done by", user: null, name: "-" },
+]);
 
 function formatDate(value) {
     if (!value) return "-";
@@ -43,8 +49,6 @@ const lessTotal = computed(
         lessPaidPreviously.value
 );
 const amountDue = computed(() => Math.max(amount.value - lessTotal.value, 0));
-const preparedBy = computed(() => slip.value?.creator?.name ?? "-");
-const approvedBy = computed(() => slip.value?.approved_by?.name ?? "-");
 
 function formatLess(value) {
     return value > 0 ? formatCurrency(value) : "-";
@@ -201,41 +205,24 @@ function onSignatureImageError(event) {
             </div>
 
             <div class="border-t border-gray-400 p-2 text-xs">
-                <div class="grid grid-cols-3 gap-6">
-                    <div>
+                <div
+                    class="grid gap-4"
+                    :style="{ gridTemplateColumns: `repeat(${subConStageSigners.length}, minmax(0, 1fr))` }"
+                >
+                    <div v-for="stage in subConStageSigners" :key="stage.label">
                         <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(slip.creator)">
+                            <template v-if="signatureUrl(stage.user)">
                                 <img
-                                    :src="signatureUrl(slip.creator)"
-                                    alt="Prepared by signature"
+                                    :src="signatureUrl(stage.user)"
+                                    :alt="`${stage.label} signature`"
                                     class="h-12 object-contain"
                                     @error="onSignatureImageError"
                                 />
                                 <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
                             </template>
                         </div>
-                        <div class="font-medium">Prepared by</div>
-                        <div class="text-gray-500">{{ preparedBy }}</div>
-                    </div>
-                    <div>
-                        <div class="h-14 mb-2 border-b border-gray-400"></div>
-                        <div class="font-medium">Certified by</div>
-                        <div class="text-gray-500">-</div>
-                    </div>
-                    <div>
-                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(slip.approved_by)">
-                                <img
-                                    :src="signatureUrl(slip.approved_by)"
-                                    alt="Approved by signature"
-                                    class="h-12 object-contain"
-                                    @error="onSignatureImageError"
-                                />
-                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                            </template>
-                        </div>
-                        <div class="font-medium">Approved by</div>
-                        <div class="text-gray-500">{{ approvedBy }}</div>
+                        <div class="font-medium">{{ stage.label }}</div>
+                        <div class="text-gray-500">{{ stage.user?.name ?? stage.name ?? "-" }}</div>
                     </div>
                 </div>
                 <div class="mt-4 text-xs text-gray-500">

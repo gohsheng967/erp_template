@@ -18,6 +18,14 @@ const props = defineProps({
 
 const slip = computed(() => props.slip ?? {})
 const topup = computed(() => slip.value?.source ?? {})
+const topupStageSigners = computed(() => [
+    { label: 'Requested by', user: topup.value?.requester ?? null },
+    { label: 'Verified by', user: topup.value?.verifier ?? null },
+    { label: 'Tx Approved by', user: topup.value?.approver ?? null },
+    { label: 'Prepared by', user: slip.value?.creator ?? null },
+    { label: 'Slip Approved by', user: slip.value?.approved_by ?? null },
+    { label: 'Done by', user: topup.value?.payer ?? null },
+])
 
 const projectName = computed(() => {
     if (topup.value?.wallet?.context_type === 'office') {
@@ -226,57 +234,24 @@ function formatLess(value) {
             </div>
 
             <div class="border-t border-gray-400 p-2 text-xs">
-                <div class="grid grid-cols-3 gap-6">
-                    <div>
+                <div
+                    class="grid gap-4"
+                    :style="{ gridTemplateColumns: `repeat(${topupStageSigners.length}, minmax(0, 1fr))` }"
+                >
+                    <div v-for="stage in topupStageSigners" :key="stage.label">
                         <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(topup.requester)">
+                            <template v-if="signatureUrl(stage.user)">
                                 <img
-                                    :src="signatureUrl(topup.requester)"
-                                    alt="Prepared by signature"
+                                    :src="signatureUrl(stage.user)"
+                                    :alt="`${stage.label} signature`"
                                     class="h-12 object-contain"
                                     @error="onSignatureImageError"
                                 />
                                 <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
                             </template>
                         </div>
-                        <div class="font-medium">Prepared by</div>
-                        <div class="text-gray-500">
-                            {{ topup.requester?.name ?? '-' }}
-                        </div>
-                    </div>
-                    <div>
-                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(topup.approver)">
-                                <img
-                                    :src="signatureUrl(topup.approver)"
-                                    alt="Approved by signature"
-                                    class="h-12 object-contain"
-                                    @error="onSignatureImageError"
-                                />
-                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                            </template>
-                        </div>
-                        <div class="font-medium">Approved by</div>
-                        <div class="text-gray-500">
-                            {{ topup.approver?.name ?? '-' }}
-                        </div>
-                    </div>
-                    <div>
-                        <div class="h-14 mb-2 border-b border-gray-400 flex items-end">
-                            <template v-if="signatureUrl(topup.payer)">
-                                <img
-                                    :src="signatureUrl(topup.payer)"
-                                    alt="Paid by signature"
-                                    class="h-12 object-contain"
-                                    @error="onSignatureImageError"
-                                />
-                                <div class="hidden text-[11px] text-gray-400 italic">No signature</div>
-                            </template>
-                        </div>
-                        <div class="font-medium">Paid by</div>
-                        <div class="text-gray-500">
-                            {{ topup.payer?.name ?? '-' }}
-                        </div>
+                        <div class="font-medium">{{ stage.label }}</div>
+                        <div class="text-gray-500">{{ stage.user?.name ?? '-' }}</div>
                     </div>
                 </div>
                 <div class="mt-4 text-xs text-gray-500">

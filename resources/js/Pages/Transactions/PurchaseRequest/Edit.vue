@@ -17,7 +17,6 @@ const toast = inject('toast', null)
 const pr = computed(() => page.props.pr)
 const departments = computed(() => page.props.departments ?? [])
 const projects = computed(() => page.props.projects ?? [])
-const suppliers = computed(() => page.props.suppliers ?? [])
 const contactUsers = computed(() => page.props.contactUsers ?? [])
 
 const isEditable = computed(() =>
@@ -29,12 +28,14 @@ const isProjectVerified = computed(() => pr.value.status === 'verified_project_d
 const isProjectLinked = computed(() => !!pr.value.project_id)
 const isPurchasingVerified = computed(() => pr.value.status === 'verified_purchasing_department')
 const isBeforePurchasingVerified = computed(() =>
-    (isOwnDeptVerified.value && !isProjectLinked.value) || isProjectVerified.value
+    isOwnDeptVerified.value || isProjectVerified.value
 )
+const verifyButtonLabel = computed(() => 'Verified')
 const selectedQuotationId = ref(pr.value.approved_quotation_id ?? null)
 const poDeliveryPeriod = ref(pr.value.delivery_period ?? '')
 const poPaymentTerms = ref(pr.value.payment_terms ?? '')
 const poSiteContactUserId = ref(pr.value.site_contact_user_id ?? '')
+const stageRemark = ref('')
 const quotationOptions = computed(() => pr.value.quotations ?? [])
 
 /* =========================
@@ -46,6 +47,7 @@ const form = ref({
     purpose: pr.value.purpose ?? '',
     department_id: pr.value.department_id ?? null,
     project_id: pr.value.project_id ?? null,
+    is_subcon_purchase_request: !!pr.value.is_subcon_purchase_request,
     requester_remark: pr.value.requester_remark ?? '',
 })
 
@@ -112,14 +114,14 @@ const canVerifyToPurchasing = computed(() =>
     isBeforePurchasingVerified.value &&
     form.value.title &&
     items.value.length > 0 &&
-    !!poDeliveryPeriod.value &&
+    (form.value.is_subcon_purchase_request || !!poDeliveryPeriod.value) &&
     !!poPaymentTerms.value &&
     !!poSiteContactUserId.value
 )
 const missingVerifyFields = computed(() => {
     const missing = []
 
-    if (!poDeliveryPeriod.value) missing.push('Delivery Period')
+    if (!form.value.is_subcon_purchase_request && !poDeliveryPeriod.value) missing.push('Delivery Period')
     if (!poPaymentTerms.value) missing.push('Terms & Condition')
     if (!poSiteContactUserId.value) missing.push('Site Contact Person')
 
@@ -180,7 +182,7 @@ function verifyToPurchasing() {
         route('purchase-request.approval', pr.value.uuid),
         {
             status: 'verify',
-            remark: null,
+            remark: stageRemark.value || null,
             delivery_period: poDeliveryPeriod.value,
             payment_terms: poPaymentTerms.value,
             site_contact_user_id: poSiteContactUserId.value,
@@ -205,6 +207,7 @@ function submitForPoIssue() {
         {
             status: 'approved',
             quotation_id: selectedQuotationId.value,
+            remark: stageRemark.value || null,
             delivery_period: poDeliveryPeriod.value,
             payment_terms: poPaymentTerms.value,
             site_contact_user_id: poSiteContactUserId.value,
@@ -244,10 +247,10 @@ function submitForPoIssue() {
                 </div>
             </div>
 
-            <div class="flex gap-3">
+            <div class="flex items-center gap-2">
                 <Link
                     :href="route('purchase-request.index')"
-                    class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                    class="h-8 px-2.5 text-xs font-medium bg-gray-200 rounded-md hover:bg-gray-300 inline-flex items-center"
                                     title="Edit"
 
                 >
@@ -256,7 +259,7 @@ function submitForPoIssue() {
                 <button
                     v-if="isEditable"
                     @click="saveDraft"
-                    class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                    class="h-8 px-2.5 text-xs font-medium bg-gray-200 rounded-md hover:bg-gray-300"
                 >
                     Save Draft
                 </button>
@@ -265,7 +268,7 @@ function submitForPoIssue() {
                     v-if="isDraft"
                     @click="submitPR"
                     :disabled="!canSubmit"
-                    class="px-4 py-2 bg-indigo-600 text-white rounded
+                    class="h-8 px-2.5 text-xs font-medium bg-indigo-600 text-white rounded-md
                            hover:bg-indigo-700
                            disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -276,18 +279,18 @@ function submitForPoIssue() {
                     v-if="isBeforePurchasingVerified"
                     @click="verifyToPurchasing"
                     :disabled="!canVerifyToPurchasing"
-                    class="px-4 py-2 bg-blue-600 text-white rounded
+                    class="h-8 px-2.5 text-xs font-medium bg-blue-600 text-white rounded-md
                            hover:bg-blue-700
                            disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                    Verify to Purchasing
+                    {{ verifyButtonLabel }}
                 </button>
 
                 <button
                     v-if="isPurchasingVerified"
                     @click="submitForPoIssue"
                     :disabled="!canIssuePo"
-                    class="px-4 py-2 bg-emerald-600 text-white rounded
+                    class="h-8 px-2.5 text-xs font-medium bg-emerald-600 text-white rounded-md
                            hover:bg-emerald-700
                            disabled:opacity-40 disabled:cursor-not-allowed"
                 >
@@ -364,6 +367,21 @@ function submitForPoIssue() {
                 </div>
 
                 <div class="md:col-span-2">
+                    <label class="inline-flex items-center gap-2 text-sm font-medium">
+                        <input
+                            v-model="form.is_subcon_purchase_request"
+                            type="checkbox"
+                            :disabled="!isEditable"
+                            class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        This is Sub Con Purchase Request
+                    </label>
+                    <p class="mt-1 text-xs text-gray-500">
+                        When enabled, quotation attach section uses Sub Con instead of Supplier.
+                    </p>
+                </div>
+
+                <div class="md:col-span-2">
                     <label class="text-sm font-medium">Purpose</label>
                     <textarea
                         v-model="form.purpose"
@@ -407,7 +425,7 @@ function submitForPoIssue() {
                 </div>
 
                 <template v-if="isBeforePurchasingVerified">
-                    <div>
+                    <div v-if="!form.is_subcon_purchase_request">
                         <label class="text-sm font-medium">
                             Delivery Period <span class="text-red-500">*</span>
                         </label>
@@ -449,6 +467,16 @@ function submitForPoIssue() {
                         />
                     </div>
 
+                    <div class="md:col-span-2">
+                        <label class="text-sm font-medium">Stage Remark</label>
+                        <textarea
+                            v-model="stageRemark"
+                            rows="2"
+                            class="w-full border rounded px-3 py-2"
+                            placeholder="Stage remark (optional)"
+                        />
+                    </div>
+
                     <div
                         v-if="!canVerifyToPurchasing"
                         class="md:col-span-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700"
@@ -456,6 +484,16 @@ function submitForPoIssue() {
                         Please complete: {{ missingVerifyFields.join(', ') }}. You cannot proceed to Purchasing Verify until all required fields are filled.
                     </div>
                 </template>
+
+                <div v-if="isPurchasingVerified" class="md:col-span-2">
+                    <label class="text-sm font-medium">Stage Remark</label>
+                    <textarea
+                        v-model="stageRemark"
+                        rows="2"
+                        class="w-full border rounded px-3 py-2"
+                        placeholder="Stage remark (optional)"
+                    />
+                </div>
             </div>
         </section>
 
@@ -581,7 +619,7 @@ function submitForPoIssue() {
         <PurchaseRequestQuotations
             :pr="pr"
             :isDraft="isEditable"
-            :suppliers="suppliers"
+            :is-sub-con-purchase-request="!!form.is_subcon_purchase_request"
         />
 
     </div>

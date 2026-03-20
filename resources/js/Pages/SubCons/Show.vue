@@ -3,6 +3,7 @@ import { computed } from "vue";
 import { Link } from "@inertiajs/vue3";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout.vue";
 import { useFormat } from "@/Composables/useFormat";
+import QuotationTab from "./Partials/QuotationTab.vue";
 
 const props = defineProps({
     subCon: {
@@ -24,6 +25,10 @@ const props = defineProps({
     recentTasks: {
         type: Array,
         default: () => [],
+    },
+    quotations: {
+        type: Object,
+        required: true,
     },
 });
 
@@ -259,6 +264,23 @@ function statusLabel(status) {
                         </p>
                     </div>
                 </div>
+            </div>
+
+            <div class="bg-white border rounded-2xl p-6 shadow-sm mb-6">
+                <div class="mb-6 border-b">
+                    <nav class="flex gap-8 text-sm font-medium">
+                        <button
+                            class="pb-3 border-b-2 border-indigo-600 text-indigo-600"
+                        >
+                            Quotations
+                        </button>
+                    </nav>
+                </div>
+
+                <QuotationTab
+                    :sub-con="subCon"
+                    :quotations="quotations"
+                />
             </div>
 
             <div class="bg-white border rounded-2xl p-6 shadow-sm mb-6">

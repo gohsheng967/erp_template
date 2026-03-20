@@ -13,6 +13,9 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['delete'])
+
+const canEditOrDelete = (claim) =>
+    !claim.deleted_at && (props.status === 'draft' || claim.status === 'draft')
 </script>
 
 <template>
@@ -30,7 +33,7 @@ const emit = defineEmits(['delete'])
 
         <!-- EDIT (DRAFT ONLY) -->
         <Link
-            v-if="status === 'draft'"
+            v-if="canEditOrDelete(claim)"
             :href="route('claims.edit', claim.uuid)"
             class="text-blue-600 hover:text-blue-800"
             title="Edit"
@@ -40,7 +43,7 @@ const emit = defineEmits(['delete'])
 
         <!-- DELETE (DRAFT ONLY) -->
         <button
-            v-if="status === 'draft'"
+            v-if="canEditOrDelete(claim)"
             @click="emit('delete', claim)"
             class="text-red-600 hover:text-red-800"
             title="Delete"
