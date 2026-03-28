@@ -66,34 +66,173 @@ function onSignatureImageError(event) {
     if (fallback) fallback.classList.remove('hidden')
 }
 
-const totalAmount = computed(() =>
-    props.po.items?.reduce(
-        (sum, item) => sum + Number(item.quantity) * Number(item.unit_price),
-        0
-    ) ?? 0
-)
+const totalAmount = computed(() => {
+    const poItems = Array.isArray(props.po.items) ? props.po.items : []
+    if (!poItems.length) return 0
+
+    const prItems = Array.isArray(props.po.purchase_request?.items)
+        ? props.po.purchase_request.items
+        : []
+    const prById = new Map(prItems.map((item) => [Number(item.id), item]))
+    const prParentIds = new Set(
+        prItems
+            .map((item) => Number(item.parent_id ?? 0))
+            .filter((id) => id > 0)
+    )
+
+    return poItems.reduce((sum, item) => {
+        const prItemId = Number(item.purchase_request_item_id ?? 0)
+        const prItem = prById.get(prItemId)
+        const isParentWithChildren = prItem ? prParentIds.has(Number(prItem.id)) : false
+        if (isParentWithChildren) return sum
+
+        return sum + Number(item.quantity) * Number(item.unit_price)
+    }, 0)
+})
 
 const paymentTermsList = computed(() => formatTermsList(props.po.payment_terms))
-const poStages = computed(() => [
-    {
-        label: 'Requested by',
-        user: props.po.purchase_request?.requester ?? null,
-        name: props.po.purchase_request?.requester?.name ?? '-',
-        at: props.po.purchase_request?.submitted_at ?? null,
-    },
-    {
-        label: 'Authorized by',
-        user: props.po.purchase_request?.approver ?? null,
-        name: props.po.purchase_request?.approver?.name ?? '-',
-        at: props.po.purchase_request?.approved_at ?? null,
-    },
-    {
-        label: 'Vendor acceptance',
-        user: null,
-        name: props.po.supplier?.company_name ?? '-',
-        at: null,
-    },
-])
+const stageMap = computed(() => {
+    const logs = Array.isArray(props.po.purchase_request?.remark_log)
+        ? props.po.purchase_request.remark_log
+        : []
+    const map = {}
+    for (const row of logs) {
+        if (row?.to) map[row.to] = row
+    }
+    return map
+})
+
+function signerFromLog(toStatus) {
+    const row = stageMap.value[toStatus]
+    if (!row) return null
+    const key = String(row.user_id ?? '')
+    return props.po.purchase_request?.remark_signers?.[key] ?? null
+}
+
+const poStages = computed(() => {
+    const pr = props.po.purchase_request ?? {}
+    const stages = [
+        {
+            key: 'submitted',
+            label: 'Submitted by',
+            user: pr.requester ?? null,
+            name: pr.requester?.name ?? '-',
+            at: pr.submitted_at ?? null,
+        },
+        {
+            key: 'verified_own_department',
+            label: 'Own Dept Verified by',
+            user: signerFromLog('verified_own_department'),
+            name: stageMap.value.verified_own_department?.user_name ?? '-',
+            at: stageMap.value.verified_own_department?.at ?? null,
+        },
+    ]
+
+    if (pr.project_id) {
+        stages.push({
+            key: 'verified_project_department',
+            label: 'Project Dept Verified by',
+            user: signerFromLog('verified_project_department'),
+            name: stageMap.value.verified_project_department?.user_name ?? '-',
+            at: stageMap.value.verified_project_department?.at ?? null,
+        })
+    }
+
+    stages.push(
+        {
+            key: 'verified_purchasing_department',
+            label: 'Purchasing Verified by',
+            user: signerFromLog('verified_purchasing_department'),
+            name: stageMap.value.verified_purchasing_department?.user_name ?? '-',
+            at: stageMap.value.verified_purchasing_department?.at ?? null,
+        },
+        {
+            key: 'po',
+            label: 'Approved by',
+            user: signerFromLog('po') ?? pr.approver ?? null,
+            name: stageMap.value.po?.user_name ?? pr.approver?.name ?? '-',
+            at: stageMap.value.po?.at ?? pr.approved_at ?? null,
+        },
+        {
+            key: 'vendor_acceptance',
+            label: 'Vendor Acceptance',
+            user: null,
+            name: props.po.supplier?.company_name ?? '-',
+            at: null,
+        }
+    )
+
+    return stages
+})
+
+const displayItems = computed(() => {
+    const poItems = Array.isArray(props.po.items) ? props.po.items : []
+    if (!poItems.length) return []
+
+    const prItems = Array.isArray(props.po.purchase_request?.items)
+        ? props.po.purchase_request.items
+        : []
+    const prById = new Map(prItems.map((item) => [Number(item.id), item]))
+
+    const roots = []
+    const childrenByRoot = new Map()
+
+    const resolveRootId = (prItem) => {
+        if (!prItem) return null
+        let current = prItem
+        let guard = 0
+        while (current?.parent_id && guard < 20) {
+            const parent = prById.get(Number(current.parent_id))
+            if (!parent) break
+            current = parent
+            guard += 1
+        }
+        return Number(current?.id ?? 0) || null
+    }
+
+    poItems.forEach((item) => {
+        const prItem = prById.get(Number(item.purchase_request_item_id ?? 0)) ?? null
+        const rootId = resolveRootId(prItem) ?? Number(item.id)
+        const isChild = Boolean(prItem?.parent_id)
+
+        if (!childrenByRoot.has(rootId)) {
+            childrenByRoot.set(rootId, [])
+            roots.push(rootId)
+        }
+
+        childrenByRoot.get(rootId).push({
+            item,
+            isChild,
+        })
+    })
+
+    const rows = []
+    roots.forEach((rootId, rootIndex) => {
+        const baseNo = `${rootIndex + 1}`
+        const group = childrenByRoot.get(rootId) ?? []
+
+        const parentRows = group.filter((row) => !row.isChild)
+        const childRows = group.filter((row) => row.isChild)
+
+        parentRows.forEach((row, idx) => {
+            rows.push({
+                no: idx === 0 ? baseNo : `${baseNo}.${idx + 1}`,
+                depth: 0,
+                item: row.item,
+            })
+        })
+
+        childRows.forEach((row, idx) => {
+            rows.push({
+                no: `${baseNo}.${idx + 1}`,
+                depth: 1,
+                item: row.item,
+            })
+        })
+    })
+
+    return rows
+})
 </script>
 
 <template>
@@ -140,16 +279,23 @@ const poStages = computed(() => [
         </thead>
 
         <tbody>
-            <tr v-for="(item, index) in po.items ?? []" :key="item.id">
-                <td class="border border-slate-300 px-2 py-2 text-center">{{ index + 1 }}</td>
-                <td class="border border-slate-300 px-2 py-2">{{ item.item_name }}</td>
-                <td class="border border-slate-300 px-2 py-2">{{ item.description ?? '-' }}</td>
-                <td class="border border-slate-300 px-2 py-2 text-right">{{ item.quantity }}</td>
-                <td class="border border-slate-300 px-2 py-2 text-right tabular-nums">{{ formatCurrency(item.unit_price) }}</td>
-                <td class="border border-slate-300 px-2 py-2 text-right tabular-nums">{{ formatCurrency(item.quantity * item.unit_price) }}</td>
+            <tr v-for="row in displayItems" :key="row.item.id">
+                <td class="border border-slate-300 px-2 py-2 text-center">{{ row.no }}</td>
+                <td class="border border-slate-300 px-2 py-2">
+                    <div :class="row.depth > 0 ? 'pl-4' : ''">
+                        <span v-if="row.depth > 0" class="mr-1 text-slate-500">↳</span>
+                        <span class="font-medium">{{ row.item.item_name }}</span>
+                        <span v-if="row.depth === 0" class="ml-2 text-[10px] uppercase tracking-wide text-slate-500">(Parent)</span>
+                        <span v-else class="ml-2 text-[10px] uppercase tracking-wide text-slate-500">(Child)</span>
+                    </div>
+                </td>
+                <td class="border border-slate-300 px-2 py-2">{{ row.item.description ?? '-' }}</td>
+                <td class="border border-slate-300 px-2 py-2 text-right">{{ row.item.quantity }}</td>
+                <td class="border border-slate-300 px-2 py-2 text-right tabular-nums">{{ formatCurrency(row.item.unit_price) }}</td>
+                <td class="border border-slate-300 px-2 py-2 text-right tabular-nums">{{ formatCurrency(row.item.quantity * row.item.unit_price) }}</td>
             </tr>
 
-            <tr v-if="!po.items?.length">
+            <tr v-if="!displayItems.length">
                 <td colspan="6" class="border border-slate-300 px-2 py-6 text-center text-slate-400">
                     No purchase items
                 </td>
@@ -205,7 +351,7 @@ const poStages = computed(() => [
             class="grid gap-4"
             :style="{ gridTemplateColumns: `repeat(${poStages.length}, minmax(0, 1fr))` }"
         >
-            <div v-for="stage in poStages" :key="stage.label">
+            <div v-for="stage in poStages" :key="stage.key">
                 <div class="h-12 mb-2 flex items-end">
                     <template v-if="signatureUrl(stage.user)">
                         <img
@@ -217,7 +363,7 @@ const poStages = computed(() => [
                         <div class="hidden text-[11px] text-slate-400 italic">No signature</div>
                     </template>
                     <div v-else class="text-[11px] text-slate-400 italic">
-                        {{ stage.label === 'Vendor acceptance' ? 'Vendor signature on stamped copy' : 'No signature' }}
+                        {{ stage.label === 'Vendor Acceptance' ? 'Vendor signature on stamped copy' : 'No signature' }}
                     </div>
                 </div>
                 <div class="mb-3 border-b-2 border-slate-300"></div>

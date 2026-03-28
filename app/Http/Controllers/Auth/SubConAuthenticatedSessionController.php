@@ -18,7 +18,9 @@ class SubConAuthenticatedSessionController extends Controller
             return redirect()->route('sub-con.password.change');
         }
 
-        return Inertia::render('Auth/SubConLogin');
+        return Inertia::render('Auth/PartnerLogin', [
+            'defaultRole' => 'sub_con',
+        ]);
     }
 
     public function store(Request $request): RedirectResponse

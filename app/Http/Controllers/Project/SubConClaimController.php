@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Project;
 
 use App\Http\Controllers\Controller;
+use App\Models\PaymentSlip;
 use App\Models\Project;
 use App\Models\SubConClaim;
 use App\Services\RunningNumberService;
@@ -10,6 +11,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class SubConClaimController extends Controller
 {
@@ -78,7 +80,7 @@ class SubConClaimController extends Controller
 
         $validated = $request->validate([
             'verified_amount' => ['nullable', 'numeric', 'min:0'],
-            'verified_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'verified_percent' => ['nullable', 'numeric', 'min:0'],
             'remark' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -86,7 +88,6 @@ class SubConClaimController extends Controller
         $amount = $hasPercent
             ? ((float) $claim->claimed_amount * ((float) $validated['verified_percent'] / 100))
             : (float) ($validated['verified_amount'] ?? $claim->claimed_amount);
-        $amount = min($amount, (float) $claim->claimed_amount);
         $amount = round(max($amount, 0), 2);
         $percent = $hasPercent
             ? round((float) $validated['verified_percent'], 2)
@@ -131,7 +132,7 @@ class SubConClaimController extends Controller
 
         $validated = $request->validate([
             'verified_amount' => ['nullable', 'numeric', 'min:0'],
-            'verified_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'verified_percent' => ['nullable', 'numeric', 'min:0'],
             'remark' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -140,7 +141,6 @@ class SubConClaimController extends Controller
         $amount = $hasPercent
             ? ($baseAmount * ((float) $validated['verified_percent'] / 100))
             : (float) ($validated['verified_amount'] ?? $baseAmount);
-        $amount = min($amount, $baseAmount);
         $amount = round(max($amount, 0), 2);
         $percent = $hasPercent
             ? round((float) $validated['verified_percent'], 2)
@@ -184,7 +184,7 @@ class SubConClaimController extends Controller
 
         $validated = $request->validate([
             'approved_amount' => ['nullable', 'numeric', 'min:0'],
-            'approved_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'approved_percent' => ['nullable', 'numeric', 'min:0'],
             'remark' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -193,7 +193,6 @@ class SubConClaimController extends Controller
         $amount = $hasPercent
             ? ($baseAmount * ((float) $validated['approved_percent'] / 100))
             : (float) ($validated['approved_amount'] ?? $baseAmount);
-        $amount = min($amount, $baseAmount);
         $amount = round(max($amount, 0), 2);
         $percent = $hasPercent
             ? round((float) $validated['approved_percent'], 2)
@@ -336,7 +335,7 @@ class SubConClaimController extends Controller
         ]);
 
         $claim->fill([
-            'status' => 'pending_real_invoice_upload',
+            'status' => 'payment_in_progress',
             'payment_slip_no' => $validated['payment_slip_no'] ?? null,
             'payment_slip_prepared_at' => now(),
             'updated_by' => $request->user()?->id,
@@ -345,13 +344,142 @@ class SubConClaimController extends Controller
         $this->appendLog(
             $claim,
             from: 'accepted_by_subcon',
-            to: 'pending_real_invoice_upload',
+            to: 'payment_in_progress',
             action: 'prepare_payment_slip',
             remark: $validated['remark'] ?? null,
             request: $request
         );
 
-        return back()->with('success', 'Payment slip preparation recorded. Waiting Sub Con real invoice upload.');
+        return back()->with('success', 'Payment slip generated. Continue payment process in accounting.');
+    }
+
+    public function paymentSlip(Request $request, string $projectUuid, string $claimUuid)
+    {
+        $this->ensureInternalUser($request);
+        $claim = $this->getClaim($request, $projectUuid, $claimUuid);
+        $projectBranchId = (int) (Project::query()->whereKey($claim->project_id)->value('branch_id') ?? 0);
+
+        if (!in_array($claim->status, ['payment_in_progress', 'accepted_by_subcon'], true)) {
+            throw ValidationException::withMessages([
+                'status' => 'Payment slip can only be generated after Sub Con acceptance.',
+            ]);
+        }
+
+        $validated = $request->validate([
+            'company_bank_account_id' => [
+                'required',
+                Rule::exists('company_bank_accounts', 'id')->where(function ($query) use ($request, $projectBranchId) {
+                    $query->where('status', 'active');
+
+                    $activeBranchId = (int) ($request->user()?->active_branch_id ?? 0);
+                    $resolvedBranchId = $activeBranchId > 0 ? $activeBranchId : $projectBranchId;
+                    if ($resolvedBranchId > 0) {
+                        $query->where('branch_id', $resolvedBranchId);
+                    }
+                }),
+            ],
+            'less_retention' => ['nullable', 'numeric', 'min:0'],
+            'less_retention_label' => ['nullable', 'string', 'max:255'],
+            'less_recoupment' => ['nullable', 'numeric', 'min:0'],
+            'less_recoupment_label' => ['nullable', 'string', 'max:255'],
+            'less_material_ob' => ['nullable', 'numeric', 'min:0'],
+            'less_material_ob_label' => ['nullable', 'string', 'max:255'],
+            'less_paid_previously' => ['nullable', 'numeric', 'min:0'],
+            'less_paid_previously_label' => ['nullable', 'string', 'max:255'],
+            'payment_slip_remark' => ['nullable', 'string', 'max:255'],
+            'remark_label' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $slip = $claim->paymentSlip ?? new PaymentSlip();
+        if (!$slip->exists) {
+            $slip->slip_no = RunningNumberService::next('payment_slip');
+            $slip->source()->associate($claim);
+        } elseif ($slip->cancelled_at) {
+            $slip->slip_no = RunningNumberService::next('payment_slip');
+            $slip->cancelled_at = null;
+            $slip->cancelled_by = null;
+            $slip->cancel_reason = null;
+        }
+
+        $slip->company_bank_account_id = $validated['company_bank_account_id'];
+        $slip->amount = (float) ($claim->approved_amount ?? $claim->claimed_amount ?? 0);
+        $slip->payment_date = now()->toDateString();
+        $slip->less_retention = $request->input('less_retention');
+        $slip->less_retention_label = $request->input('less_retention_label');
+        $slip->less_recoupment = $request->input('less_recoupment');
+        $slip->less_recoupment_label = $request->input('less_recoupment_label');
+        $slip->less_material_ob = $request->input('less_material_ob');
+        $slip->less_material_ob_label = $request->input('less_material_ob_label');
+        $slip->less_paid_previously = $request->input('less_paid_previously');
+        $slip->less_paid_previously_label = $request->input('less_paid_previously_label');
+        $slip->payment_slip_remark = $request->input('payment_slip_remark');
+        $slip->remark_label = $request->input('remark_label');
+        $slip->workflow_status = 'processing';
+        $slip->approved_at = null;
+        $slip->approved_by = null;
+        $slip->rejected_at = null;
+        $slip->rejected_by = null;
+        $slip->rejected_reason = null;
+        $slip->created_by = $request->user()?->id;
+        $slip->save();
+
+        $claim->fill([
+            'payment_slip_no' => $slip->slip_no,
+            'status' => 'payment_in_progress',
+            'payment_slip_prepared_at' => $claim->payment_slip_prepared_at ?? now(),
+            'updated_by' => $request->user()?->id,
+        ])->save();
+
+        $slip->load([
+            'companyBankAccount',
+            'source.project',
+            'source.subCon',
+        ]);
+
+        return response()->json([
+            'slip' => $slip,
+        ]);
+    }
+
+    public function markPaymentCompleted(Request $request, string $projectUuid, string $claimUuid)
+    {
+        $this->ensureInternalUser($request);
+        $claim = $this->getClaim($request, $projectUuid, $claimUuid);
+
+        if (!in_array($claim->status, ['payment_in_progress', 'accepted_by_subcon'], true)) {
+            return back()->withErrors([
+                'status' => 'Payment can only be completed after Sub Con accepts and payment flow is in progress.',
+            ]);
+        }
+
+        $validated = $request->validate([
+            'remark' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $from = (string) $claim->status;
+
+        $claim->fill([
+            'status' => 'pending_real_invoice_upload',
+            'updated_by' => $request->user()?->id,
+        ])->save();
+
+        if ($claim->paymentSlip) {
+            $claim->paymentSlip->update([
+                'workflow_status' => 'paid',
+                'payment_date' => now()->toDateString(),
+            ]);
+        }
+
+        $this->appendLog(
+            $claim,
+            from: $from,
+            to: 'pending_real_invoice_upload',
+            action: 'payment_completed',
+            remark: $validated['remark'] ?? null,
+            request: $request
+        );
+
+        return back()->with('success', 'Payment completed. Sub Con can now upload real invoice.');
     }
 
     public function downloadProforma(Request $request, string $projectUuid, string $claimUuid)
@@ -381,6 +509,25 @@ class SubConClaimController extends Controller
         return Storage::disk('public')->download(
             $claim->real_invoice_path,
             $claim->real_invoice_name ?: basename($claim->real_invoice_path)
+        );
+    }
+
+    public function downloadProof(Request $request, string $projectUuid, string $claimUuid)
+    {
+        $this->ensureInternalUser($request);
+        $claim = $this->getClaim($request, $projectUuid, $claimUuid);
+
+        $attachments = $this->serializeClaimProofAttachments($claim);
+        $idx = max((int) $request->integer('idx', 0), 0);
+        $selected = $attachments[$idx] ?? null;
+
+        if (!$selected || !Storage::disk('public')->exists((string) ($selected['path'] ?? ''))) {
+            abort(404, 'Proof attachment not found.');
+        }
+
+        return Storage::disk('public')->download(
+            (string) $selected['path'],
+            (string) ($selected['name'] ?? basename((string) $selected['path']))
         );
     }
 
@@ -471,5 +618,32 @@ class SubConClaimController extends Controller
     private function shouldScopeToActiveBranch(Request $request): bool
     {
         return !$request->user()?->isSuperAdmin() || !$request->boolean('all_branches');
+    }
+
+    private function serializeClaimProofAttachments(SubConClaim $claim): array
+    {
+        $rows = collect(is_array($claim->proof_attachments) ? $claim->proof_attachments : [])
+            ->filter(fn ($row) => is_array($row) && !empty($row['path']))
+            ->map(fn ($row) => [
+                'path' => (string) $row['path'],
+                'name' => !empty($row['name']) ? (string) $row['name'] : basename((string) $row['path']),
+            ])
+            ->values()
+            ->all();
+
+        if (!empty($rows)) {
+            return $rows;
+        }
+
+        if (!empty($claim->proof_attachment_path)) {
+            return [[
+                'path' => (string) $claim->proof_attachment_path,
+                'name' => !empty($claim->proof_attachment_name)
+                    ? (string) $claim->proof_attachment_name
+                    : basename((string) $claim->proof_attachment_path),
+            ]];
+        }
+
+        return [];
     }
 }

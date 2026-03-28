@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import { Link } from '@inertiajs/vue3'
 import OverviewTab from './Partials/OverviewTab.vue'
@@ -31,6 +31,20 @@ const props = defineProps({
 
 
 const activeTab = ref('overview')
+
+const hasPortalAccount = computed(() => !!props.supplier?.login_identity_no)
+
+const portalStatusLabel = computed(() => {
+    if (!hasPortalAccount.value) return 'Not Configured'
+    return Number(props.supplier?.login_status ?? 0) === 1 ? 'Active' : 'Inactive'
+})
+
+const portalStatusClass = computed(() => {
+    if (!hasPortalAccount.value) return 'bg-gray-100 text-gray-700'
+    return Number(props.supplier?.login_status ?? 0) === 1
+        ? 'bg-emerald-100 text-emerald-700'
+        : 'bg-amber-100 text-amber-700'
+})
 
 
 </script>
@@ -136,6 +150,46 @@ const activeTab = ref('overview')
                             <p class="text-sm text-gray-700 whitespace-pre-line">
                                 {{ supplier.address || '-' }}
                             </p>
+                        </div>
+
+                        <!-- Portal Access -->
+                        <div class="pt-4 mt-4 border-t">
+                            <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                                <p class="text-xs uppercase tracking-wide text-gray-400">
+                                    Portal Access
+                                </p>
+                                <span
+                                    class="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full"
+                                    :class="portalStatusClass"
+                                >
+                                    {{ portalStatusLabel }}
+                                </span>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <p class="text-gray-500">Login ID</p>
+                                    <p class="font-medium text-gray-800">
+                                        {{ supplier.login_identity_no || '-' }}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p class="text-gray-500">Login Email</p>
+                                    <p class="font-medium text-gray-800 break-all">
+                                        {{ supplier.login_email || '-' }}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="mt-3">
+                                <a
+                                    :href="route('supplier.login')"
+                                    class="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                                >
+                                    <i class="mdi mdi-open-in-new"></i>
+                                    Open Supplier Portal Login
+                                </a>
+                            </div>
                         </div>
 
                     </div>

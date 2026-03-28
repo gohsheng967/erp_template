@@ -8,6 +8,8 @@ use Str;
 class PurchaseRequestItem extends Model
 {
     protected $fillable = [
+        'purchase_request_id',
+        'parent_id',
         'title',
         'description',
         'quantity',
@@ -28,5 +30,14 @@ class PurchaseRequestItem extends Model
     {
         return $this->belongsTo(PurchaseRequest::class);
     }
-}
 
+    public function parent()
+    {
+        return $this->belongsTo(self::class, 'parent_id');
+    }
+
+    public function children()
+    {
+        return $this->hasMany(self::class, 'parent_id');
+    }
+}

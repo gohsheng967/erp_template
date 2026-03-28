@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use App\Models\PurchaseQuotation;
 use App\Models\PurchaseOrder;
@@ -76,7 +77,38 @@ class SupplierController extends Controller
             'email'            => 'nullable|email|max:255',
             'address'          => 'nullable|string',
             'status'           => 'nullable|string',
+            'create_login_account' => 'nullable|boolean',
+            'login_identity_no' => 'nullable|string|max:100|unique:suppliers,login_identity_no',
+            'login_email' => 'nullable|email|max:255|unique:suppliers,login_email',
+            'login_password' => 'nullable|string|min:6|max:100',
+            'login_status' => 'nullable|integer|in:0,1',
         ]);
+
+        $createLogin = (bool) ($data['create_login_account'] ?? false);
+        unset($data['create_login_account']);
+
+        if ($createLogin) {
+            $identity = trim((string) ($data['login_identity_no'] ?? ''));
+            if ($identity === '') {
+                $identity = trim((string) $data['registration_no']);
+            }
+
+            $plainPassword = trim((string) ($data['login_password'] ?? ''));
+            if ($plainPassword === '') {
+                $plainPassword = $identity;
+            }
+
+            $data['login_identity_no'] = $identity;
+            $data['login_password'] = Hash::make($plainPassword);
+            $data['login_status'] = (int) ($data['login_status'] ?? 1);
+            $data['login_must_change_password'] = true;
+        } else {
+            $data['login_identity_no'] = null;
+            $data['login_email'] = null;
+            $data['login_password'] = null;
+            $data['login_status'] = 0;
+            $data['login_must_change_password'] = false;
+        }
 
         Supplier::create($data);
 
@@ -179,7 +211,44 @@ class SupplierController extends Controller
             'email'            => 'nullable|email|max:255',
             'address'          => 'nullable|string',
             'status'           => 'required|string',
+            'manage_login_account' => 'nullable|boolean',
+            'login_identity_no' => 'nullable|string|max:100|unique:suppliers,login_identity_no,'.$supplier->id,
+            'login_email' => 'nullable|email|max:255|unique:suppliers,login_email,'.$supplier->id,
+            'login_password' => 'nullable|string|min:6|max:100',
+            'login_status' => 'nullable|integer|in:0,1',
         ]);
+
+        $manageLogin = (bool) ($data['manage_login_account'] ?? false);
+        unset($data['manage_login_account']);
+
+        if ($manageLogin) {
+            $identity = trim((string) ($data['login_identity_no'] ?? ''));
+            $plainPassword = trim((string) ($data['login_password'] ?? ''));
+
+            if ($identity !== '') {
+                $data['login_identity_no'] = $identity;
+            } else {
+                unset($data['login_identity_no']);
+            }
+
+            if ($plainPassword !== '') {
+                $data['login_password'] = Hash::make($plainPassword);
+                $data['login_must_change_password'] = true;
+            } else {
+                unset($data['login_password']);
+            }
+
+            if (array_key_exists('login_status', $data)) {
+                $data['login_status'] = (int) $data['login_status'];
+            }
+        } else {
+            unset(
+                $data['login_identity_no'],
+                $data['login_email'],
+                $data['login_password'],
+                $data['login_status']
+            );
+        }
 
         $supplier->update($data);
 

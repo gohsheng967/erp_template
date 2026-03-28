@@ -37,6 +37,7 @@ const poPaymentTerms = ref(pr.value.payment_terms ?? '')
 const poSiteContactUserId = ref(pr.value.site_contact_user_id ?? '')
 const stageRemark = ref('')
 const quotationOptions = computed(() => pr.value.quotations ?? [])
+const isQuotationSectionOpen = ref(true)
 
 /* =========================
    FORM STATE (BASIC INFO)
@@ -57,6 +58,9 @@ const form = ref({
 const items = ref(
     (pr.value.items ?? []).map(item => ({
         id: item.id ?? null,
+        parent_id: item.parent_id ?? null,
+        temp_key: `persist-${item.id ?? Math.random().toString(36).slice(2)}`,
+        parent_temp_key: null,
         title: item.title ?? '',
         required_date: item.required_date ?? '',
         description: item.description ?? '',
@@ -82,13 +86,118 @@ function recalcItem(item) {
 }
 
 
-const subtotal = computed(() =>
-    items.value.reduce((sum, i) => sum + Number(i.total_price || 0), 0)
-)
+const subtotal = computed(() => {
+    const parentKeys = new Set()
+    items.value.forEach((item) => {
+        const parentKey = item.parent_id
+            ? `id:${item.parent_id}`
+            : (item.parent_temp_key ? `tmp:${item.parent_temp_key}` : null)
+        if (parentKey) parentKeys.add(parentKey)
+    })
+
+    return items.value.reduce((sum, item) => {
+        const itemKey = item.id ? `id:${item.id}` : `tmp:${item.temp_key}`
+        const isParent = parentKeys.has(itemKey)
+        if (isParent) return sum
+        return sum + Number(item.total_price || 0)
+    }, 0)
+})
+const parentChildMismatches = computed(() => {
+    const grouped = new Map()
+
+    items.value.forEach((item) => {
+        const parentKey = item.parent_id ? `id:${item.parent_id}` : (item.parent_temp_key ? `tmp:${item.parent_temp_key}` : null)
+        if (!parentKey) return
+        grouped.set(parentKey, (grouped.get(parentKey) ?? 0) + Number(item.total_price || 0))
+    })
+
+    const mismatches = []
+    items.value.forEach((item) => {
+        const itemKey = item.id ? `id:${item.id}` : `tmp:${item.temp_key}`
+        if (!grouped.has(itemKey)) return
+
+        const parentTotal = Number(item.total_price || 0)
+        const childrenTotal = Number(grouped.get(itemKey) || 0)
+        if (Math.abs(parentTotal - childrenTotal) > 0.01) {
+            mismatches.push({
+                title: (item.title || '').trim() || 'Untitled Item',
+                parentTotal,
+                childrenTotal,
+            })
+        }
+    })
+
+    return mismatches
+})
+
+function makeTempKey() {
+    return `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function itemIdentifier(item) {
+    if (item.id) return `id:${item.id}`
+    if (item.temp_key) return `tmp:${item.temp_key}`
+    return null
+}
+
+function isDescendant(candidate, ancestor) {
+    const targetKey = itemIdentifier(ancestor)
+    if (!targetKey) return false
+
+    let walker = candidate
+    for (let i = 0; i < items.value.length; i++) {
+        const parentById = walker.parent_id
+            ? items.value.find(x => x.id === walker.parent_id)
+            : null
+        const parentByTemp = walker.parent_temp_key
+            ? items.value.find(x => x.temp_key === walker.parent_temp_key)
+            : null
+        const parent = parentById ?? parentByTemp
+        if (!parent) return false
+        if (itemIdentifier(parent) === targetKey) return true
+        walker = parent
+    }
+
+    return false
+}
+
+function normalizeParentReference(item) {
+    if (!item.parent_id && !item.parent_temp_key) return
+
+    const parent = item.parent_id
+        ? items.value.find(x => x.id === item.parent_id)
+        : items.value.find(x => x.temp_key === item.parent_temp_key)
+
+    if (!parent || parent === item || isDescendant(parent, item)) {
+        item.parent_id = null
+        item.parent_temp_key = null
+    }
+}
 
 function addItem() {
     items.value.push({
         id: null,
+        parent_id: null,
+        temp_key: makeTempKey(),
+        parent_temp_key: null,
+        title: '',
+        description: '',
+        quantity: null,
+        unit_price: null,
+        total_price: 0,
+    })
+}
+
+function addSubItem(parentIndex) {
+    const parent = items.value[parentIndex]
+    if (!parent) return
+
+    const insertIndex = parentIndex + 1
+    items.value.splice(insertIndex, 0, {
+        id: null,
+        parent_id: parent.id ?? null,
+        parent_temp_key: parent.id ? null : parent.temp_key,
+        temp_key: makeTempKey(),
         title: '',
         description: '',
         quantity: null,
@@ -98,7 +207,26 @@ function addItem() {
 }
 
 function removeItem(index) {
-    items.value.splice(index, 1)
+    const target = items.value[index]
+    if (!target) return
+
+    const targetId = target.id ?? null
+    const targetTempKey = target.temp_key ?? null
+
+    items.value = items.value.filter((item, i) => {
+        if (i === index) return false
+        if (targetId && item.parent_id === targetId) return false
+        if (targetTempKey && item.parent_temp_key === targetTempKey) return false
+        return true
+    })
+
+    items.value.forEach(normalizeParentReference)
+}
+
+function parentLabel(item) {
+    if (!item) return ''
+    const title = (item.title || '').trim() || 'Untitled Item'
+    return item.id ? `${title} (#${item.id})` : `${title} (new)`
 }
 
 /* =========================
@@ -138,6 +266,11 @@ const canIssuePo = computed(() =>
    ACTIONS
 ========================= */
 function saveDraft() {
+    if (parentChildMismatches.value.length) {
+        toast?.value?.show('Sub-item sum must equal main item amount.', 'error')
+        return
+    }
+
     router.put(
         route('purchase-request.update', pr.value.uuid),
         {
@@ -157,6 +290,11 @@ function saveDraft() {
 }
 
 function submitPR() {
+    if (parentChildMismatches.value.length) {
+        toast?.value?.show('Sub-item sum must equal main item amount.', 'error')
+        return
+    }
+
     router.post(
         route('purchase-request.submit', pr.value.uuid),
         {
@@ -498,7 +636,31 @@ function submitForPoIssue() {
         </section>
 
         <!-- =====================
-             SECTION 2: ITEMS
+             SECTION 2: SUPPLIERS & QUOTATIONS
+        ====================== -->
+        <section class="bg-white rounded-lg shadow border p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="font-semibold text-lg">Suppliers & Quotations</h3>
+                <button
+                    type="button"
+                    class="px-3 py-1 text-xs font-medium bg-gray-100 border rounded hover:bg-gray-200"
+                    @click="isQuotationSectionOpen = !isQuotationSectionOpen"
+                >
+                    {{ isQuotationSectionOpen ? 'Collapse' : 'Expand' }}
+                </button>
+            </div>
+
+            <div v-show="isQuotationSectionOpen">
+                <PurchaseRequestQuotations
+                    :pr="pr"
+                    :isDraft="isEditable"
+                    :is-sub-con-purchase-request="!!form.is_subcon_purchase_request"
+                />
+            </div>
+        </section>
+
+        <!-- =====================
+             SECTION 3: ITEMS
         ====================== -->
         <section class="bg-white rounded-lg shadow border p-6">
             <div class="flex justify-between items-center mb-4">
@@ -514,9 +676,16 @@ function submitForPoIssue() {
             </div>
 
             <div class="overflow-x-auto">
+                <div
+                    v-if="parentChildMismatches.length"
+                    class="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+                >
+                    Main item amount must equal sub-item sum.
+                </div>
                 <table class="min-w-full text-sm border">
                     <thead class="bg-gray-100">
                         <tr>
+                            <th class="border px-3 py-2 text-left w-56">Parent</th>
                             <th class="border px-3 py-2 text-left">Title</th>
                             <th class="border px-3 py-2 text-left">Description</th>
                             <th class="border px-3 py-2 text-right w-24">Qty</th>
@@ -531,6 +700,39 @@ function submitForPoIssue() {
                             v-for="(item, index) in items"
                             :key="index"
                         >
+                            <td class="border px-3 py-2">
+                                <select
+                                    :value="item.parent_id ? `id:${item.parent_id}` : (item.parent_temp_key ? `tmp:${item.parent_temp_key}` : '')"
+                                    :disabled="!isEditable"
+                                    class="w-full border rounded px-2 py-1"
+                                    @change="(e) => {
+                                        const value = e.target.value
+                                        if (!value) {
+                                            item.parent_id = null
+                                            item.parent_temp_key = null
+                                            return
+                                        }
+                                        if (value.startsWith('id:')) {
+                                            item.parent_id = Number(value.slice(3))
+                                            item.parent_temp_key = null
+                                            return
+                                        }
+                                        item.parent_id = null
+                                        item.parent_temp_key = value.slice(4)
+                                    }"
+                                >
+                                    <option value="">Main Item</option>
+                                    <option
+                                        v-for="(p, pIndex) in items"
+                                        :key="`parent-${index}-${pIndex}`"
+                                        :value="p.id ? `id:${p.id}` : `tmp:${p.temp_key}`"
+                                        :disabled="p === item || isDescendant(p, item)"
+                                    >
+                                        {{ parentLabel(p) }}
+                                    </option>
+                                </select>
+                            </td>
+
                             <td class="border px-3 py-2">
                                 <input
                                     v-model="item.title"
@@ -579,18 +781,28 @@ function submitForPoIssue() {
                                 v-if="isEditable"
                                 class="border px-3 py-2 text-center"
                             >
-                                <button
-                                    @click="removeItem(index)"
-                                    class="text-red-600 hover:text-red-800"
-                                >
-                                    <i class="mdi mdi-delete"></i>
-                                </button>
+                                <div class="flex items-center justify-center gap-2">
+                                    <button
+                                        @click="addSubItem(index)"
+                                        class="text-indigo-600 hover:text-indigo-800"
+                                        title="Add sub item"
+                                    >
+                                        <i class="mdi mdi-plus-box-outline"></i>
+                                    </button>
+                                    <button
+                                        @click="removeItem(index)"
+                                        class="text-red-600 hover:text-red-800"
+                                        title="Remove item"
+                                    >
+                                        <i class="mdi mdi-delete"></i>
+                                    </button>
+                                </div>
                             </td>
                         </tr>
 
                         <tr v-if="!items.length">
                             <td
-                                :colspan="isEditable ? 6 : 5"
+                                :colspan="isEditable ? 7 : 6"
                                 class="border px-3 py-6 text-center text-gray-400"
                             >
                                 No items added
@@ -600,7 +812,7 @@ function submitForPoIssue() {
 
                     <tfoot v-if="items.length">
                         <tr class="bg-gray-50 font-semibold">
-                            <td colspan="4" class="border px-3 py-2 text-right">
+                            <td colspan="5" class="border px-3 py-2 text-right">
                                 Subtotal
                             </td>
                             <td class="border px-3 py-2 text-right tabular-nums">
@@ -612,15 +824,6 @@ function submitForPoIssue() {
                 </table>
             </div>
         </section>
-
-        <!-- =====================
-             SECTION 3: SUPPLIERS & QUOTATIONS
-        ====================== -->
-        <PurchaseRequestQuotations
-            :pr="pr"
-            :isDraft="isEditable"
-            :is-sub-con-purchase-request="!!form.is_subcon_purchase_request"
-        />
 
     </div>
 </AuthenticatedLayout>

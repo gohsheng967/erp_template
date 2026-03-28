@@ -75,6 +75,7 @@ const columnsByStatus = {
 
     po: [
         'pr_no',
+        'title',
         'project_linked',
         'po_no',
         'approved_quotation',
@@ -84,6 +85,7 @@ const columnsByStatus = {
 
     payment: [
         'pr_no',
+        'title',
         'project_linked',
         'po_no',
         'payment_status',
@@ -106,7 +108,7 @@ const columnsByStatus = {
 
 const columnLabels = {
     pr_no: 'PR No',
-    po_no: 'PO No',
+    po_no: 'PO',
     payment_status: 'Payment Status',
     title: 'Title / Purpose',
     project_linked: 'Project Linked',

@@ -23,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'auth.mfa'   => \App\Http\Middleware\EnsureMFAIsVerified::class,
             'auth.force-password' => \App\Http\Middleware\EnsurePasswordIsChanged::class,
             'auth.subcon' => \App\Http\Middleware\EnsureSubConIsAuthenticated::class,
+            'auth.supplier' => \App\Http\Middleware\EnsureSupplierIsAuthenticated::class,
             'branch.context' => \App\Http\Middleware\EnsureActiveBranchContext::class,
         ]);
     })

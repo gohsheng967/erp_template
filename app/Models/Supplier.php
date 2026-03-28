@@ -15,7 +15,20 @@ class Supplier extends Model
         'email',
         'address',
         'status',
-        'internal_note'
+        'internal_note',
+        'login_identity_no',
+        'login_email',
+        'login_password',
+        'login_status',
+        'login_must_change_password',
+    ];
+
+    protected $hidden = [
+        'login_password',
+    ];
+
+    protected $casts = [
+        'login_must_change_password' => 'boolean',
     ];
 
     protected static function booted()
@@ -40,5 +53,10 @@ class Supplier extends Model
     public function invoices()
     {
         return $this->hasMany(ApInvoice::class);
+    }
+
+    public function claims()
+    {
+        return $this->hasMany(SupplierClaim::class, 'supplier_id');
     }
 }

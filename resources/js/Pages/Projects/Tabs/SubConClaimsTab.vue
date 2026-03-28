@@ -1,6 +1,6 @@
 <script setup>
 import { computed, inject, ref } from "vue";
-import { Link, router } from "@inertiajs/vue3";
+import { router } from "@inertiajs/vue3";
 import { useFormat } from "@/Composables/useFormat";
 
 const props = defineProps({
@@ -20,6 +20,7 @@ const props = defineProps({
 
 const toast = inject("toast", null);
 const { formatCurrency, formatDateTime } = useFormat();
+const MAX_VERIFY_PERCENT = 1000;
 
 const activeStage = ref("all");
 
@@ -31,6 +32,7 @@ const stageTabs = [
     { key: "ceo_gm_approved", label: "CEO/GM Approved" },
     { key: "appealed", label: "Appealed" },
     { key: "accepted_by_subcon", label: "Accepted by Sub Con" },
+    { key: "payment_in_progress", label: "Payment In Progress" },
     { key: "pending_real_invoice_upload", label: "Pending Real Invoice Upload" },
     { key: "real_invoice_uploaded", label: "Real Invoice Uploaded" },
 ];
@@ -75,6 +77,7 @@ function statusLabel(status) {
     if (status === "ceo_gm_approved") return "CEO / GM Approved";
     if (status === "appealed") return "Appealed";
     if (status === "accepted_by_subcon") return "Accepted by Sub Con";
+    if (status === "payment_in_progress") return "Payment In Progress";
     if (status === "pending_real_invoice_upload") return "Pending Real Invoice Upload";
     if (status === "real_invoice_uploaded") return "Real Invoice Uploaded";
     return status || "-";
@@ -87,6 +90,7 @@ function statusTone(status) {
     if (status === "ceo_gm_approved") return "bg-emerald-100 text-emerald-700";
     if (status === "appealed") return "bg-amber-100 text-amber-700";
     if (status === "accepted_by_subcon") return "bg-cyan-100 text-cyan-700";
+    if (status === "payment_in_progress") return "bg-sky-100 text-sky-700";
     if (status === "pending_real_invoice_upload") return "bg-teal-100 text-teal-700";
     if (status === "real_invoice_uploaded") return "bg-green-100 text-green-700";
     return "bg-gray-100 text-gray-700";
@@ -94,6 +98,10 @@ function statusTone(status) {
 
 function claimSubConName(claim) {
     return claim?.sub_con?.company_name || claim?.sub_con?.name || "-";
+}
+
+function claimItems(claim) {
+    return Array.isArray(claim?.claim_items) ? claim.claim_items : [];
 }
 
 function showError(errors, fallback = "Action failed.") {
@@ -110,6 +118,49 @@ function refreshClaims() {
 }
 
 function openAction(type, claim) {
+    if (type === "prepare_payment") {
+        router.post(
+            route("projects.sub-con-claims.prepare-payment-slip", {
+                project: props.project.uuid,
+                claim: claim.uuid,
+            }),
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    toast?.value?.show("Payment slip generated. Continue in Payment Slips module.", "success");
+                    refreshClaims();
+                    const url = route("payment-slips.index", { tab: "pending" });
+                    const popup = window.open(url, "_blank", "noopener");
+                    if (!popup) {
+                        router.visit(url);
+                    }
+                },
+                onError: (errors) => showError(errors),
+            }
+        );
+        return;
+    }
+
+    if (type === "mark_payment_done") {
+        router.post(
+            route("projects.sub-con-claims.mark-payment-completed", {
+                project: props.project.uuid,
+                claim: claim.uuid,
+            }),
+            {},
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    toast?.value?.show("Payment marked completed. Sub Con can upload real invoice now.", "success");
+                    refreshClaims();
+                },
+                onError: (errors) => showError(errors),
+            }
+        );
+        return;
+    }
+
     selectedClaim.value = claim;
 
     const baseAmount =
@@ -135,8 +186,8 @@ function openAction(type, claim) {
                 ? "Contra Verify"
                 : type === "approve"
                 ? "CEO / GM Approve"
-                : "Prepare Payment Slip",
-        amount: type === "prepare_payment" ? (claim?.payment_slip_no || "") : String(baseAmount),
+                : "Action",
+        amount: String(baseAmount),
         percent: "100",
         remark: "",
         work_done_note: "",
@@ -229,7 +280,7 @@ function actionBaseAmount() {
 function clampPercent(value) {
     const number = Number(value);
     if (!Number.isFinite(number)) return 0;
-    return Math.max(0, Math.min(100, number));
+    return Math.max(0, Math.min(MAX_VERIFY_PERCENT, number));
 }
 
 function syncVerifyAmountFromPercent() {
@@ -458,7 +509,7 @@ function submitRealInvoice() {
         <div class="bg-white border rounded-lg p-4">
             <h3 class="font-semibold text-gray-800 mb-1">Sub Con Claims</h3>
             <p class="text-xs text-gray-500 mb-4">
-                Workflow: Submit Proforma > Project Verify > Contra Verify > CEO/GM Approve > Sub Con Accept/Appeal > Real Invoice Upload
+                Workflow: Submit Proforma > Project Verify > Contra Verify > CEO/GM Approve > Sub Con Accept/Appeal > Generate Payment Slip > Payment Done > Real Invoice Upload
             </p>
             <p class="text-xs text-indigo-600">
                 Submission, Sub Con accept/appeal, and pending real invoice upload are handled in Sub Con Portal.
@@ -498,6 +549,7 @@ function submitRealInvoice() {
                             <td class="px-3 py-2">
                                 <div class="font-medium text-gray-800">{{ claim.claim_no || "-" }}</div>
                                 <div class="text-gray-600">{{ claim.title }}</div>
+                                <div class="text-xs text-gray-500">PO: {{ claim.purchase_order?.code || "-" }}</div>
                                 <div class="text-xs text-gray-500">{{ formatDateTime(claim.created_at) || "-" }}</div>
                             </td>
                             <td class="px-3 py-2">
@@ -519,19 +571,33 @@ function submitRealInvoice() {
                             </td>
                             <td class="px-3 py-2">
                                 <div class="flex flex-col items-start gap-1 text-xs">
-                                    <Link
+                                    <a
                                         :href="route('projects.sub-con-claims.proforma.download', { project: project.uuid, claim: claim.uuid })"
                                         class="text-indigo-600 hover:text-indigo-700"
+                                        target="_blank"
+                                        rel="noopener"
                                     >
                                         Proforma
-                                    </Link>
-                                    <Link
+                                    </a>
+                                    <a
+                                        v-for="(proof, idx) in (claim.proof_attachments || [])"
+                                        :key="`${claim.uuid}-proof-${idx}`"
+                                        :href="`${route('projects.sub-con-claims.proof.download', { project: project.uuid, claim: claim.uuid })}?idx=${idx}`"
+                                        class="text-fuchsia-600 hover:text-fuchsia-700"
+                                        target="_blank"
+                                        rel="noopener"
+                                    >
+                                        Proof {{ idx + 1 }}
+                                    </a>
+                                    <a
                                         v-if="claim.real_invoice_name"
                                         :href="route('projects.sub-con-claims.real-invoice.download', { project: project.uuid, claim: claim.uuid })"
                                         class="text-emerald-600 hover:text-emerald-700"
+                                        target="_blank"
+                                        rel="noopener"
                                     >
                                         Real Invoice
-                                    </Link>
+                                    </a>
                                 </div>
                             </td>
                             <td class="px-3 py-2">
@@ -573,7 +639,15 @@ function submitRealInvoice() {
                                         class="px-2.5 py-1 text-xs rounded bg-cyan-50 text-cyan-700 hover:bg-cyan-100"
                                         @click="openAction('prepare_payment', claim)"
                                     >
-                                        Prepare Payment Slip
+                                        Generate Payment Slip
+                                    </button>
+                                    <button
+                                        v-if="claim.status === 'payment_in_progress'"
+                                        type="button"
+                                        class="px-2.5 py-1 text-xs rounded bg-sky-50 text-sky-700 hover:bg-sky-100"
+                                        @click="openAction('mark_payment_done', claim)"
+                                    >
+                                        Payment Done
                                     </button>
                                     <button
                                         v-if="claim.status === 'pending_real_invoice_upload'"
@@ -634,13 +708,58 @@ function submitRealInvoice() {
                         <span class="font-semibold text-gray-800">Submission Remark:</span>
                         {{ claimSubmissionRemark(selectedClaim) }}
                     </div>
-                    <div class="mt-2">
-                        <Link
-                            :href="route('projects.sub-con-claims.proforma.download', { project: project.uuid, claim: selectedClaim.uuid })"
-                            class="inline-flex items-center rounded border border-indigo-200 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
-                        >
-                            View Proforma Attachment
-                        </Link>
+                        <div class="mt-2">
+                            <a
+                                :href="route('projects.sub-con-claims.proforma.download', { project: project.uuid, claim: selectedClaim.uuid })"
+                                class="inline-flex items-center rounded border border-indigo-200 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                                target="_blank"
+                                rel="noopener"
+                            >
+                                View Proforma Attachment
+                            </a>
+                            <template v-for="(proof, idx) in (selectedClaim.proof_attachments || [])" :key="`${selectedClaim.uuid}-proof-btn-${idx}`">
+                                <a
+                                    :href="`${route('projects.sub-con-claims.proof.download', { project: project.uuid, claim: selectedClaim.uuid })}?idx=${idx}`"
+                                    class="ml-2 inline-flex items-center rounded border border-fuchsia-200 bg-white px-2.5 py-1 text-xs font-medium text-fuchsia-700 hover:bg-fuchsia-50"
+                                    target="_blank"
+                                    rel="noopener"
+                                >
+                                    View Proof {{ idx + 1 }}
+                                </a>
+                            </template>
+                        </div>
+                    <div v-if="claimItems(selectedClaim).length" class="mt-3">
+                        <div class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-600">
+                            Claim Item Details (From PO)
+                        </div>
+                        <div class="overflow-x-auto rounded-md border border-slate-200 bg-white">
+                            <table class="min-w-full text-[11px]">
+                                <thead class="bg-slate-50 text-slate-600">
+                                    <tr>
+                                        <th class="px-2 py-1.5 text-left font-semibold">Item</th>
+                                        <th class="px-2 py-1.5 text-left font-semibold">Description</th>
+                                        <th class="px-2 py-1.5 text-right font-semibold">Qty</th>
+                                        <th class="px-2 py-1.5 text-right font-semibold">Unit Price</th>
+                                        <th class="px-2 py-1.5 text-right font-semibold">Amount</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr
+                                        v-for="item in claimItems(selectedClaim)"
+                                        :key="item.id"
+                                        class="border-t border-slate-100"
+                                    >
+                                        <td class="px-2 py-1.5 text-slate-800" :class="item.is_child ? 'pl-5' : ''">
+                                            {{ item.is_child ? "-> " : "" }}{{ item.title || "-" }}
+                                        </td>
+                                        <td class="px-2 py-1.5 text-slate-600">{{ item.description || "-" }}</td>
+                                        <td class="px-2 py-1.5 text-right text-slate-700">{{ Number(item.quantity || 0).toFixed(2) }}</td>
+                                        <td class="px-2 py-1.5 text-right text-slate-700">{{ formatCurrency(item.unit_price || 0) }}</td>
+                                        <td class="px-2 py-1.5 text-right font-semibold text-slate-800">{{ formatCurrency(item.total || 0) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                     <div
                         v-if="shouldShowPreviousDecisionBlock() && previousDecisionHistory(selectedClaim).length"
@@ -723,18 +842,19 @@ function submitRealInvoice() {
                             v-model="actionModal.percent"
                             type="number"
                             min="0"
-                            max="100"
+                            :max="MAX_VERIFY_PERCENT"
                             step="0.01"
                             class="w-full border border-gray-300 rounded px-3 py-2 text-sm"
                             @input="syncVerifyAmountFromPercent"
                         />
+                        <p class="mt-1 text-[11px] text-gray-500">Can exceed 100% when current verification is higher than previous stage.</p>
                     </div>
                     <div class="md:col-span-2">
                         <input
                             v-model="actionModal.percent"
                             type="range"
                             min="0"
-                            max="100"
+                            :max="MAX_VERIFY_PERCENT"
                             step="1"
                             class="w-full"
                             @input="syncVerifyAmountFromPercent"

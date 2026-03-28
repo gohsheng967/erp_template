@@ -27,7 +27,7 @@ const submit = () => {
                 <p class="text-gray-500 mt-2">Login to submit your project progress</p>
             </div>
 
-            <div class="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-1 grid grid-cols-2 gap-1">
+            <div class="mb-6 rounded-lg border border-slate-200 bg-slate-50 p-1 grid grid-cols-3 gap-1">
                 <a
                     :href="route('login')"
                     class="rounded-md px-3 py-2 text-center text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-white transition flex items-center justify-center gap-2"
@@ -41,6 +41,13 @@ const submit = () => {
                 >
                     <i class="mdi mdi-account-tie"></i>
                     Sub Con
+                </a>
+                <a
+                    :href="route('supplier.login')"
+                    class="rounded-md px-3 py-2 text-center text-sm font-medium text-slate-700 hover:text-slate-900 hover:bg-white transition flex items-center justify-center gap-2"
+                >
+                    <i class="mdi mdi-truck-delivery-outline"></i>
+                    Supplier
                 </a>
             </div>
 

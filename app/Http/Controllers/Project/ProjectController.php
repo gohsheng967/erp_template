@@ -179,7 +179,14 @@ class ProjectController extends Controller
             ->orderByDesc('id')
             ->get();
         $subConClaims = SubConClaim::query()
-            ->with(['subCon:id,uuid,name,company_name', 'creator:id,name', 'updater:id,name'])
+            ->with([
+                'subCon:id,uuid,name,company_name',
+                'creator:id,name',
+                'updater:id,name',
+                'purchaseOrder:id,uuid,code',
+                'purchaseOrder.items:id,purchase_order_id,purchase_request_item_id,item_name,description,quantity,unit_price',
+                'purchaseOrder.items.purchaseRequestItem:id,parent_id,title',
+            ])
             ->where('project_id', $project->id)
             ->orderByDesc('id')
             ->get();
@@ -281,6 +288,24 @@ class ProjectController extends Controller
 
             'subConTasks' => $subConTasks,
             'subConClaims' => $subConClaims->map(function (SubConClaim $claim) {
+                $claimItems = collect($claim->purchaseOrder?->items ?? [])
+                    ->map(function ($item) {
+                        $qty = (float) ($item->quantity ?? 0);
+                        $unitPrice = (float) ($item->unit_price ?? 0);
+                        $prItem = $item->purchaseRequestItem;
+
+                        return [
+                            'id' => $item->id,
+                            'title' => $item->item_name,
+                            'description' => $item->description,
+                            'quantity' => $qty,
+                            'unit_price' => $unitPrice,
+                            'total' => round($qty * $unitPrice, 2),
+                            'is_child' => (int) ($prItem?->parent_id ?? 0) > 0,
+                        ];
+                    })
+                    ->values();
+
                 return [
                     'id' => $claim->id,
                     'uuid' => $claim->uuid,
@@ -294,6 +319,30 @@ class ProjectController extends Controller
                     'payment_slip_no' => $claim->payment_slip_no,
                     'appeal_round' => (int) ($claim->appeal_round ?? 0),
                     'proforma_invoice_name' => $claim->proforma_invoice_name,
+                    'proof_attachment_name' => $claim->proof_attachment_name,
+                    'proof_attachments' => (function () use ($claim) {
+                        $rows = collect(is_array($claim->proof_attachments) ? $claim->proof_attachments : [])
+                            ->filter(fn ($row) => is_array($row) && !empty($row['path']))
+                            ->map(fn ($row) => [
+                                'name' => !empty($row['name']) ? (string) $row['name'] : basename((string) $row['path']),
+                            ])
+                            ->values()
+                            ->all();
+
+                        if (!empty($rows)) {
+                            return $rows;
+                        }
+
+                        if (!empty($claim->proof_attachment_path)) {
+                            return [[
+                                'name' => !empty($claim->proof_attachment_name)
+                                    ? (string) $claim->proof_attachment_name
+                                    : basename((string) $claim->proof_attachment_path),
+                            ]];
+                        }
+
+                        return [];
+                    })(),
                     'real_invoice_name' => $claim->real_invoice_name,
                     'real_invoice_no' => $claim->real_invoice_no,
                     'real_invoice_date' => optional($claim->real_invoice_date)?->toDateString(),
@@ -312,6 +361,11 @@ class ProjectController extends Controller
                         'name' => $claim->subCon->name,
                         'company_name' => $claim->subCon->company_name,
                     ] : null,
+                    'purchase_order' => $claim->purchaseOrder ? [
+                        'uuid' => $claim->purchaseOrder->uuid,
+                        'code' => $claim->purchaseOrder->code,
+                    ] : null,
+                    'claim_items' => $claimItems,
                     'creator' => $claim->creator ? [
                         'name' => $claim->creator->name,
                     ] : null,

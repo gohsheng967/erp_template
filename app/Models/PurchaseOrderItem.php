@@ -43,6 +43,11 @@ class PurchaseOrderItem extends Model
         return $this->hasMany(PurchaseDeliveryItem::class);
     }
 
+    public function purchaseRequestItem()
+    {
+        return $this->belongsTo(PurchaseRequestItem::class, 'purchase_request_item_id');
+    }
+
     /* ======================
        DERIVED VALUES
     ====================== */

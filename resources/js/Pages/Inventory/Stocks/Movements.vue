@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { usePage, router } from '@inertiajs/vue3'
+import { usePage, router, useForm } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 
 const page = usePage()
@@ -9,6 +9,8 @@ const warehouses = computed(() => page.props.warehouses ?? [])
 const stockCategories = computed(() => page.props.stock_categories ?? [])
 const movements = computed(() => page.props.movements ?? [])
 const filters = computed(() => page.props.filters ?? {})
+const currentUserId = computed(() => Number(page.props.auth?.user?.data?.id ?? page.props.auth?.user?.id ?? 0))
+const approveForm = useForm({})
 
 const isDrillDown = computed(() => !!filters.value.warehouse_id && !!filters.value.po_item_id)
 
@@ -94,6 +96,7 @@ function typeClass(type) {
 function destinationLabel(m) {
     if (m.issue_destination_type === 'office') return 'Office'
     if (m.issue_destination_type === 'project') return `${m.project?.name || 'Project'} / ${m.site?.site_name || '-'}`
+    if (m.issue_destination_type === 'user') return m.destination_user?.name || '-'
     return '-'
 }
 
@@ -103,6 +106,30 @@ function resetFilters() {
     selectedDestination.value = 'all'
     selectedCategory.value = 'all'
     search.value = ''
+}
+
+function approvalLabel(m) {
+    if (!m.issuer_id || m.type !== 'OUT') return '-'
+    return m.issuer_approved_at ? 'Approved' : 'Pending'
+}
+
+function approvalClass(m) {
+    if (!m.issuer_id || m.type !== 'OUT') return 'bg-gray-100 text-gray-600'
+    return m.issuer_approved_at ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+}
+
+function canApprove(m) {
+    if (m.type !== 'OUT') return false
+    if (!m.issuer_id || m.issuer_approved_at) return false
+    return Number(m.issuer_id) === currentUserId.value
+}
+
+function approveIssue(m) {
+    if (!canApprove(m) || approveForm.processing) return
+
+    approveForm.post(route('inventory.stocks.approve-issue', m.id), {
+        preserveScroll: true,
+    })
 }
 </script>
 
@@ -211,10 +238,15 @@ function resetFilters() {
                             <th class="px-3 py-2 text-left">SN</th>
                             <th class="px-3 py-2 text-left">Category</th>
                             <th class="px-3 py-2 text-left">Issued To</th>
+                            <th class="px-3 py-2 text-left">Holder</th>
                             <th class="px-3 py-2 text-left">Issued By</th>
+                            <th class="px-3 py-2 text-left">Issuer</th>
+                            <th class="px-3 py-2 text-center">Issuer Approval</th>
+                            <th class="px-3 py-2 text-center">Proof</th>
                             <th class="px-3 py-2 text-right">Balance</th>
                             <th class="px-3 py-2 text-left">Purpose</th>
                             <th class="px-3 py-2 text-left">Remark</th>
+                            <th class="px-3 py-2 text-center">Action</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 text-sm">
@@ -229,14 +261,47 @@ function resetFilters() {
                             <td class="px-3 py-2">{{ m.serial_number || '-' }}</td>
                             <td class="px-3 py-2">{{ m.stock_category || '-' }}</td>
                             <td class="px-3 py-2">{{ destinationLabel(m) }}</td>
+                            <td class="px-3 py-2">{{ m.holder_user?.name || '-' }}</td>
                             <td class="px-3 py-2">{{ m.issue_user?.name || '-' }}</td>
+                            <td class="px-3 py-2">{{ m.issuer?.name || '-' }}</td>
+                            <td class="px-3 py-2 text-center">
+                                <span
+                                    class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                                    :class="approvalClass(m)"
+                                >
+                                    {{ approvalLabel(m) }}
+                                </span>
+                            </td>
+                            <td class="px-3 py-2 text-center">
+                                <a
+                                    v-if="m.attachments?.length"
+                                    :href="m.attachments[0].url"
+                                    target="_blank"
+                                    class="inline-flex rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                                >
+                                    {{ m.attachments.length }} file(s)
+                                </a>
+                                <span v-else class="text-xs text-gray-400">-</span>
+                            </td>
                             <td class="px-3 py-2 text-right">{{ m.balance_after }}</td>
                             <td class="px-3 py-2">{{ m.purpose || '-' }}</td>
                             <td class="px-3 py-2">{{ m.remark || '-' }}</td>
+                            <td class="px-3 py-2 text-center">
+                                <button
+                                    v-if="canApprove(m)"
+                                    type="button"
+                                    class="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                                    :disabled="approveForm.processing"
+                                    @click="approveIssue(m)"
+                                >
+                                    Approve
+                                </button>
+                                <span v-else class="text-xs text-gray-400">-</span>
+                            </td>
                         </tr>
 
                         <tr v-if="!filteredMovements.length">
-                            <td colspan="12" class="px-3 py-10 text-center text-sm text-gray-500">No movements found.</td>
+                            <td colspan="17" class="px-3 py-10 text-center text-sm text-gray-500">No movements found.</td>
                         </tr>
                     </tbody>
                 </table>

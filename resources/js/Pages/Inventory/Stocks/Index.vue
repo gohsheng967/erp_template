@@ -13,6 +13,7 @@ const warehouses = computed(() => page.props.warehouses ?? [])
 const projects = computed(() => page.props.projects ?? [])
 const stockCategories = computed(() => page.props.stock_categories ?? [])
 const stocks = computed(() => page.props.stocks ?? [])
+const users = computed(() => page.props.users ?? [])
 
 const selectedWarehouse = ref('all')
 const search = ref('')
@@ -75,6 +76,10 @@ function openMovementLog() {
 
 function openBrowse() {
     router.get(route('inventory.stocks.browse'))
+}
+
+function openMyList() {
+    router.get(route('inventory.stocks.user-list'))
 }
 
 function openIssue(stock) {
@@ -140,6 +145,15 @@ function openAdjust(stock) {
                     >
                         <i class="mdi mdi-view-list"></i>
                         Browse
+                    </button>
+
+                    <button
+                        type="button"
+                        class="inline-flex items-center justify-center gap-1.5 rounded-md bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+                        @click="openMyList"
+                    >
+                        <i class="mdi mdi-account-box-outline"></i>
+                        My Item List
                     </button>
                 </div>
             </div>
@@ -268,6 +282,7 @@ function openAdjust(stock) {
             :stock="selectedStock"
             :projects="projects"
             :stock-categories="stockCategories"
+            :users="users"
             @close="showIssue = false"
         />
 

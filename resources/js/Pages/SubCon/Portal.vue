@@ -1,6 +1,8 @@
 <script setup>
 import { computed, inject, onBeforeUnmount, onMounted, ref } from "vue";
 import { router } from "@inertiajs/vue3";
+import axios from "axios";
+import POShowA4 from "@/Pages/Transactions/PurchaseOrder/Partials/POShowA4.vue";
 
 const props = defineProps({
     subCon: {
@@ -11,17 +13,21 @@ const props = defineProps({
         type: Object,
         required: true,
     },
+    poStats: {
+        type: Object,
+        default: () => ({}),
+    },
     claimStats: {
         type: Object,
         default: () => ({}),
     },
-    claimProjects: {
-        type: Array,
-        default: () => [],
-    },
     tasks: {
         type: Array,
         required: true,
+    },
+    purchaseOrders: {
+        type: Array,
+        default: () => [],
     },
     claims: {
         type: Array,
@@ -34,7 +40,13 @@ const toast = inject("toast", null);
 const showProgressModal = ref(false);
 const showInvoiceModal = ref(false);
 const showHistoryModal = ref(false);
+const showPoConfirmModal = ref(false);
+const showPoA4Modal = ref(false);
+const isPoA4Loading = ref(false);
 const selectedTask = ref(null);
+const selectedPO = ref(null);
+const selectedPoA4 = ref(null);
+const poA4Company = ref(null);
 const progressForm = ref({
     progress_percent: "",
     note: "",
@@ -51,9 +63,14 @@ const invoiceForm = ref({
 
 const canSubmitStatuses = ["draft"];
 const activeStage = ref("all");
-const activePanel = ref("tasks");
+const activePanel = ref("purchase_orders");
 const taskQuery = ref("");
+const poQuery = ref("");
 const claimQuery = ref("");
+const poConfirmForm = ref({
+    order_date: "",
+    signed_po: null,
+});
 const selectedTaskHasChildren = computed(() => (selectedTask.value?.children?.length ?? 0) > 0);
 const activeClaimStage = ref("all");
 const showClaimDecisionModal = ref(false);
@@ -62,12 +79,14 @@ const selectedClaim = ref(null);
 const claimDecisionForm = ref({
     decision: "accept",
     remark: "",
+    appeal_proof_attachments: [],
 });
 const claimCreateForm = ref({
-    project_uuid: "",
+    po_uuid: "",
     title: "",
     claimed_amount: "",
     proforma_invoice: null,
+    proof_attachments: [],
     remark: "",
 });
 const claimInvoiceForm = ref({
@@ -123,6 +142,7 @@ const claimStageTabs = [
     { key: "ceo_gm_approved", label: "Pending Decision" },
     { key: "appealed", label: "Appealed" },
     { key: "accepted_by_subcon", label: "Accepted" },
+    { key: "payment_in_progress", label: "Payment In Progress" },
     { key: "pending_real_invoice_upload", label: "Pending Real Invoice Upload" },
     { key: "real_invoice_uploaded", label: "Uploaded" },
 ];
@@ -229,6 +249,31 @@ const claimStageCounts = computed(() => {
     return base;
 });
 
+const filteredPurchaseOrders = computed(() => {
+    const list = props.purchaseOrders ?? [];
+    const q = poQuery.value.trim().toLowerCase();
+    if (!q) return list;
+
+    return list.filter((po) => {
+        const haystacks = [
+            po?.code,
+            po?.supplier?.company_name,
+            po?.purchase_request?.code,
+            po?.purchase_request?.title,
+            po?.purchase_request?.project?.code,
+            po?.purchase_request?.project?.name,
+        ]
+            .filter(Boolean)
+            .map((v) => String(v).toLowerCase());
+
+        return haystacks.some((text) => text.includes(q));
+    });
+});
+
+const claimablePurchaseOrders = computed(() => {
+    return (props.purchaseOrders ?? []).filter((po) => !!po?.uuid);
+});
+
 function logout() {
     router.post(route("sub-con.logout"));
 }
@@ -275,6 +320,7 @@ function claimStatusLabel(status) {
         ceo_gm_approved: "Pending Your Decision",
         appealed: "Appealed",
         accepted_by_subcon: "Accepted",
+        payment_in_progress: "Payment In Progress",
         pending_real_invoice_upload: "Pending Real Invoice Upload",
         real_invoice_uploaded: "Real Invoice Uploaded",
     };
@@ -285,6 +331,7 @@ function claimStatusClass(status) {
     if (status === "ceo_gm_approved") return "bg-amber-100 text-amber-700";
     if (status === "appealed") return "bg-orange-100 text-orange-700";
     if (status === "accepted_by_subcon") return "bg-cyan-100 text-cyan-700";
+    if (status === "payment_in_progress") return "bg-sky-100 text-sky-700";
     if (status === "pending_real_invoice_upload") return "bg-teal-100 text-teal-700";
     if (status === "real_invoice_uploaded") return "bg-emerald-100 text-emerald-700";
     return "bg-gray-100 text-gray-700";
@@ -443,6 +490,8 @@ function openClaimDecision(claim, decision = "accept") {
     claimDecisionForm.value = {
         decision,
         remark: "",
+        accept_proforma_invoice: null,
+        appeal_proof_attachments: [],
     };
     showClaimDecisionModal.value = true;
 }
@@ -453,14 +502,32 @@ function submitClaimDecision() {
         toast?.value?.show("Appeal remark is required.", "error");
         return;
     }
+    if (claimDecisionForm.value.decision === "appeal" && !claimDecisionForm.value.appeal_proof_attachments?.length) {
+        toast?.value?.show("Appeal proof attachment is required.", "error");
+        return;
+    }
+    if (claimDecisionForm.value.decision === "accept" && !claimDecisionForm.value.accept_proforma_invoice) {
+        toast?.value?.show("New proforma invoice is required when accepting.", "error");
+        return;
+    }
+
+    const fd = new FormData();
+    fd.append("decision", claimDecisionForm.value.decision);
+    fd.append("remark", claimDecisionForm.value.remark || "");
+    if (claimDecisionForm.value.decision === "accept" && claimDecisionForm.value.accept_proforma_invoice) {
+        fd.append("accept_proforma_invoice", claimDecisionForm.value.accept_proforma_invoice);
+    }
+    if (claimDecisionForm.value.decision === "appeal") {
+        claimDecisionForm.value.appeal_proof_attachments.forEach((file) => {
+            fd.append("appeal_proof_attachments[]", file);
+        });
+    }
 
     router.post(
         route("sub-con.claims.decision", { claim: selectedClaim.value.uuid }),
+        fd,
         {
-            decision: claimDecisionForm.value.decision,
-            remark: claimDecisionForm.value.remark || null,
-        },
-        {
+            forceFormData: true,
             preserveScroll: true,
             onSuccess: () => {
                 toast?.value?.show(
@@ -474,11 +541,19 @@ function submitClaimDecision() {
                 router.reload({ only: ["claims", "claimStats"], preserveScroll: true });
             },
             onError: (errors) => {
-                const message = errors?.status || errors?.remark || "Failed to submit decision.";
+                const message = errors?.status || errors?.remark || errors?.accept_proforma_invoice || errors?.appeal_proof_attachments || errors?.["appeal_proof_attachments.0"] || "Failed to submit decision.";
                 toast?.value?.show(message, "error");
             },
         }
     );
+}
+
+function handleAppealProofFile(event) {
+    claimDecisionForm.value.appeal_proof_attachments = Array.from(event.target.files ?? []);
+}
+
+function handleAcceptProformaFile(event) {
+    claimDecisionForm.value.accept_proforma_invoice = event.target.files?.[0] ?? null;
 }
 
 function openClaimInvoiceUpload(claim) {
@@ -546,12 +621,19 @@ function submitClaimFromPortal() {
         toast?.value?.show("Please upload proforma invoice.", "error");
         return;
     }
+    if (!claimCreateForm.value.proof_attachments?.length) {
+        toast?.value?.show("Please upload at least one claim proof attachment.", "error");
+        return;
+    }
 
     const fd = new FormData();
-    fd.append("project_uuid", claimCreateForm.value.project_uuid || "");
+    fd.append("po_uuid", claimCreateForm.value.po_uuid || "");
     fd.append("title", claimCreateForm.value.title || "");
     fd.append("claimed_amount", claimCreateForm.value.claimed_amount || "");
     fd.append("proforma_invoice", claimCreateForm.value.proforma_invoice);
+    claimCreateForm.value.proof_attachments.forEach((file) => {
+        fd.append("proof_attachments[]", file);
+    });
     fd.append("remark", claimCreateForm.value.remark || "");
 
     router.post(route("sub-con.claims.store"), fd, {
@@ -560,21 +642,115 @@ function submitClaimFromPortal() {
         onSuccess: () => {
             toast?.value?.show("Claim submitted successfully.", "success");
             claimCreateForm.value = {
-                project_uuid: "",
+                po_uuid: "",
                 title: "",
                 claimed_amount: "",
                 proforma_invoice: null,
+                proof_attachments: [],
                 remark: "",
             };
             router.reload({ only: ["claims", "claimStats"], preserveScroll: true });
         },
         onError: (errors) => {
             const message =
-                errors?.project_uuid ||
+                errors?.po_uuid ||
                 errors?.title ||
                 errors?.claimed_amount ||
                 errors?.proforma_invoice ||
+                errors?.proof_attachments ||
+                errors?.["proof_attachments.0"] ||
                 "Failed to submit claim.";
+            toast?.value?.show(message, "error");
+        },
+    });
+}
+
+function handleClaimProofFile(event) {
+    claimCreateForm.value.proof_attachments = Array.from(event.target.files ?? []);
+}
+
+function openPoConfirmModal(po) {
+    selectedPO.value = po;
+    poConfirmForm.value = {
+        order_date: po?.order_date || "",
+        signed_po: null,
+    };
+    showPoConfirmModal.value = true;
+}
+
+async function openPoA4Modal(po) {
+    if (!po?.uuid) return;
+
+    showPoA4Modal.value = true;
+    isPoA4Loading.value = true;
+    selectedPoA4.value = null;
+    poA4Company.value = null;
+
+    try {
+        const response = await axios.get(route("sub-con.purchase-orders.show", { po: po.uuid }));
+        selectedPoA4.value = response?.data?.po ?? null;
+        poA4Company.value = response?.data?.company ?? null;
+    } catch (error) {
+        showPoA4Modal.value = false;
+        const message = error?.response?.data?.message || "Failed to load PO preview.";
+        toast?.value?.show(message, "error");
+    } finally {
+        isPoA4Loading.value = false;
+    }
+}
+
+function closePoA4Modal() {
+    showPoA4Modal.value = false;
+    selectedPoA4.value = null;
+    poA4Company.value = null;
+}
+
+function printPoA4() {
+    if (typeof window === "undefined") return;
+    window.print();
+}
+
+function closePoConfirmModal() {
+    showPoConfirmModal.value = false;
+    selectedPO.value = null;
+    poConfirmForm.value = {
+        order_date: "",
+        signed_po: null,
+    };
+}
+
+function handlePoConfirmFile(event) {
+    poConfirmForm.value.signed_po = event?.target?.files?.[0] ?? null;
+}
+
+function clearPoConfirmFile() {
+    poConfirmForm.value.signed_po = null;
+}
+
+function confirmPurchaseOrder() {
+    if (!selectedPO.value?.uuid) return;
+
+    if (!poConfirmForm.value.order_date) {
+        toast?.value?.show("Order date is required before confirmation.", "error");
+        return;
+    }
+
+    const fd = new FormData();
+    fd.append("order_date", poConfirmForm.value.order_date);
+    if (poConfirmForm.value.signed_po) {
+        fd.append("signed_po", poConfirmForm.value.signed_po);
+    }
+
+    router.post(route("sub-con.purchase-orders.confirm", { po: selectedPO.value.uuid }), fd, {
+        forceFormData: true,
+        preserveScroll: true,
+        onSuccess: () => {
+            toast?.value?.show("PO confirmed successfully.", "success");
+            closePoConfirmModal();
+            router.reload({ only: ["purchaseOrders", "poStats"], preserveScroll: true });
+        },
+        onError: (errors) => {
+            const message = errors?.status || errors?.order_date || errors?.signed_po || "Failed to confirm PO.";
             toast?.value?.show(message, "error");
         },
     });
@@ -629,6 +805,14 @@ function submitClaimFromPortal() {
 
             <div class="bg-white border rounded-lg p-3">
                 <div class="flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        class="px-3 py-1.5 text-xs rounded-full border font-semibold"
+                        :class="activePanel === 'purchase_orders' ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-300 text-gray-700 hover:border-indigo-300'"
+                        @click="activePanel = 'purchase_orders'"
+                    >
+                        PO Confirmation
+                    </button>
                     <button
                         type="button"
                         class="px-3 py-1.5 text-xs rounded-full border font-semibold"
@@ -782,14 +966,14 @@ function submitClaimFromPortal() {
                 <div class="p-5 space-y-4">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Project</label>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Purchase Order</label>
                             <select
-                                v-model="claimCreateForm.project_uuid"
+                                v-model="claimCreateForm.po_uuid"
                                 class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
                             >
-                                <option value="">Select Project</option>
-                                <option v-for="project in claimProjects" :key="project.uuid" :value="project.uuid">
-                                    {{ project.code || "-" }} - {{ project.name }}
+                                <option value="">Select PO</option>
+                                <option v-for="po in claimablePurchaseOrders" :key="po.uuid" :value="po.uuid">
+                                    {{ po.code || "-" }} | {{ po.purchase_request?.project?.code || "-" }} - {{ po.purchase_request?.project?.name || "No project" }}
                                 </option>
                             </select>
                         </div>
@@ -846,6 +1030,29 @@ function submitClaimFromPortal() {
                         </div>
                     </div>
 
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-end">
+                        <div class="lg:col-span-2">
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Proof Attachment</label>
+                            <label class="block rounded-lg border-2 border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-4 cursor-pointer hover:bg-indigo-50 transition">
+                                <input
+                                    type="file"
+                                    class="hidden"
+                                    multiple
+                                    @change="handleClaimProofFile"
+                                />
+                                <div class="text-sm font-medium text-indigo-700">
+                                    {{ claimCreateForm.proof_attachments?.length ? `${claimCreateForm.proof_attachments.length} file(s) selected` : "Click to upload proof attachment(s)" }}
+                                </div>
+                                <div v-if="claimCreateForm.proof_attachments?.length" class="mt-1 text-xs text-gray-600">
+                                    {{ claimCreateForm.proof_attachments.map((file) => file.name).join(", ") }}
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    PDF / JPG / PNG, maximum 10MB each (at least 1 required)
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
                     <div>
                         <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Remark (optional)</label>
                         <textarea
@@ -858,7 +1065,7 @@ function submitClaimFromPortal() {
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
                 <div class="bg-white border rounded-lg p-3 shadow-sm">
                     <div class="text-xs uppercase tracking-wide text-gray-500">Claims Total</div>
                     <div class="mt-1 text-xl font-semibold text-gray-900">{{ claimStats.total ?? 0 }}</div>
@@ -870,6 +1077,10 @@ function submitClaimFromPortal() {
                 <div class="bg-white border rounded-lg p-3 shadow-sm">
                     <div class="text-xs uppercase tracking-wide text-gray-500">Appealed</div>
                     <div class="mt-1 text-xl font-semibold text-orange-700">{{ claimStats.appealed ?? 0 }}</div>
+                </div>
+                <div class="bg-white border rounded-lg p-3 shadow-sm">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Payment In Progress</div>
+                    <div class="mt-1 text-xl font-semibold text-sky-700">{{ claimStats.payment_in_progress ?? 0 }}</div>
                 </div>
                 <div class="bg-white border rounded-lg p-3 shadow-sm">
                     <div class="text-xs uppercase tracking-wide text-gray-500">Pending Upload</div>
@@ -885,7 +1096,7 @@ function submitClaimFromPortal() {
                 <div class="px-4 py-3 border-b bg-gray-50">
                     <div class="text-sm font-semibold text-gray-800">Sub Con Claims</div>
                     <div class="text-xs text-gray-500 mt-0.5">
-                        Accept or appeal CEO/GM approved claims here. Real invoice upload is enabled after payment slip is prepared by internal team.
+                        Accept or appeal CEO/GM approved claims here. Real invoice upload is enabled after internal team completes payment.
                     </div>
                 </div>
 
@@ -934,6 +1145,7 @@ function submitClaimFromPortal() {
                             <tr v-for="claim in filteredClaims" :key="claim.uuid">
                                 <td class="px-4 py-3 text-sm">
                                     <div class="font-medium text-gray-800">{{ claim.claim_no || "-" }}</div>
+                                    <div class="text-xs text-gray-500">PO: {{ claim.purchase_order?.code || "-" }}</div>
                                     <div class="text-gray-700">{{ claim.title }}</div>
                                     <div v-if="(claim.appeal_round ?? 0) > 0" class="text-xs text-orange-600 mt-0.5">
                                         Appeal round: {{ claim.appeal_round }}
@@ -961,6 +1173,16 @@ function submitClaimFromPortal() {
                                             rel="noopener"
                                         >
                                             Proforma
+                                        </a>
+                                        <a
+                                            v-for="(proof, idx) in (claim.proof_attachments || [])"
+                                            :key="`${claim.uuid}-proof-${idx}`"
+                                            :href="`${route('sub-con.claims.proof.download', { claim: claim.uuid })}?idx=${idx}`"
+                                            class="text-fuchsia-600 hover:text-fuchsia-800"
+                                            target="_blank"
+                                            rel="noopener"
+                                        >
+                                            Proof {{ idx + 1 }}
                                         </a>
                                         <a
                                             v-if="claim.real_invoice_name"
@@ -1010,7 +1232,234 @@ function submitClaimFromPortal() {
                 </div>
             </div>
             </div>
+
+            <div v-if="activePanel === 'purchase_orders'" class="space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="bg-white border rounded-lg p-3 shadow-sm">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">PO Total</div>
+                    <div class="mt-1 text-xl font-semibold text-gray-900">{{ poStats.total ?? 0 }}</div>
+                </div>
+                <div class="bg-white border rounded-lg p-3 shadow-sm">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Pending Confirmation</div>
+                    <div class="mt-1 text-xl font-semibold text-amber-700">{{ poStats.pending_confirmation ?? 0 }}</div>
+                </div>
+                <div class="bg-white border rounded-lg p-3 shadow-sm">
+                    <div class="text-xs uppercase tracking-wide text-gray-500">Confirmed</div>
+                    <div class="mt-1 text-xl font-semibold text-emerald-700">{{ poStats.confirmed ?? 0 }}</div>
+                </div>
+            </div>
+
+            <div class="bg-white border rounded-lg overflow-hidden">
+                <div class="px-4 py-3 border-b bg-gray-50">
+                    <div class="text-sm font-semibold text-gray-800">Purchase Orders</div>
+                    <div class="text-xs text-gray-500 mt-0.5">
+                        Confirm PO with order date and signed copy.
+                    </div>
+                </div>
+
+                <div class="px-4 py-3 border-b">
+                    <div class="w-full md:w-80">
+                        <input
+                            v-model="poQuery"
+                            type="text"
+                            placeholder="Search PO / supplier / PR / project"
+                            class="w-full border border-gray-300 rounded-md px-3 py-1.5 text-xs"
+                        />
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-white">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs uppercase text-gray-500">PO</th>
+                                <th class="px-4 py-3 text-left text-xs uppercase text-gray-500">Supplier / Project</th>
+                                <th class="px-4 py-3 text-left text-xs uppercase text-gray-500">Amount</th>
+                                <th class="px-4 py-3 text-left text-xs uppercase text-gray-500">Status</th>
+                                <th class="px-4 py-3 text-left text-xs uppercase text-gray-500">Signed PO</th>
+                                <th class="px-4 py-3 text-center text-xs uppercase text-gray-500">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200">
+                            <tr v-for="po in filteredPurchaseOrders" :key="po.uuid">
+                                <td class="px-4 py-3 text-sm">
+                                    <div class="font-medium text-gray-800">{{ po.code || "-" }}</div>
+                                    <div class="text-xs text-gray-500">Date: {{ formatDateTime(po.order_date) }}</div>
+                                    <div class="text-xs text-gray-500">PR: {{ po.purchase_request?.code || "-" }}</div>
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-700">
+                                    <div class="font-medium text-gray-800">{{ po.supplier?.company_name || "-" }}</div>
+                                    <div class="text-xs text-gray-500">
+                                        {{ po.purchase_request?.project?.code || "-" }} - {{ po.purchase_request?.project?.name || "No project" }}
+                                    </div>
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-700">{{ formatMoney(po.total_amount) }}</td>
+                                <td class="px-4 py-3">
+                                    <span
+                                        class="inline-flex px-2 py-1 rounded-full text-xs font-semibold"
+                                        :class="po.status === 'confirmed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
+                                    >
+                                        {{ po.status === 'confirmed' ? 'Confirmed' : 'Pending Confirmation' }}
+                                    </span>
+                                </td>
+                                <td class="px-4 py-3 text-sm">
+                                    <a
+                                        v-if="po.signed_po?.url"
+                                        :href="po.signed_po.url"
+                                        class="text-indigo-600 hover:text-indigo-800"
+                                        target="_blank"
+                                        rel="noopener"
+                                    >
+                                        {{ po.signed_po.name || "View signed PO" }}
+                                    </a>
+                                    <span v-else class="text-xs text-gray-400">Not uploaded</span>
+                                </td>
+                                <td class="px-4 py-3">
+                                    <div class="flex items-center justify-center gap-2">
+                                        <button
+                                            type="button"
+                                            class="rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
+                                            @click="openPoA4Modal(po)"
+                                        >
+                                            View A4
+                                        </button>
+
+                                        <button
+                                            v-if="po.status !== 'confirmed'"
+                                            type="button"
+                                            class="rounded bg-indigo-600 px-2 py-1 text-xs text-white hover:bg-indigo-700"
+                                            @click="openPoConfirmModal(po)"
+                                        >
+                                            Confirm PO
+                                        </button>
+                                    </div>
+                                    <div v-if="po.status === 'confirmed'" class="mt-1 text-xs text-emerald-700 text-center font-semibold">Confirmed</div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div
+                v-if="filteredPurchaseOrders.length === 0"
+                class="bg-white border rounded-lg p-8 text-center"
+            >
+                <div class="text-sm font-semibold text-gray-700">No purchase orders found</div>
+                <div class="mt-1 text-xs text-gray-500">Try another keyword or wait for new issued PO.</div>
+            </div>
+            </div>
         </main>
+    </div>
+
+    <div v-if="showPoA4Modal" class="fixed inset-0 z-50 bg-black/60 p-4 flex items-center justify-center">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-[1200px] h-[92vh] overflow-hidden flex flex-col">
+            <div class="px-6 py-3 border-b bg-gray-50 flex items-center gap-3">
+                <div class="text-sm font-semibold text-gray-800">
+                    PO A4 Preview: {{ selectedPoA4?.code || "-" }}
+                </div>
+                <div class="ml-auto flex items-center gap-2">
+                    <button
+                        type="button"
+                        class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                        @click="printPoA4"
+                    >
+                        Print
+                    </button>
+                    <button
+                        type="button"
+                        class="px-3 py-1.5 text-xs font-medium bg-white border border-gray-300 rounded-md hover:bg-gray-100"
+                        @click="closePoA4Modal"
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-auto bg-gray-100 p-4">
+                <div v-if="isPoA4Loading" class="h-full flex items-center justify-center text-sm text-gray-500">
+                    Loading PO preview...
+                </div>
+                <div v-else-if="selectedPoA4 && poA4Company" class="flex justify-center">
+                    <POShowA4 :po="selectedPoA4" :company="poA4Company" />
+                </div>
+                <div v-else class="h-full flex items-center justify-center text-sm text-red-600">
+                    Failed to load PO preview.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div v-if="showPoConfirmModal" class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-xl overflow-hidden">
+            <div class="px-6 py-4 border-b bg-gradient-to-r from-indigo-50 to-violet-50 flex items-center justify-between">
+                <div>
+                    <h3 class="text-base font-semibold text-gray-900">Confirm Purchase Order</h3>
+                    <p class="text-xs text-gray-600 mt-0.5">Complete confirmation details before submitting.</p>
+                </div>
+                <button
+                    class="h-7 w-7 rounded-full border border-gray-200 text-gray-500 hover:text-gray-700 hover:bg-white"
+                    @click="closePoConfirmModal"
+                >
+                    x
+                </button>
+            </div>
+
+            <div class="px-6 py-5 space-y-4">
+                <div class="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
+                    <div class="text-xs uppercase tracking-wide text-indigo-700 font-semibold">PO Reference</div>
+                    <div class="mt-1 text-sm font-semibold text-gray-900">
+                        {{ selectedPO?.code || "-" }}
+                    </div>
+                    <div class="text-xs text-gray-600 mt-1">
+                        {{ selectedPO?.supplier?.company_name || "-" }}
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Order Date</label>
+                    <input
+                        v-model="poConfirmForm.order_date"
+                        type="date"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+                    />
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Signed PO (optional if already uploaded)</label>
+                    <label class="block rounded-lg border-2 border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-4 cursor-pointer hover:bg-indigo-50 transition">
+                        <input type="file" class="hidden" @change="handlePoConfirmFile" />
+                        <div class="text-sm font-medium text-indigo-700">
+                            {{ poConfirmForm.signed_po ? poConfirmForm.signed_po.name : "Click to upload signed PO" }}
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">PDF / JPG / PNG, maximum 10MB</div>
+                    </label>
+                    <button
+                        v-if="poConfirmForm.signed_po"
+                        type="button"
+                        class="mt-2 text-xs text-red-600 hover:text-red-700"
+                        @click="clearPoConfirmFile"
+                    >
+                        Remove selected file
+                    </button>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t bg-gray-50 flex justify-end gap-2.5">
+                <button
+                    class="px-3 py-1.5 text-xs font-medium bg-white border border-gray-300 rounded-md hover:bg-gray-100"
+                    @click="closePoConfirmModal"
+                >
+                    Cancel
+                </button>
+                <button
+                    class="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
+                    @click="confirmPurchaseOrder"
+                >
+                    Confirm PO
+                </button>
+            </div>
+        </div>
     </div>
 
     <div v-if="showProgressModal" class="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
@@ -1329,6 +1778,48 @@ function submitClaimFromPortal() {
                         class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
                         placeholder="Enter formal reason / note for this decision"
                     ></textarea>
+                </div>
+
+                <div v-if="claimDecisionForm.decision === 'accept'">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">
+                        New Proforma Invoice (required)
+                    </label>
+                    <label class="block rounded-lg border-2 border-dashed border-emerald-200 bg-emerald-50/40 px-4 py-4 cursor-pointer hover:bg-emerald-50 transition">
+                        <input
+                            type="file"
+                            class="hidden"
+                            @change="handleAcceptProformaFile"
+                        />
+                        <div class="text-sm font-medium text-emerald-700">
+                            {{ claimDecisionForm.accept_proforma_invoice ? claimDecisionForm.accept_proforma_invoice.name : "Click to upload new proforma invoice" }}
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            PDF / JPG / PNG, maximum 10MB
+                        </div>
+                    </label>
+                </div>
+
+                <div v-if="claimDecisionForm.decision === 'appeal'">
+                    <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">
+                        Additional Proof Attachment (required)
+                    </label>
+                    <label class="block rounded-lg border-2 border-dashed border-amber-200 bg-amber-50/40 px-4 py-4 cursor-pointer hover:bg-amber-50 transition">
+                        <input
+                            type="file"
+                            class="hidden"
+                            multiple
+                            @change="handleAppealProofFile"
+                        />
+                        <div class="text-sm font-medium text-amber-700">
+                            {{ claimDecisionForm.appeal_proof_attachments?.length ? `${claimDecisionForm.appeal_proof_attachments.length} file(s) selected` : "Click to upload proof attachment(s)" }}
+                        </div>
+                        <div v-if="claimDecisionForm.appeal_proof_attachments?.length" class="mt-1 text-xs text-gray-600">
+                            {{ claimDecisionForm.appeal_proof_attachments.map((file) => file.name).join(", ") }}
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">
+                            PDF / JPG / PNG, maximum 10MB each
+                        </div>
+                    </label>
                 </div>
             </div>
 

@@ -7,6 +7,8 @@ use App\Models\InventoryMovement;
 use App\Models\Project;
 use App\Models\InventoryStock;
 use App\Models\StockCategory;
+use App\Models\User;
+use App\Services\AttachmentService;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Warehouse;
 use Inertia\Inertia;
@@ -23,6 +25,11 @@ class StockController extends Controller
         return Inertia::render('Inventory/Stocks/Index', [
             'warehouses' => $this->activeWarehouses(),
             'stock_categories' => $this->stockCategories(),
+            'users' => User::query()
+                ->select('id', 'name')
+                ->where('status', 1)
+                ->orderBy('name')
+                ->get(),
             'projects' => Project::query()
                 ->select('id', 'code', 'name')
                 ->with([
@@ -49,6 +56,12 @@ class StockController extends Controller
             'warehouse:id,title',
             'purchaseOrderItem:id,item_name',
             'issueUser:id,name',
+            'issuer:id,name',
+            'issuerApprover:id,name',
+            'userApprover:id,name',
+            'destinationUser:id,name',
+            'holderUser:id,name',
+            'attachments:id,attachable_type,attachable_id,file_path,original_name,mime_type,file_size',
             'project:id,code,name',
             'site:id,site_name',
         ])->latest();
@@ -89,6 +102,12 @@ class StockController extends Controller
             'warehouse:id,title',
             'purchaseOrderItem:id,item_name,description',
             'issueUser:id,name',
+            'issuer:id,name',
+            'issuerApprover:id,name',
+            'userApprover:id,name',
+            'destinationUser:id,name',
+            'holderUser:id,name',
+            'attachments:id,attachable_type,attachable_id,file_path,original_name,mime_type,file_size',
             'project:id,code,name',
             'site:id,site_name',
         ])
@@ -119,6 +138,12 @@ class StockController extends Controller
             'warehouse:id,title',
             'purchaseOrderItem:id,item_name,description',
             'issueUser:id,name',
+            'issuer:id,name',
+            'issuerApprover:id,name',
+            'userApprover:id,name',
+            'destinationUser:id,name',
+            'holderUser:id,name',
+            'attachments:id,attachable_type,attachable_id,file_path,original_name,mime_type,file_size',
             'project:id,code,name',
             'site:id,site_name',
         ])
@@ -142,9 +167,18 @@ class StockController extends Controller
                 'Serial Number',
                 'Stock Category',
                 'Destination',
+                'Destination User',
+                'Current Holder',
                 'Project',
                 'Site',
                 'Issued By',
+                'Issuer',
+                'Issuer Signed',
+                'Approved By',
+                'Approved At',
+                'User Approved By',
+                'User Approved At',
+                'Proof Attachments',
                 'Purpose',
                 'Remark',
             ]);
@@ -158,9 +192,18 @@ class StockController extends Controller
                     $row->serial_number,
                     $row->stock_category,
                     $row->issue_destination_type,
+                    $row->destinationUser?->name,
+                    $row->holderUser?->name,
                     $row->project?->name,
                     $row->site?->site_name,
                     $row->issueUser?->name,
+                    $row->issuer?->name,
+                    filled($row->issuer_signature_path) ? 'Yes' : 'No',
+                    $row->issuerApprover?->name,
+                    $row->issuer_approved_at?->format('Y-m-d H:i:s'),
+                    $row->userApprover?->name,
+                    $row->user_approved_at?->format('Y-m-d H:i:s'),
+                    $row->attachments?->count() ?? 0,
                     $row->purpose,
                     $row->remark,
                 ]);
@@ -178,18 +221,33 @@ class StockController extends Controller
             'warehouse_id' => ['required', 'exists:warehouses,id'],
             'purchase_order_item_id' => ['required', 'exists:purchase_order_items,id'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-            'items.*.serial_number' => ['required', 'string', 'max:255'],
+            'items.*.quantity' => ['required', 'integer', 'in:1'],
+            'items.*.serial_number' => ['required', 'string', 'max:255', 'distinct'],
             'items.*.stock_category' => ['required', 'string', 'max:100', 'exists:stock_categories,name'],
-            'items.*.issue_destination_type' => ['required', 'in:office,project'],
+            'items.*.issue_destination_type' => ['required', 'in:office,project,user'],
             'items.*.project_id' => ['nullable', 'integer', 'exists:projects,id'],
             'items.*.site_id' => ['nullable', 'integer', 'exists:sites,id'],
+            'items.*.destination_user_id' => ['nullable', 'integer', 'exists:users,id'],
             'items.*.purpose' => ['required', 'string', 'max:2000'],
             'items.*.remark' => ['nullable', 'string'],
+            'proof_attachments' => ['required', 'array', 'min:1'],
+            'proof_attachments.*' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
         ]);
 
         foreach ($data['items'] as $index => $row) {
             if (($row['issue_destination_type'] ?? null) !== 'project') {
+                if (($row['issue_destination_type'] ?? null) === 'user') {
+                    $userValidator = Validator::make($row, [
+                        'destination_user_id' => ['required', 'integer', 'exists:users,id'],
+                    ]);
+
+                    if ($userValidator->fails()) {
+                        throw ValidationException::withMessages([
+                            "items.{$index}.destination_user_id" => $userValidator->errors()->first('destination_user_id'),
+                        ]);
+                    }
+                }
+
                 continue;
             }
 
@@ -222,9 +280,11 @@ class StockController extends Controller
             }
         }
 
-        $this->runInventoryAction(function () use ($inventory, $data) {
+        $this->runInventoryAction(function () use ($inventory, $data, $request) {
+            $proofFiles = $request->file('proof_attachments', []);
+
             foreach ($data['items'] as $row) {
-                $inventory->stockOut([
+                $movement = $inventory->stockOut([
                     'warehouse_id' => $data['warehouse_id'],
                     'purchase_order_item_id' => $data['purchase_order_item_id'],
                     'quantity' => $row['quantity'],
@@ -237,14 +297,182 @@ class StockController extends Controller
                     'site_id' => $row['issue_destination_type'] === 'project'
                         ? ($row['site_id'] ?? null)
                         : null,
+                    'destination_user_id' => $row['issue_destination_type'] === 'user'
+                        ? ($row['destination_user_id'] ?? null)
+                        : null,
+                    'holder_user_id' => $row['issue_destination_type'] === 'user'
+                        ? null
+                        : null,
+                    'usage_status' => $row['issue_destination_type'] === 'user'
+                        ? 'pending_user_approval'
+                        : 'active',
                     'issued_by' => auth()->id(),
+                    'issuer_id' => auth()->id(),
                     'purpose' => $row['purpose'],
                     'remark' => $row['remark'] ?? 'Stock issue',
                 ]);
+
+                foreach ($proofFiles as $proofFile) {
+                    AttachmentService::store($proofFile, $movement);
+                }
             }
         });
 
         return back()->with('success', 'Stock issued successfully');
+    }
+
+    public function userList(Request $request)
+    {
+        $user = $request->user();
+
+        $base = InventoryMovement::with([
+            'warehouse:id,title',
+            'purchaseOrderItem:id,item_name,description',
+            'issuer:id,name',
+            'destinationUser:id,name',
+            'holderUser:id,name',
+            'usageUpdatedBy:id,name',
+            'userApprover:id,name',
+        ])->where('type', InventoryMovement::TYPE_OUT);
+
+        $pendingRows = (clone $base)
+            ->where('destination_user_id', $user->id)
+            ->where('usage_status', 'pending_user_approval')
+            ->latest()
+            ->get();
+
+        $rows = (clone $base)
+            ->where('type', InventoryMovement::TYPE_OUT)
+            ->where('holder_user_id', $user->id)
+            ->where('usage_status', 'active')
+            ->latest()
+            ->get();
+
+        return Inertia::render('Inventory/Stocks/UserList', [
+            'pending_rows' => $pendingRows,
+            'rows' => $rows,
+            'users' => User::query()
+                ->select('id', 'name')
+                ->where('status', 1)
+                ->where('id', '!=', $user->id)
+                ->orderBy('name')
+                ->get(),
+        ]);
+    }
+
+    public function approveUserIssue(Request $request, InventoryMovement $movement)
+    {
+        $user = $request->user();
+
+        if ($movement->type !== InventoryMovement::TYPE_OUT || $movement->issue_destination_type !== 'user') {
+            abort(422, 'This stock issue does not require user approval.');
+        }
+
+        if ((int) $movement->destination_user_id !== (int) $user->id) {
+            abort(403, 'Only destination user can approve this issue.');
+        }
+
+        if ($movement->usage_status !== 'pending_user_approval') {
+            abort(422, 'This stock issue is already approved or closed.');
+        }
+
+        $movement->update([
+            'holder_user_id' => $user->id,
+            'usage_status' => 'active',
+            'user_approved_by' => $user->id,
+            'user_approved_at' => now(),
+        ]);
+
+        return back()->with('success', 'Stock issue approved.');
+    }
+
+    public function updateUsage(Request $request, InventoryMovement $movement)
+    {
+        $user = $request->user();
+
+        if ($movement->type !== InventoryMovement::TYPE_OUT || (int) $movement->holder_user_id !== (int) $user->id) {
+            abort(403, 'Only current holder can update this item.');
+        }
+
+        if ($movement->usage_status !== 'active') {
+            throw ValidationException::withMessages([
+                'usage_status' => 'This item is no longer active.',
+            ]);
+        }
+
+        $data = $request->validate([
+            'action' => ['required', 'in:transfer,used,disposal'],
+            'remark' => ['required', 'string', 'max:2000'],
+            'transfer_to_user_id' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
+
+        if ($data['action'] === 'transfer' && empty($data['transfer_to_user_id'])) {
+            throw ValidationException::withMessages([
+                'transfer_to_user_id' => 'Transfer user is required.',
+            ]);
+        }
+
+        if ($data['action'] === 'transfer' && (int) $data['transfer_to_user_id'] === (int) $user->id) {
+            throw ValidationException::withMessages([
+                'transfer_to_user_id' => 'Please choose a different user.',
+            ]);
+        }
+
+        if ($data['action'] === 'transfer') {
+            $movement->update([
+                'holder_user_id' => (int) $data['transfer_to_user_id'],
+                'usage_action' => 'transfer',
+                'usage_remark' => $data['remark'],
+                'usage_updated_by' => $user->id,
+                'usage_updated_at' => now(),
+            ]);
+
+            return back()->with('success', 'Item transferred successfully.');
+        }
+
+        $movement->update([
+            'usage_status' => $data['action'] === 'used' ? 'used' : 'disposed',
+            'usage_action' => $data['action'],
+            'usage_remark' => $data['remark'],
+            'usage_updated_by' => $user->id,
+            'usage_updated_at' => now(),
+        ]);
+
+        return back()->with('success', 'Item usage updated successfully.');
+    }
+
+    public function approveIssue(Request $request, InventoryMovement $movement)
+    {
+        if ($movement->type !== InventoryMovement::TYPE_OUT) {
+            throw ValidationException::withMessages([
+                'movement' => 'Only stock out records can be issuer-approved.',
+            ]);
+        }
+
+        if (!$movement->issuer_id) {
+            throw ValidationException::withMessages([
+                'movement' => 'Issuer is not assigned for this stock issue.',
+            ]);
+        }
+
+        $user = $request->user();
+        if ((int) $movement->issuer_id !== (int) $user?->id) {
+            abort(403, 'Only the assigned issuer can approve this stock issue.');
+        }
+
+        if (!filled($user->signature_path)) {
+            throw ValidationException::withMessages([
+                'signature' => 'Please upload/draw your signature in Profile before approving.',
+            ]);
+        }
+
+        $movement->update([
+            'issuer_signature_path' => $user->signature_path,
+            'issuer_approved_by' => $user->id,
+            'issuer_approved_at' => now(),
+        ]);
+
+        return back()->with('success', 'Stock issue approved by issuer.');
     }
 
     public function transfer(Request $request, InventoryService $inventory)
@@ -282,8 +510,8 @@ class StockController extends Controller
             'warehouse_id' => ['required', 'exists:warehouses,id'],
             'purchase_order_item_id' => ['required', 'exists:purchase_order_items,id'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-            'items.*.serial_number' => ['required', 'string', 'max:255'],
+            'items.*.quantity' => ['required', 'integer', 'in:1'],
+            'items.*.serial_number' => ['required', 'string', 'max:255', 'distinct'],
             'items.*.remark' => ['nullable', 'string'],
             'remark' => ['required', 'string', 'max:255'],
         ]);
@@ -292,7 +520,7 @@ class StockController extends Controller
             $runningTotal = 0;
 
             foreach ($data['items'] as $row) {
-                $runningTotal += (float) $row['quantity'];
+                $runningTotal += 1;
 
                 $inventory->adjust([
                     'warehouse_id' => $data['warehouse_id'],
@@ -378,6 +606,15 @@ class StockController extends Controller
                         $qq->where('site_name', 'like', '%' . $keyword . '%');
                     })
                     ->orWhereHas('issueUser', function ($qq) use ($keyword) {
+                        $qq->where('name', 'like', '%' . $keyword . '%');
+                    })
+                    ->orWhereHas('issuer', function ($qq) use ($keyword) {
+                        $qq->where('name', 'like', '%' . $keyword . '%');
+                    })
+                    ->orWhereHas('destinationUser', function ($qq) use ($keyword) {
+                        $qq->where('name', 'like', '%' . $keyword . '%');
+                    })
+                    ->orWhereHas('holderUser', function ($qq) use ($keyword) {
                         $qq->where('name', 'like', '%' . $keyword . '%');
                     });
             });

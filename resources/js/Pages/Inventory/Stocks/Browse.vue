@@ -42,6 +42,7 @@ const filteredRows = computed(() => {
             row.purpose,
             row.remark,
             row.issue_user?.name,
+            row.issuer?.name,
             row.project?.name,
             row.project?.code,
             row.site?.site_name,
@@ -117,6 +118,16 @@ function exportCsv() {
 
     window.location.href = `${route('inventory.stocks.browse.export')}?${query.toString()}`
 }
+
+function approvalLabel(row) {
+    if (!row.issuer_id || row.type !== 'OUT') return '-'
+    return row.issuer_approved_at ? 'Approved' : 'Pending'
+}
+
+function approvalClass(row) {
+    if (!row.issuer_id || row.type !== 'OUT') return 'bg-gray-100 text-gray-600'
+    return row.issuer_approved_at ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+}
 </script>
 
 <template>
@@ -175,6 +186,7 @@ function exportCsv() {
                         <option value="all">All Destinations</option>
                         <option value="office">Office</option>
                         <option value="project">Project</option>
+                        <option value="user">User</option>
                     </select>
 
                     <select
@@ -248,6 +260,10 @@ function exportCsv() {
                                 <th class="px-3 py-2 text-left">SN</th>
                                 <th class="px-3 py-2 text-left">Category</th>
                                 <th class="px-3 py-2 text-left">Issued By</th>
+                                <th class="px-3 py-2 text-left">Issuer</th>
+                                <th class="px-3 py-2 text-left">Holder</th>
+                                <th class="px-3 py-2 text-center">Issuer Approval</th>
+                                <th class="px-3 py-2 text-center">Proof</th>
                                 <th class="px-3 py-2 text-left">Purpose</th>
                             </tr>
                         </thead>
@@ -260,10 +276,31 @@ function exportCsv() {
                                 <td class="px-3 py-2">{{ row.serial_number || '-' }}</td>
                                 <td class="px-3 py-2">{{ row.stock_category || '-' }}</td>
                                 <td class="px-3 py-2">{{ row.issue_user?.name || '-' }}</td>
+                                <td class="px-3 py-2">{{ row.issuer?.name || '-' }}</td>
+                                <td class="px-3 py-2">{{ row.holder_user?.name || '-' }}</td>
+                                <td class="px-3 py-2 text-center">
+                                    <span
+                                        class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                                        :class="approvalClass(row)"
+                                    >
+                                        {{ approvalLabel(row) }}
+                                    </span>
+                                </td>
+                                <td class="px-3 py-2 text-center">
+                                    <a
+                                        v-if="row.attachments?.length"
+                                        :href="row.attachments[0].url"
+                                        target="_blank"
+                                        class="inline-flex rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                                    >
+                                        {{ row.attachments.length }}
+                                    </a>
+                                    <span v-else class="text-xs text-gray-400">-</span>
+                                </td>
                                 <td class="px-3 py-2">{{ row.purpose || '-' }}</td>
                             </tr>
                             <tr v-if="!officeRows.length">
-                                <td colspan="8" class="px-3 py-6 text-center text-gray-500">No office stock rows.</td>
+                                <td colspan="12" class="px-3 py-6 text-center text-gray-500">No office stock rows.</td>
                             </tr>
                         </tbody>
                     </table>
@@ -299,6 +336,9 @@ function exportCsv() {
                                     <th class="px-3 py-2 text-left">SN</th>
                                     <th class="px-3 py-2 text-left">Category</th>
                                     <th class="px-3 py-2 text-left">Issued By</th>
+                                    <th class="px-3 py-2 text-left">Issuer</th>
+                                    <th class="px-3 py-2 text-center">Issuer Approval</th>
+                                    <th class="px-3 py-2 text-center">Proof</th>
                                     <th class="px-3 py-2 text-left">Purpose</th>
                                 </tr>
                             </thead>
@@ -311,6 +351,26 @@ function exportCsv() {
                                     <td class="px-3 py-2">{{ row.serial_number || '-' }}</td>
                                     <td class="px-3 py-2">{{ row.stock_category || '-' }}</td>
                                     <td class="px-3 py-2">{{ row.issue_user?.name || '-' }}</td>
+                                    <td class="px-3 py-2">{{ row.issuer?.name || '-' }}</td>
+                                    <td class="px-3 py-2 text-center">
+                                        <span
+                                            class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                                            :class="approvalClass(row)"
+                                        >
+                                            {{ approvalLabel(row) }}
+                                        </span>
+                                    </td>
+                                    <td class="px-3 py-2 text-center">
+                                        <a
+                                            v-if="row.attachments?.length"
+                                            :href="row.attachments[0].url"
+                                            target="_blank"
+                                            class="inline-flex rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                                        >
+                                            {{ row.attachments.length }}
+                                        </a>
+                                        <span v-else class="text-xs text-gray-400">-</span>
+                                    </td>
                                     <td class="px-3 py-2">{{ row.purpose || '-' }}</td>
                                 </tr>
                             </tbody>
@@ -323,6 +383,57 @@ function exportCsv() {
                     class="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500"
                 >
                     No project stock rows.
+                </div>
+            </div>
+
+            <div class="rounded-xl border border-gray-200 bg-white p-4">
+                <div class="mb-3 flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-800">User Stocks</h3>
+                    <span class="text-xs text-gray-500">{{ filteredRows.filter((row) => row.issue_destination_type === 'user').length }} rows</span>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 text-sm">
+                        <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                            <tr>
+                                <th class="px-3 py-2 text-left">Date</th>
+                                <th class="px-3 py-2 text-left">Warehouse</th>
+                                <th class="px-3 py-2 text-left">Item</th>
+                                <th class="px-3 py-2 text-right">Qty</th>
+                                <th class="px-3 py-2 text-left">SN</th>
+                                <th class="px-3 py-2 text-left">Issued To</th>
+                                <th class="px-3 py-2 text-left">Current Holder</th>
+                                <th class="px-3 py-2 text-center">Proof</th>
+                                <th class="px-3 py-2 text-left">Purpose</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            <tr v-for="row in filteredRows.filter((r) => r.issue_destination_type === 'user')" :key="`user-${row.id}`">
+                                <td class="px-3 py-2">{{ new Date(row.created_at).toLocaleString() }}</td>
+                                <td class="px-3 py-2">{{ row.warehouse?.title || '-' }}</td>
+                                <td class="px-3 py-2">{{ row.purchase_order_item?.item_name || '-' }}</td>
+                                <td class="px-3 py-2 text-right font-medium">{{ row.quantity }}</td>
+                                <td class="px-3 py-2">{{ row.serial_number || '-' }}</td>
+                                <td class="px-3 py-2">{{ row.destination_user?.name || '-' }}</td>
+                                <td class="px-3 py-2">{{ row.holder_user?.name || '-' }}</td>
+                                <td class="px-3 py-2 text-center">
+                                    <a
+                                        v-if="row.attachments?.length"
+                                        :href="row.attachments[0].url"
+                                        target="_blank"
+                                        class="inline-flex rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 hover:bg-sky-100"
+                                    >
+                                        {{ row.attachments.length }}
+                                    </a>
+                                    <span v-else class="text-xs text-gray-400">-</span>
+                                </td>
+                                <td class="px-3 py-2">{{ row.purpose || '-' }}</td>
+                            </tr>
+                            <tr v-if="!filteredRows.filter((row) => row.issue_destination_type === 'user').length">
+                                <td colspan="9" class="px-3 py-6 text-center text-gray-500">No user stock rows.</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

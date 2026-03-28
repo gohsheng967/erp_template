@@ -13,19 +13,25 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    users: {
+        type: Array,
+        default: () => [],
+    },
 })
 
 const emit = defineEmits(['close'])
 const toast = inject('toast', null)
+const users = computed(() => props.users ?? [])
 
 function makeRow() {
     return {
-        quantity: '',
+        quantity: '1',
         serial_number: '',
         stock_category: '',
         issue_destination_type: 'office',
         project_id: '',
         site_id: '',
+        destination_user_id: '',
         purpose: '',
         remark: '',
     }
@@ -35,6 +41,7 @@ const form = useForm({
     warehouse_id: null,
     purchase_order_item_id: null,
     items: [makeRow()],
+    proof_attachments: [],
 })
 
 function rowSites(row) {
@@ -73,6 +80,7 @@ watch(
         form.clearErrors()
 
         form.items = [makeRow()]
+        form.proof_attachments = []
 
         if (stock) {
             form.warehouse_id = stock.warehouse_id
@@ -88,7 +96,7 @@ const canSubmit = computed(() => {
     }
 
     return form.items.every((row) => {
-        if (!row.quantity || Number(row.quantity) <= 0) return false
+        if (Number(row.quantity) !== 1) return false
         if (!String(row.serial_number || '').trim()) return false
         if (!String(row.stock_category || '').trim()) return false
         if (!String(row.purpose || '').trim()) return false
@@ -97,9 +105,17 @@ const canSubmit = computed(() => {
             return Boolean(row.project_id) && Boolean(row.site_id)
         }
 
+        if (row.issue_destination_type === 'user') {
+            return Boolean(row.destination_user_id)
+        }
+
         return true
-    })
+    }) && Array.isArray(form.proof_attachments) && form.proof_attachments.length > 0
 })
+
+function onProofChange(event) {
+    form.proof_attachments = Array.from(event?.target?.files ?? [])
+}
 
 function submit() {
     if (!canSubmit.value) {
@@ -128,7 +144,7 @@ function submit() {
             <div class="mb-4 flex items-center justify-between">
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900">Issue Stock</h3>
-                    <p class="text-sm text-gray-500">Add one or more issue rows. Each row has its own serial, destination, and purpose.</p>
+                    <p class="text-sm text-gray-500">Add one or more issue rows. Each row is one serial number with quantity fixed to 1.</p>
                 </div>
 
                 <button
@@ -141,6 +157,29 @@ function submit() {
             </div>
 
             <div class="space-y-4">
+                <div class="rounded-xl border border-sky-200 bg-sky-50 p-4">
+                    <label class="block text-sm font-semibold text-sky-900">Issue Proof Attachments</label>
+                    <p class="mt-0.5 text-xs text-sky-700">Upload proof files (PDF/JPG/PNG). Multiple files allowed.</p>
+                    <input
+                        type="file"
+                        multiple
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        class="mt-2 block w-full text-sm text-gray-700 file:mr-3 file:rounded file:border-0 file:bg-sky-600 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-sky-700"
+                        @change="onProofChange"
+                    />
+                    <p v-if="form.errors.proof_attachments" class="mt-1 text-xs text-red-600">
+                        {{ form.errors.proof_attachments }}
+                    </p>
+                    <p v-else-if="form.errors['proof_attachments.0']" class="mt-1 text-xs text-red-600">
+                        {{ form.errors['proof_attachments.0'] }}
+                    </p>
+                    <ul v-if="form.proof_attachments.length" class="mt-2 space-y-1 text-xs text-slate-700">
+                        <li v-for="(f, idx) in form.proof_attachments" :key="`${f.name}-${idx}`">
+                            {{ f.name }}
+                        </li>
+                    </ul>
+                </div>
+
                 <div
                     v-for="(row, index) in form.items"
                     :key="index"
@@ -164,9 +203,8 @@ function submit() {
                             <input
                                 v-model="row.quantity"
                                 type="number"
-                                step="0.01"
-                                min="0.01"
-                                class="mt-1 w-full rounded border-gray-300"
+                                class="mt-1 w-full rounded border-gray-300 bg-gray-100"
+                                readonly
                             />
                             <p v-if="rowError(index, 'quantity')" class="mt-1 text-xs text-red-600">{{ rowError(index, 'quantity') }}</p>
                         </div>
@@ -205,10 +243,11 @@ function submit() {
                             <select
                                 v-model="row.issue_destination_type"
                                 class="mt-1 w-full rounded border-gray-300"
-                                @change="row.issue_destination_type === 'office' ? (row.project_id = '', row.site_id = '') : null"
+                                @change="row.issue_destination_type === 'office' ? (row.project_id = '', row.site_id = '', row.destination_user_id = '') : null"
                             >
                                 <option value="office">Office</option>
                                 <option value="project">Project</option>
+                                <option value="user">User</option>
                             </select>
                             <p v-if="rowError(index, 'issue_destination_type')" class="mt-1 text-xs text-red-600">{{ rowError(index, 'issue_destination_type') }}</p>
                         </div>
@@ -249,6 +288,24 @@ function submit() {
                                 </option>
                             </select>
                             <p v-if="rowError(index, 'site_id')" class="mt-1 text-xs text-red-600">{{ rowError(index, 'site_id') }}</p>
+                        </div>
+
+                        <div v-if="row.issue_destination_type === 'user'">
+                            <label class="block text-sm font-medium text-gray-700">User</label>
+                            <select
+                                v-model="row.destination_user_id"
+                                class="mt-1 w-full rounded border-gray-300"
+                            >
+                                <option disabled value="">Select user</option>
+                                <option
+                                    v-for="user in users"
+                                    :key="user.id"
+                                    :value="user.id"
+                                >
+                                    {{ user.name }}
+                                </option>
+                            </select>
+                            <p v-if="rowError(index, 'destination_user_id')" class="mt-1 text-xs text-red-600">{{ rowError(index, 'destination_user_id') }}</p>
                         </div>
                     </div>
 

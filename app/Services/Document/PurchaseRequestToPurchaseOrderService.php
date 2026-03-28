@@ -7,6 +7,7 @@ use App\Models\PurchaseRequestItem;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use App\Services\RunningNumberService;
 
@@ -55,13 +56,19 @@ class PurchaseRequestToPurchaseOrderService
             ]);
 
             foreach ($items as $item) {
-                PurchaseOrderItem::create([
+                $payload = [
                     'purchase_order_id' => $po->id,
                     'item_name' => $item['item_name'],
                     'description' => $item['description'] ?? null,
                     'quantity' => $item['quantity'],
                     'unit_price' => $item['unit_price'],
-                ]);
+                ];
+
+                if (Schema::hasColumn('purchase_order_items', 'purchase_request_item_id')) {
+                    $payload['purchase_request_item_id'] = $item['purchase_request_item_id'] ?? null;
+                }
+
+                PurchaseOrderItem::create($payload);
             }
 
             return $po;

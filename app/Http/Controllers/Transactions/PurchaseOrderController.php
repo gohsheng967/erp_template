@@ -91,7 +91,9 @@ class PurchaseOrderController extends Controller
         $poQuery = PurchaseOrder::with([
             'supplier',
             'items',
+            'purchaseRequest.items',
             'purchaseRequest.approver',
+            'purchaseRequest.requester',
             'confirmBy',
             'signedPo',
             'siteContact:id,name',
@@ -104,6 +106,31 @@ class PurchaseOrderController extends Controller
         }
 
         $po = $poQuery->firstOrFail();
+
+        if ($po->purchaseRequest) {
+            $logUserIds = collect($po->purchaseRequest->remark_log ?? [])
+                ->pluck('user_id')
+                ->filter()
+                ->unique()
+                ->values();
+
+            $remarkSigners = User::query()
+                ->whereIn('id', $logUserIds)
+                ->get(['id', 'name', 'signature_path'])
+                ->mapWithKeys(function ($user) {
+                    return [
+                        (string) $user->id => [
+                            'id' => $user->id,
+                            'name' => $user->name,
+                            'signature_url' => $user->signature_path
+                                ? Storage::disk('public')->url($user->signature_path)
+                                : null,
+                        ],
+                    ];
+                });
+
+            $po->purchaseRequest->setAttribute('remark_signers', $remarkSigners);
+        }
 
         $branchId = $this->activeBranchId($request);
         $contactUsers = User::query()

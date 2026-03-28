@@ -6,6 +6,7 @@ use App\Models\PaymentSlip;
 use App\Models\PettyCashTopup;
 use App\Models\ApInvoice;
 use App\Models\Claim;
+use App\Models\SubConClaim;
 use App\Models\Project;
 use App\Models\CompanyBankAccount;
 use App\Models\SubConTask;
@@ -61,6 +62,10 @@ class PaymentSlipController extends Controller
                             'approver:id,name,signature_path',
                             'payer:id,name,signature_path',
                         ],
+                        SubConClaim::class => [
+                            'project:id,uuid,name,branch_id',
+                            'subCon:id,name,company_name',
+                        ],
                         SubConTask::class => [
                             'project:id,uuid,name,branch_id',
                             'subCon:id,name,company_name',
@@ -93,6 +98,14 @@ class PaymentSlipController extends Controller
                     )
                     ->orWhereHasMorph(
                         'source',
+                        [SubConClaim::class],
+                        fn ($source) => $source->whereHas(
+                            'project',
+                            fn ($project) => $project->where('branch_id', $activeBranchId)
+                        )
+                    )
+                    ->orWhereHasMorph(
+                        'source',
                         [SubConTask::class],
                         fn ($source) => $source->whereHas(
                             'project',
@@ -115,7 +128,7 @@ class PaymentSlipController extends Controller
                 $projectId = $projectFilter;
                 $processingQuery->whereHasMorph(
                     'source',
-                    [PettyCashTopup::class, ApInvoice::class, Claim::class, SubConTask::class],
+                    [PettyCashTopup::class, ApInvoice::class, Claim::class, SubConClaim::class, SubConTask::class],
                     function ($query, $type) use ($projectId) {
                         if ($type === PettyCashTopup::class) {
                             $query->whereHas('wallet', function ($wallet) use ($projectId) {
@@ -134,6 +147,10 @@ class PaymentSlipController extends Controller
                             $query->where('project_id', $projectId);
                         }
 
+                        if ($type === SubConClaim::class) {
+                            $query->where('project_id', $projectId);
+                        }
+
                         if ($type === SubConTask::class) {
                             $query->where('project_id', $projectId);
                         }
@@ -142,11 +159,12 @@ class PaymentSlipController extends Controller
             }
         }
 
-        if (in_array($moduleFilter, ['claim', 'topup', 'ap_invoice', 'sub_con_task'], true)) {
+        if (in_array($moduleFilter, ['claim', 'topup', 'ap_invoice', 'sub_con_claim', 'sub_con_task'], true)) {
             $moduleMorphMap = [
                 'claim' => Claim::class,
                 'topup' => PettyCashTopup::class,
                 'ap_invoice' => ApInvoice::class,
+                'sub_con_claim' => SubConClaim::class,
                 'sub_con_task' => SubConTask::class,
             ];
 
@@ -175,6 +193,11 @@ class PaymentSlipController extends Controller
                     'source',
                     [ApInvoice::class],
                     fn ($q) => $q->whereHas('supplier', fn ($s) => $s->where('company_name', 'like', $likeRequester))
+                )->orWhereHasMorph(
+                    'source',
+                    [SubConClaim::class],
+                    fn ($q) => $q->whereHas('subCon', fn ($s) => $s->where('name', 'like', $likeRequester)
+                        ->orWhere('company_name', 'like', $likeRequester))
                 )->orWhereHasMorph(
                     'source',
                     [SubConTask::class],
@@ -219,6 +242,14 @@ class PaymentSlipController extends Controller
                         $q->where('claim_no', 'like', $like)
                             ->orWhere('title', 'like', $like)
                             ->orWhereHas('issuer', fn ($user) => $user->where('name', 'like', $like))
+                            ->orWhereHas('project', fn ($proj) => $proj->where('name', 'like', $like));
+                    })
+                    ->orWhereHasMorph('source', [SubConClaim::class], function ($q) use ($like) {
+                        $q->where('claim_no', 'like', $like)
+                            ->orWhere('title', 'like', $like)
+                            ->orWhere('payment_slip_no', 'like', $like)
+                            ->orWhereHas('subCon', fn ($subCon) => $subCon->where('name', 'like', $like)
+                                ->orWhere('company_name', 'like', $like))
                             ->orWhereHas('project', fn ($proj) => $proj->where('name', 'like', $like));
                     })
                     ->orWhereHasMorph('source', [SubConTask::class], function ($q) use ($like) {
@@ -321,6 +352,14 @@ class PaymentSlipController extends Controller
                 }
             }
 
+            if ($slip->source instanceof SubConClaim) {
+                $isPaid = in_array($slip->source->status, ['pending_real_invoice_upload', 'real_invoice_uploaded'], true);
+                $paidDate = $isPaid ? ($slip->source->payment_slip_prepared_at ?? $slip->updated_at) : null;
+                if ($isPaid) {
+                    $canCancel = false;
+                }
+            }
+
             if ($slip->cancelled_at) {
                 $isPaid = false;
                 $paidDate = null;
@@ -399,7 +438,19 @@ class PaymentSlipController extends Controller
             ->with(['project:id,uuid,name', 'subCon:id,name,company_name'])
             ->when($activeBranchId !== null, fn ($q) => $q->whereHas('project', fn ($project) => $project->where('branch_id', $activeBranchId)));
 
-        if (in_array($moduleFilter, ['claim', 'topup', 'ap_invoice', 'sub_con_task'], true)) {
+        $pendingSubConClaimsQuery = SubConClaim::query()
+            ->whereIn('status', ['payment_in_progress', 'accepted_by_subcon'])
+            ->whereDoesntHave('paymentSlip', function ($q) {
+                $q->whereNull('cancelled_at')
+                    ->where(function ($workflow) {
+                        $workflow->whereIn('workflow_status', ['processing', 'payment_arrangement', 'paid'])
+                            ->orWhereNull('workflow_status');
+                    });
+            })
+            ->with(['project:id,uuid,name', 'subCon:id,name,company_name'])
+            ->when($activeBranchId !== null, fn ($q) => $q->whereHas('project', fn ($project) => $project->where('branch_id', $activeBranchId)));
+
+        if (in_array($moduleFilter, ['claim', 'topup', 'ap_invoice', 'sub_con_claim', 'sub_con_task'], true)) {
             if ($moduleFilter !== 'claim') {
                 $pendingClaimsQuery->whereRaw('1 = 0');
             }
@@ -408,6 +459,9 @@ class PaymentSlipController extends Controller
             }
             if ($moduleFilter !== 'ap_invoice') {
                 $pendingApInvoicesQuery->whereRaw('1 = 0');
+            }
+            if ($moduleFilter !== 'sub_con_claim') {
+                $pendingSubConClaimsQuery->whereRaw('1 = 0');
             }
             if ($moduleFilter !== 'sub_con_task') {
                 $pendingSubConTasksQuery->whereRaw('1 = 0');
@@ -419,6 +473,8 @@ class PaymentSlipController extends Controller
             $pendingClaimsQuery->whereHas('issuer', fn ($u) => $u->where('name', 'like', $likeRequester));
             $pendingTopupsQuery->whereHas('requester', fn ($u) => $u->where('name', 'like', $likeRequester));
             $pendingApInvoicesQuery->whereHas('supplier', fn ($s) => $s->where('company_name', 'like', $likeRequester));
+            $pendingSubConClaimsQuery->whereHas('subCon', fn ($subCon) => $subCon->where('name', 'like', $likeRequester)
+                ->orWhere('company_name', 'like', $likeRequester));
             $pendingSubConTasksQuery->whereHas('subCon', fn ($subCon) => $subCon->where('name', 'like', $likeRequester)
                 ->orWhere('company_name', 'like', $likeRequester));
         }
@@ -427,12 +483,14 @@ class PaymentSlipController extends Controller
             $pendingClaimsQuery->where('total_amount', '>=', (float) $amountMin);
             $pendingTopupsQuery->where('amount', '>=', (float) $amountMin);
             $pendingApInvoicesQuery->where('balance_amount', '>=', (float) $amountMin);
+            $pendingSubConClaimsQuery->whereRaw('COALESCE(approved_amount, claimed_amount) >= ?', [(float) $amountMin]);
             $pendingSubConTasksQuery->whereRaw('COALESCE(invoice_amount, amount) >= ?', [(float) $amountMin]);
         }
         if ($amountMax !== null && $amountMax !== '') {
             $pendingClaimsQuery->where('total_amount', '<=', (float) $amountMax);
             $pendingTopupsQuery->where('amount', '<=', (float) $amountMax);
             $pendingApInvoicesQuery->where('balance_amount', '<=', (float) $amountMax);
+            $pendingSubConClaimsQuery->whereRaw('COALESCE(approved_amount, claimed_amount) <= ?', [(float) $amountMax]);
             $pendingSubConTasksQuery->whereRaw('COALESCE(invoice_amount, amount) <= ?', [(float) $amountMax]);
         }
 
@@ -440,18 +498,21 @@ class PaymentSlipController extends Controller
             $pendingClaimsQuery->whereDate('created_at', '>=', $dateFrom);
             $pendingTopupsQuery->whereDate('created_at', '>=', $dateFrom);
             $pendingApInvoicesQuery->whereDate('created_at', '>=', $dateFrom);
+            $pendingSubConClaimsQuery->whereDate('created_at', '>=', $dateFrom);
             $pendingSubConTasksQuery->whereDate('created_at', '>=', $dateFrom);
         }
         if ($dateTo) {
             $pendingClaimsQuery->whereDate('created_at', '<=', $dateTo);
             $pendingTopupsQuery->whereDate('created_at', '<=', $dateTo);
             $pendingApInvoicesQuery->whereDate('created_at', '<=', $dateTo);
+            $pendingSubConClaimsQuery->whereDate('created_at', '<=', $dateTo);
             $pendingSubConTasksQuery->whereDate('created_at', '<=', $dateTo);
         }
         if ($projectFilter) {
             if ($projectFilter === 'office') {
                 $pendingClaimsQuery->whereRaw('1 = 0');
                 $pendingApInvoicesQuery->whereRaw('1 = 0');
+                $pendingSubConClaimsQuery->whereRaw('1 = 0');
                 $pendingSubConTasksQuery->whereRaw('1 = 0');
                 $pendingTopupsQuery->whereHas('wallet', fn ($w) => $w->where('context_type', 'office'));
             } else {
@@ -460,6 +521,7 @@ class PaymentSlipController extends Controller
                 $pendingTopupsQuery->whereHas('wallet', function ($w) use ($projectFilter) {
                     $w->where('context_type', 'project')->where('context_id', $projectFilter);
                 });
+                $pendingSubConClaimsQuery->where('project_id', $projectFilter);
                 $pendingSubConTasksQuery->where('project_id', $projectFilter);
             }
         }
@@ -481,6 +543,14 @@ class PaymentSlipController extends Controller
                     ->orWhereHas('purchaseOrder', fn ($po) => $po->where('code', 'like', $like))
                     ->orWhereHas('supplier', fn ($s) => $s->where('company_name', 'like', $like))
                     ->orWhereHas('purchaseOrder.purchaseRequest.project', fn ($p) => $p->where('name', 'like', $like));
+            });
+            $pendingSubConClaimsQuery->where(function ($q) use ($like) {
+                $q->where('claim_no', 'like', $like)
+                    ->orWhere('title', 'like', $like)
+                    ->orWhere('payment_slip_no', 'like', $like)
+                    ->orWhereHas('project', fn ($p) => $p->where('name', 'like', $like))
+                    ->orWhereHas('subCon', fn ($subCon) => $subCon->where('name', 'like', $like)
+                        ->orWhere('company_name', 'like', $like));
             });
             $pendingSubConTasksQuery->where(function ($q) use ($like) {
                 $q->where('task_no', 'like', $like)
@@ -541,6 +611,24 @@ class PaymentSlipController extends Controller
                     'amount' => (float) $invoice->balance_amount,
                     'date' => optional($invoice->invoice_date)->toDateString() ?? optional($invoice->created_at)->toDateString(),
                     'created_at' => $invoice->created_at?->toDateTimeString(),
+                ];
+            }))
+            ->merge($pendingSubConClaimsQuery->get()->map(function (SubConClaim $claim) {
+                return [
+                    'module' => 'sub_con_claim',
+                    'source_id' => $claim->id,
+                    'source_uuid' => $claim->uuid,
+                    'project_uuid' => $claim->project?->uuid,
+                    'reference_no' => $claim->claim_no ?? $claim->title,
+                    'external_doc_ref_no' => $claim->payment_slip_no,
+                    'title' => $claim->title,
+                    'project' => $claim->project?->name ?? 'Project',
+                    'requester' => $claim->subCon?->name ?? $claim->subCon?->company_name ?? '-',
+                    'amount' => (float) ($claim->approved_amount ?? $claim->claimed_amount ?? 0),
+                    'date' => optional($claim->payment_slip_prepared_at)->toDateString()
+                        ?? optional($claim->updated_at)->toDateString()
+                        ?? optional($claim->created_at)->toDateString(),
+                    'created_at' => $claim->created_at?->toDateTimeString(),
                 ];
             }))
             ->merge($pendingSubConTasksQuery->get()->map(function (SubConTask $task) {
@@ -818,6 +906,12 @@ class PaymentSlipController extends Controller
             ]);
         }
 
+        if ($source instanceof SubConClaim && in_array($source->status, ['pending_real_invoice_upload', 'real_invoice_uploaded'], true)) {
+            $source->update([
+                'status' => 'payment_in_progress',
+            ]);
+        }
+
         $paymentSlip->update([
             'workflow_status' => 'payment_arrangement',
         ]);
@@ -863,6 +957,7 @@ class PaymentSlipController extends Controller
                     Claim::class => [],
                     ApInvoice::class => [],
                     PettyCashTopup::class => ['wallet.project:id,branch_id'],
+                    SubConClaim::class => ['project:id,branch_id'],
                     SubConTask::class => ['project:id,branch_id'],
                 ]);
             },
@@ -880,6 +975,11 @@ class PaymentSlipController extends Controller
         } elseif (
             $source instanceof PettyCashTopup
             && (int) ($source->wallet?->project?->branch_id ?? 0) === $activeBranchId
+        ) {
+            $isAllowed = true;
+        } elseif (
+            $source instanceof SubConClaim
+            && (int) ($source->project?->branch_id ?? 0) === $activeBranchId
         ) {
             $isAllowed = true;
         } elseif (

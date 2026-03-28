@@ -15,6 +15,7 @@ class SubConClaim extends Model
         'claim_no',
         'project_id',
         'sub_con_id',
+        'purchase_order_id',
         'title',
         'status',
         'claimed_amount',
@@ -25,6 +26,9 @@ class SubConClaim extends Model
         'appeal_round',
         'proforma_invoice_path',
         'proforma_invoice_name',
+        'proof_attachment_path',
+        'proof_attachment_name',
+        'proof_attachments',
         'real_invoice_path',
         'real_invoice_name',
         'real_invoice_no',
@@ -57,6 +61,7 @@ class SubConClaim extends Model
         'subcon_decided_at' => 'datetime',
         'real_invoice_uploaded_at' => 'datetime',
         'remark_log' => 'array',
+        'proof_attachments' => 'array',
     ];
 
     protected static function booted(): void
@@ -76,6 +81,16 @@ class SubConClaim extends Model
     public function subCon()
     {
         return $this->belongsTo(SubCon::class, 'sub_con_id');
+    }
+
+    public function purchaseOrder()
+    {
+        return $this->belongsTo(PurchaseOrder::class, 'purchase_order_id');
+    }
+
+    public function paymentSlip()
+    {
+        return $this->morphOne(PaymentSlip::class, 'source');
     }
 
     public function creator()

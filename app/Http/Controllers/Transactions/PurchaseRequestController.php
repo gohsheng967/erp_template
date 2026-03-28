@@ -16,6 +16,7 @@ use App\Services\RunningNumberService;
 use Inertia\Inertia;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use App\Services\Document\PurchaseRequestToPurchaseOrderService;
@@ -409,6 +410,15 @@ class PurchaseRequestController extends Controller
             )
             ->firstOrFail();
 
+        $filteredQuotations = $this->filterQuotationsByRequestType(
+            $pr->quotations,
+            (bool) $pr->is_subcon_purchase_request
+        );
+        $pr->setRelation('quotations', $filteredQuotations);
+        if ($pr->approved_quotation_id && !$filteredQuotations->contains('id', $pr->approved_quotation_id)) {
+            $pr->approved_quotation_id = null;
+        }
+
         return Inertia::render('Transactions/PurchaseRequest/Edit', [
             'pr' => $pr,
 
@@ -435,6 +445,9 @@ class PurchaseRequestController extends Controller
                 $q->where('branch_id', $this->activeBranchId($request))
             )
             ->firstOrFail();
+        if ((bool) $pr->is_subcon_purchase_request) {
+            abort(422, 'Supplier quotations are not allowed for Sub Con purchase request.');
+        }
         $supplier = Supplier::where('uuid', $supplierUuid)->firstOrFail();
 
         return $this->availableQuotationsForSupplier($pr, $supplier->id);
@@ -447,6 +460,9 @@ class PurchaseRequestController extends Controller
                 $q->where('branch_id', $this->activeBranchId($request))
             )
             ->firstOrFail();
+        if (!(bool) $pr->is_subcon_purchase_request) {
+            abort(422, 'Sub Con quotations are only allowed for Sub Con purchase request.');
+        }
 
         $subCon = SubCon::where('uuid', $subConUuid)->firstOrFail();
         $supplier = $this->resolveSupplierForSubCon($subCon, false);
@@ -663,6 +679,9 @@ class PurchaseRequestController extends Controller
             'required_date' => 'nullable|date',
             'items' => 'nullable|array',
             'items.*.id' => 'nullable|exists:purchase_request_items,id',
+            'items.*.parent_id' => 'nullable|exists:purchase_request_items,id',
+            'items.*.temp_key' => 'nullable|string|max:100',
+            'items.*.parent_temp_key' => 'nullable|string|max:100',
             'items.*.title' => 'nullable|string|max:255',
             'items.*.description' => 'nullable|string',
             'items.*.quantity' => 'nullable|numeric|min:0.01',
@@ -679,69 +698,7 @@ class PurchaseRequestController extends Controller
             );
 
             $items = $validated['items'] ?? [];
-
-            /* =========================
-            3️⃣ BLOCK PARTIAL ROWS
-            ========================== */
-            foreach ($items as $index => $item) {
-                $filled = collect([
-                    trim((string) ($item['title'] ?? '')),
-                    $item['quantity'] ?? null,
-                    $item['unit_price'] ?? null,
-                ])->filter(fn ($v) => $v !== null && $v !== '')->count();
-
-                if ($filled > 0 && $filled < 3) {
-                    throw ValidationException::withMessages([
-                        "items.$index" =>
-                            "Item row " . ($index + 1) . " is incomplete",
-                    ]);
-                }
-            }
-
-            /* =========================
-            4️⃣ HANDLE REMOVALS
-            ========================== */
-            $submittedIds = collect($items)
-                ->pluck('id')
-                ->filter()
-                ->values()
-                ->all();
-
-            $existingIds = $purchaseRequest->items()->pluck('id')->all();
-
-            $idsToDelete = array_diff($existingIds, $submittedIds);
-
-            if (!empty($idsToDelete)) {
-                $purchaseRequest->items()
-                    ->whereIn('id', $idsToDelete)
-                    ->delete();
-            }
-
-            /* =========================
-            5️⃣ UPSERT VALID ROWS
-            ========================== */
-            foreach ($items as $item) {
-
-                // Completely empty row → ignore
-                if (
-                    trim((string) ($item['title'] ?? '')) === '' &&
-                    ($item['quantity'] ?? null) === null &&
-                    ($item['unit_price'] ?? null) === null
-                ) {
-                    continue;
-                }
-
-                $purchaseRequest->items()->updateOrCreate(
-                    ['id' => $item['id'] ?? null],
-                    [
-                        'title' => $item['title'],
-                        'description' => $item['description'] ?? null,
-                        'quantity' => $item['quantity'],
-                        'unit_price' => $item['unit_price'],
-                        'total_price' => $item['quantity'] * $item['unit_price'],
-                    ]
-                );
-            }
+            $this->syncPurchaseRequestItems($purchaseRequest, $items);
         });
 
         return back()->with('success', 'Draft saved');
@@ -778,6 +735,9 @@ class PurchaseRequestController extends Controller
         $validated = $request->validate([
             'items' => 'required|array|min:1',
             'items.*.id' => 'nullable|exists:purchase_request_items,id',
+            'items.*.parent_id' => 'nullable|exists:purchase_request_items,id',
+            'items.*.temp_key' => 'nullable|string|max:100',
+            'items.*.parent_temp_key' => 'nullable|string|max:100',
             'items.*.title' => 'required|string|max:255',
             'items.*.description' => 'nullable|string',
             'items.*.quantity' => 'required|numeric|min:0.01',
@@ -803,46 +763,15 @@ class PurchaseRequestController extends Controller
             $fromStatus = (string) $purchaseRequest->status;
             $quotationId = (int) $header['quotation_id'];
             unset($header['quotation_id']);
-
-            $hasQuotation = $purchaseRequest->quotations()
-                ->where('purchase_quotation_id', $quotationId)
-                ->exists();
-            if (!$hasQuotation) {
-                throw ValidationException::withMessages([
-                    'quotation_id' => 'Selected quotation is not attached to this PR.',
-                ]);
-            }
+            $this->resolveAndValidateQuotationForPurchaseRequest(
+                $purchaseRequest,
+                $quotationId,
+                'quotation_id'
+            );
 
             $purchaseRequest->update($header);
 
-            $submittedIds = collect($validated['items'])
-                ->pluck('id')
-                ->filter()
-                ->values()
-                ->all();
-
-            $existingIds = $purchaseRequest->items()->pluck('id')->all();
-            $idsToDelete = array_diff($existingIds, $submittedIds);
-
-            if (!empty($idsToDelete)) {
-                $purchaseRequest->items()
-                    ->whereIn('id', $idsToDelete)
-                    ->delete();
-            }
-
-            foreach ($validated['items'] as $item) {
-                $purchaseRequest->items()->updateOrCreate(
-                    ['id' => $item['id'] ?? null],
-                    [
-                        'title' => $item['title'],
-                        'description' => $item['description'] ?? null,
-                        'quantity' => $item['quantity'],
-                        'unit_price' => $item['unit_price'],
-                        'total_price' => $item['quantity'] * $item['unit_price'],
-                    ]
-                );
-            }
-
+            $this->syncPurchaseRequestItems($purchaseRequest, $validated['items']);
             $purchaseRequest->update([
                 'code'   => $purchaseRequest->code ?: RunningNumberService::next(documentType: 'purchase_request'),
                 'status' => 'submitted',
@@ -874,6 +803,7 @@ class PurchaseRequestController extends Controller
                 'approver',
                 'items',
                 'quotations.attachment',
+                'quotations.supplier',
                 'purchaseOrder.apInvoice',
                 'siteContact:id,name',
             ])
@@ -882,6 +812,15 @@ class PurchaseRequestController extends Controller
                 $q->where('branch_id', $this->activeBranchId($httpRequest))
             )
             ->firstOrFail();
+
+        $filteredQuotations = $this->filterQuotationsByRequestType(
+            $request->quotations,
+            (bool) $request->is_subcon_purchase_request
+        );
+        $request->setRelation('quotations', $filteredQuotations);
+        if ($request->approved_quotation_id && !$filteredQuotations->contains('id', $request->approved_quotation_id)) {
+            $request->approved_quotation_id = null;
+        }
 
         $company = CompanyProfile::first();
         $logUserIds = collect($request->remark_log ?? [])
@@ -1071,7 +1010,11 @@ class PurchaseRequestController extends Controller
                 abort(422, 'No approved quotation selected for PO generation.');
             }
 
-            $quotation = PurchaseQuotation::where('id', $quotationId)->firstOrFail();
+            $quotation = $this->resolveAndValidateQuotationForPurchaseRequest(
+                $pr,
+                $quotationId,
+                'quotation_id'
+            );
 
             $isSubConRequest = (bool) $pr->is_subcon_purchase_request;
             $deliveryPeriod = trim((string) ($data['delivery_period'] ?? $pr->delivery_period ?? ''));
@@ -1086,6 +1029,7 @@ class PurchaseRequestController extends Controller
             }
 
             $items = $pr->items->map(fn ($item) => [
+                'purchase_request_item_id' => $item->id,
                 'item_name' => $item->title,
                 'description' => $item->description,
                 'quantity' => $item->quantity,
@@ -1139,7 +1083,11 @@ class PurchaseRequestController extends Controller
             abort(422, 'No approved quotation selected for PO generation.');
         }
 
-        $quotation = PurchaseQuotation::where('id', $quotationId)->firstOrFail();
+        $quotation = $this->resolveAndValidateQuotationForPurchaseRequest(
+            $pr,
+            $quotationId,
+            'quotation_id'
+        );
 
         $isSubConRequest = (bool) $pr->is_subcon_purchase_request;
         $deliveryPeriod = trim((string) ($data['delivery_period'] ?? $pr->delivery_period ?? ''));
@@ -1154,6 +1102,7 @@ class PurchaseRequestController extends Controller
         }
 
         $items = $pr->items->map(fn ($item) => [
+            'purchase_request_item_id' => $item->id,
             'item_name' => $item->title,
             'description' => $item->description,
             'quantity' => $item->quantity,
@@ -1234,6 +1183,212 @@ class PurchaseRequestController extends Controller
     private function isEditableStatus(string $status): bool
     {
         return in_array($status, ['draft', 'verified_own_department', 'verified_project_department', 'verified_purchasing_department'], true);
+    }
+
+    private function resolveAndValidateQuotationForPurchaseRequest(
+        PurchaseRequest $purchaseRequest,
+        int $quotationId,
+        string $field = 'quotation_id',
+    ): PurchaseQuotation {
+        $hasQuotation = $purchaseRequest->quotations()
+            ->where('purchase_quotation_id', $quotationId)
+            ->exists();
+        if (!$hasQuotation) {
+            throw ValidationException::withMessages([
+                $field => 'Selected quotation is not attached to this PR.',
+            ]);
+        }
+
+        $quotation = PurchaseQuotation::query()
+            ->with('supplier')
+            ->whereKey($quotationId)
+            ->firstOrFail();
+
+        $isSubConRequest = (bool) $purchaseRequest->is_subcon_purchase_request;
+        if (!$this->isQuotationAllowedByRequestType($quotation, $isSubConRequest)) {
+            throw ValidationException::withMessages([
+                $field => $isSubConRequest
+                    ? 'Selected quotation is supplier quotation. Only Sub Con quotation is allowed.'
+                    : 'Selected quotation is Sub Con quotation. Only supplier quotation is allowed.',
+            ]);
+        }
+
+        return $quotation;
+    }
+
+    private function filterQuotationsByRequestType($quotations, bool $isSubConRequest)
+    {
+        $names = $this->normalizedSubConVendorNames();
+
+        return collect($quotations)
+            ->filter(function (PurchaseQuotation $quotation) use ($isSubConRequest, $names) {
+                $isSubConQuotation = $this->isSubConQuotation($quotation, $names);
+                return $isSubConRequest ? $isSubConQuotation : !$isSubConQuotation;
+            })
+            ->values();
+    }
+
+    private function isQuotationAllowedByRequestType(PurchaseQuotation $quotation, bool $isSubConRequest): bool
+    {
+        $isSubConQuotation = $this->isSubConQuotation($quotation, $this->normalizedSubConVendorNames());
+        return $isSubConRequest ? $isSubConQuotation : !$isSubConQuotation;
+    }
+
+    private function isSubConQuotation(PurchaseQuotation $quotation, array $normalizedSubConNames): bool
+    {
+        $supplierName = trim((string) ($quotation->supplier?->company_name ?? ''));
+        if ($supplierName === '') {
+            $supplierName = trim((string) ($quotation->supplier_name ?? ''));
+        }
+        if ($supplierName === '') {
+            return false;
+        }
+
+        return in_array(mb_strtolower($supplierName), $normalizedSubConNames, true);
+    }
+
+    private function normalizedSubConVendorNames(): array
+    {
+        return SubCon::query()
+            ->select('name', 'company_name')
+            ->get()
+            ->flatMap(function (SubCon $subCon) {
+                return [
+                    trim((string) ($subCon->company_name ?? '')),
+                    trim((string) ($subCon->name ?? '')),
+                ];
+            })
+            ->filter(fn ($name) => $name !== '')
+            ->map(fn ($name) => mb_strtolower($name))
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    private function syncPurchaseRequestItems(PurchaseRequest $purchaseRequest, array $items): void
+    {
+        $existingItems = $purchaseRequest->items()
+            ->select('id')
+            ->get()
+            ->keyBy('id');
+
+        $keptIds = [];
+        $tempKeyToId = [];
+        $parentMetaByItemId = [];
+
+        foreach ($items as $row) {
+            $itemId = isset($row['id']) ? (int) $row['id'] : null;
+
+            if ($itemId && !$existingItems->has($itemId)) {
+                throw ValidationException::withMessages([
+                    'items' => 'One or more items are invalid for this purchase request.',
+                ]);
+            }
+
+            $quantity = (float) ($row['quantity'] ?? 0);
+            $unitPrice = (float) ($row['unit_price'] ?? 0);
+
+            $payload = [
+                'title' => $row['title'] ?? null,
+                'description' => $row['description'] ?? null,
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+                'total_price' => $quantity * $unitPrice,
+            ];
+
+            if ($itemId) {
+                $item = $purchaseRequest->items()->whereKey($itemId)->firstOrFail();
+                $item->update($payload);
+            } else {
+                $item = $purchaseRequest->items()->create($payload);
+            }
+
+            $keptIds[] = (int) $item->id;
+
+            $tempKey = trim((string) ($row['temp_key'] ?? ''));
+            if ($tempKey !== '') {
+                $tempKeyToId[$tempKey] = (int) $item->id;
+            }
+
+            $parentMetaByItemId[(int) $item->id] = [
+                'parent_id' => isset($row['parent_id']) && $row['parent_id'] !== ''
+                    ? (int) $row['parent_id']
+                    : null,
+                'parent_temp_key' => trim((string) ($row['parent_temp_key'] ?? '')),
+            ];
+        }
+
+        $idsToDelete = $existingItems->keys()
+            ->map(fn ($id) => (int) $id)
+            ->diff($keptIds)
+            ->values();
+
+        if ($idsToDelete->isNotEmpty()) {
+            $purchaseRequest->items()->whereIn('id', $idsToDelete->all())->delete();
+        }
+
+        if (!Schema::hasColumn('purchase_request_items', 'parent_id')) {
+            return;
+        }
+
+        foreach ($parentMetaByItemId as $itemId => $parentMeta) {
+            $parentId = null;
+
+            if ($parentMeta['parent_temp_key'] !== '' && isset($tempKeyToId[$parentMeta['parent_temp_key']])) {
+                $parentId = (int) $tempKeyToId[$parentMeta['parent_temp_key']];
+            } elseif (!empty($parentMeta['parent_id'])) {
+                $parentId = (int) $parentMeta['parent_id'];
+            }
+
+            if ($parentId !== null) {
+                if ($parentId === $itemId) {
+                    throw ValidationException::withMessages([
+                        'items' => 'Item cannot be parent of itself.',
+                    ]);
+                }
+
+                if (!in_array($parentId, $keptIds, true)) {
+                    throw ValidationException::withMessages([
+                        'items' => 'One or more item parent references are invalid.',
+                    ]);
+                }
+            }
+
+            $purchaseRequest->items()->whereKey($itemId)->update([
+                'parent_id' => $parentId,
+            ]);
+        }
+
+        $this->validateMainItemsMatchSubItemSum($purchaseRequest);
+    }
+
+    private function validateMainItemsMatchSubItemSum(PurchaseRequest $purchaseRequest): void
+    {
+        if (!Schema::hasColumn('purchase_request_items', 'parent_id')) {
+            return;
+        }
+
+        $items = $purchaseRequest->items()->get(['id', 'parent_id', 'title', 'total_price']);
+        $childrenByParent = $items
+            ->filter(fn ($item) => !empty($item->parent_id))
+            ->groupBy(fn ($item) => (int) $item->parent_id);
+
+        foreach ($childrenByParent as $parentId => $children) {
+            $parent = $items->firstWhere('id', (int) $parentId);
+            if (!$parent) {
+                continue;
+            }
+
+            $parentAmount = round((float) ($parent->total_price ?? 0), 2);
+            $childAmount = round((float) $children->sum(fn ($child) => (float) ($child->total_price ?? 0)), 2);
+
+            if (abs($parentAmount - $childAmount) > 0.01) {
+                $parentTitle = trim((string) ($parent->title ?? 'Main Item #' . $parent->id));
+                throw ValidationException::withMessages([
+                    'items' => "Sub-item total must match main item amount for \"{$parentTitle}\".",
+                ]);
+            }
+        }
     }
 
     private function appendRemarkLog(

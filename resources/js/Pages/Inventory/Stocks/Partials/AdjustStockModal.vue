@@ -59,7 +59,7 @@ watch(
 
 const currentQty = computed(() => Number(props.stock?.quantity ?? 0))
 const targetQty = computed(() =>
-    (form.items ?? []).reduce((sum, row) => sum + Number(row.quantity || 0), 0)
+    Number(form.items?.length ?? 0)
 )
 const qtyDiff = computed(() => targetQty.value - currentQty.value)
 
@@ -68,7 +68,7 @@ const canSubmit = computed(() => {
     if (!Array.isArray(form.items) || form.items.length === 0) return false
 
     return form.items.every((row) => {
-        if (!row.quantity || Number(row.quantity) <= 0) return false
+        if (Number(row.quantity) !== 1) return false
         if (!String(row.serial_number || '').trim()) return false
         return true
     })
@@ -102,7 +102,7 @@ function submit() {
             <div class="mb-4 flex items-center justify-between">
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900">Adjust Stock</h3>
-                    <p class="text-sm text-gray-500">List all actual serial-number rows. Final stock becomes the total quantity from rows.</p>
+                    <p class="text-sm text-gray-500">List all actual serial-number rows. Each serial equals quantity 1.</p>
                 </div>
 
                 <button
@@ -164,9 +164,8 @@ function submit() {
                             <input
                                 v-model="row.quantity"
                                 type="number"
-                                step="0.01"
-                                min="0.01"
-                                class="mt-1 w-full rounded border-gray-300"
+                                class="mt-1 w-full rounded border-gray-300 bg-gray-100"
+                                readonly
                             />
                             <p v-if="rowError(index, 'quantity')" class="mt-1 text-xs text-red-600">{{ rowError(index, 'quantity') }}</p>
                         </div>

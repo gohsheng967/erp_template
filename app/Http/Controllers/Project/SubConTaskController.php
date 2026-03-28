@@ -216,7 +216,11 @@ class SubConTaskController extends Controller
         }
 
         $po = PurchaseOrder::query()
-            ->with('items:id,purchase_order_id,item_name,description,quantity,unit_price')
+            ->with([
+                'purchaseRequest:id',
+                'items:id,purchase_order_id,purchase_request_item_id,item_name,description,quantity,unit_price',
+                'items.purchaseRequestItem:id,parent_id,title',
+            ])
             ->whereKey($validated['purchase_order_id'])
             ->where(function ($query) {
                 $query->whereNotNull('confirmed_at')
@@ -241,13 +245,101 @@ class SubConTaskController extends Controller
 
         $created = 0;
 
-        foreach ($po->items as $item) {
+        $prItems = $po->purchaseRequest
+            ? $po->purchaseRequest->items()->select('id', 'parent_id', 'title')->get()->keyBy('id')
+            : collect();
+
+        $poPrefix = (string) ($po->code ?? ('PO-' . $po->id));
+        $mappedGroups = [];
+        $unmappedPoItems = [];
+
+        foreach ($po->items as $poItem) {
+            $prItemId = (int) ($poItem->purchase_request_item_id ?? 0);
+            $amount = max(0, (float) $poItem->quantity * (float) $poItem->unit_price);
+
+            if ($prItemId <= 0 || !$prItems->has($prItemId)) {
+                $unmappedPoItems[] = $poItem;
+                continue;
+            }
+
+            $rootId = $prItemId;
+            $walkerId = $prItemId;
+            while ($walkerId && $prItems->has($walkerId)) {
+                $parentId = (int) ($prItems[$walkerId]->parent_id ?? 0);
+                if ($parentId <= 0 || !$prItems->has($parentId)) {
+                    break;
+                }
+                $rootId = $parentId;
+                $walkerId = $parentId;
+            }
+
+            if (!isset($mappedGroups[$rootId])) {
+                $mappedGroups[$rootId] = [
+                    'amount' => 0,
+                    'items' => [],
+                ];
+            }
+
+            $mappedGroups[$rootId]['amount'] += $amount;
+            $mappedGroups[$rootId]['items'][] = $poItem;
+        }
+
+        foreach ($mappedGroups as $rootPrItemId => $group) {
+            $rootPrItem = $prItems->get($rootPrItemId);
+            $parentTitle = trim((string) ($rootPrItem?->title ?? ''));
+            if ($parentTitle === '') {
+                $parentTitle = 'PO Item Group #' . $rootPrItemId;
+            }
+
+            $parentTask = SubConTask::create([
+                'task_no' => RunningNumberService::next('sub_con_task'),
+                'project_id' => $project->id,
+                'sub_con_id' => $validated['sub_con_id'],
+                'parent_id' => null,
+                'title' => sprintf('[%s] %s', $poPrefix, $parentTitle),
+                'amount' => max(0, (float) $group['amount']),
+                'status' => 'draft',
+                'progress_percent' => 0,
+            ]);
+            $created++;
+
+            foreach ($group['items'] as $poItem) {
+                $prItemId = (int) ($poItem->purchase_request_item_id ?? 0);
+                $prItem = $prItems->get($prItemId);
+
+                // Root PR item is represented by main task itself; only children become sub tasks.
+                if (!$prItem || empty($prItem->parent_id)) {
+                    continue;
+                }
+
+                $childTitle = trim((string) ($poItem->item_name ?? $prItem->title ?? ''));
+                if ($childTitle === '') {
+                    $childTitle = 'PO Item #' . $poItem->id;
+                }
+
+                $description = trim((string) ($poItem->description ?? ''));
+
+                SubConTask::create([
+                    'task_no' => RunningNumberService::next('sub_con_task'),
+                    'project_id' => $project->id,
+                    'sub_con_id' => $validated['sub_con_id'],
+                    'parent_id' => $parentTask->id,
+                    'title' => $description !== '' ? ($childTitle . ' - ' . $description) : $childTitle,
+                    'amount' => 0,
+                    'status' => 'draft',
+                    'progress_percent' => 0,
+                ]);
+                $created++;
+            }
+        }
+
+        foreach ($unmappedPoItems as $item) {
             $title = trim((string) ($item->item_name ?? ''));
             if ($title === '') {
                 $title = 'PO Item #' . $item->id;
             }
 
-            $amount = (float) $item->quantity * (float) $item->unit_price;
+            $amount = max(0, (float) $item->quantity * (float) $item->unit_price);
             $description = trim((string) ($item->description ?? ''));
 
             SubConTask::create([
@@ -257,11 +349,11 @@ class SubConTaskController extends Controller
                 'parent_id' => null,
                 'title' => sprintf(
                     '[%s] %s%s',
-                    (string) ($po->code ?? ('PO-' . $po->id)),
+                    $poPrefix,
                     $title,
                     $description !== '' ? (' - ' . $description) : ''
                 ),
-                'amount' => max(0, $amount),
+                'amount' => $amount,
                 'status' => 'draft',
                 'progress_percent' => 0,
             ]);

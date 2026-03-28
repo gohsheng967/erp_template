@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 use Str;
 
 class PurchaseRequest extends Model
@@ -82,7 +83,12 @@ class PurchaseRequest extends Model
 
     public function items()
     {
-        return $this->hasMany(PurchaseRequestItem::class);
+        $relation = $this->hasMany(PurchaseRequestItem::class);
+        if (Schema::hasColumn('purchase_request_items', 'parent_id')) {
+            $relation->orderByRaw('CASE WHEN parent_id IS NULL THEN 0 ELSE 1 END');
+        }
+
+        return $relation->orderBy('id');
     }
 
     public function recalcTotal(): void

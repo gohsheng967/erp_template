@@ -108,6 +108,29 @@ const currentLinks = computed(() => {
     return slipsByTab.value?.[activeTab.value]?.links ?? []
 })
 
+const tabStatusMeta = {
+    pending: { label: 'Pending', hint: 'Rows ready to generate payment slip.' },
+    processing: { label: 'CEO / GM Approval', hint: 'Generated slips waiting for approval.' },
+    payment_arrangement: { label: 'Payment Arrangement', hint: 'Arrange payment, upload proof, and complete payment.' },
+    paid: { label: 'Paid', hint: 'Payment completed records.' },
+}
+
+const activeTabHint = computed(() => tabStatusMeta[activeTab.value]?.hint ?? '')
+
+const activeFilterCount = computed(() => {
+    let count = 0
+    if (String(filterForm.search ?? '').trim() !== '') count++
+    if (filterForm.project_id !== '' && filterForm.project_id !== null) count++
+    if (filterForm.module !== '' && filterForm.module !== null) count++
+    if (String(filterForm.requester ?? '').trim() !== '') count++
+    if (activeTab.value !== 'pending' && filterForm.voucher !== '' && filterForm.voucher !== null) count++
+    if (filterForm.amount_min !== '' && filterForm.amount_min !== null) count++
+    if (filterForm.amount_max !== '' && filterForm.amount_max !== null) count++
+    if (filterForm.date_from) count++
+    if (filterForm.date_to) count++
+    return count
+})
+
 function applyFilters() {
     filterForm.tab = activeTab.value
     router.get(route('payment-slips.index'), filterForm.data(), {
@@ -148,6 +171,11 @@ function openSlip(slip) {
         return
     }
 
+    if (slip.source_type?.includes('SubConClaim')) {
+        showSubConSlip.value = true
+        return
+    }
+
     if (slip.source_type?.includes('SubConTask')) {
         showSubConSlip.value = true
         return
@@ -166,6 +194,7 @@ function closeSlip() {
 
 function moduleLabel(value) {
     if (value === 'sub_con_task') return 'Sub Con Task'
+    if (value === 'sub_con_claim') return 'Sub Con Claim'
     if (value === 'ap_invoice') return 'AP Invoice'
     if (value === 'topup') return 'Top-up'
     if (value === 'claim') return 'Claim'
@@ -174,6 +203,7 @@ function moduleLabel(value) {
 
 function slipModuleLabel(slip) {
     if (slip.source_type?.includes('SubConTask')) return 'Sub Con Task'
+    if (slip.source_type?.includes('SubConClaim')) return 'Sub Con Claim'
     if (slip.source_type?.includes('Claim')) return 'Claim'
     if (slip.source_type?.includes('ApInvoice')) return 'AP Invoice'
     return 'Top-up'
@@ -188,6 +218,10 @@ function slipProject(slip) {
     }
 
     if (slip.source_type?.includes('SubConTask')) {
+        return slip.source?.project?.name ?? 'Project'
+    }
+
+    if (slip.source_type?.includes('SubConClaim')) {
         return slip.source?.project?.name ?? 'Project'
     }
 
@@ -206,6 +240,10 @@ function slipRequester(slip) {
     }
 
     if (slip.source_type?.includes('SubConTask')) {
+        return slip.source?.sub_con?.name ?? slip.source?.sub_con?.company_name ?? '-'
+    }
+
+    if (slip.source_type?.includes('SubConClaim')) {
         return slip.source?.sub_con?.name ?? slip.source?.sub_con?.company_name ?? '-'
     }
 
@@ -238,6 +276,9 @@ function rowRefNo(row) {
     if (row.source_type?.includes('SubConTask')) {
         return row.source?.task_no ?? row.source?.title ?? '-'
     }
+    if (row.source_type?.includes('SubConClaim')) {
+        return row.source?.claim_no ?? row.source?.title ?? '-'
+    }
 
     return '-'
 }
@@ -257,6 +298,9 @@ function rowExternalDocRefNo(row) {
     }
     if (row.source_type?.includes('SubConTask')) {
         return row.source?.invoice_no ?? '-'
+    }
+    if (row.source_type?.includes('SubConClaim')) {
+        return row.source?.payment_slip_no ?? '-'
     }
 
     return '-'
@@ -387,6 +431,21 @@ async function arrangementMarkPaid() {
                 project: slip.source?.project?.uuid,
                 task: slip.source?.uuid,
             }), fd)
+        } else if (slip.source_type?.includes('SubConClaim')) {
+            for (const file of arrangementForm.value.attachments) {
+                fd.append('attachments[]', file)
+            }
+            await axios.post(route('payment-slips.upload', slip.id), fd, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            })
+            await axios.post(route('projects.sub-con-claims.mark-payment-completed', {
+                project: slip.source?.project?.uuid,
+                claim: slip.source?.uuid,
+            }), {
+                remark: arrangementForm.value.payment_ref
+                    ? `Payment Ref: ${arrangementForm.value.payment_ref}`
+                    : null,
+            })
         } else {
             fd.append('amount', String(slip.amount ?? 0))
             fd.append('payment_date', String(slip.payment_date ?? new Date().toISOString().slice(0, 10)).slice(0, 10))
@@ -547,6 +606,23 @@ async function submitGenerate() {
                 less_paid_previously: generateForm.value.less_paid_previously || null,
                 payment_slip_remark: generateForm.value.payment_slip_remark || null,
             })
+        } else if (row.module === 'sub_con_claim') {
+            response = await axios.post(route('projects.sub-con-claims.payment-slip', {
+                project: row.project_uuid,
+                claim: row.source_uuid,
+            }), {
+                company_bank_account_id: generateForm.value.company_bank_account_id,
+                less_retention: generateForm.value.less_retention || null,
+                less_retention_label: generateForm.value.less_retention_label || null,
+                less_recoupment: generateForm.value.less_recoupment || null,
+                less_recoupment_label: generateForm.value.less_recoupment_label || null,
+                less_material_ob: generateForm.value.less_material_ob || null,
+                less_material_ob_label: generateForm.value.less_material_ob_label || null,
+                less_paid_previously: generateForm.value.less_paid_previously || null,
+                less_paid_previously_label: generateForm.value.less_paid_previously_label || null,
+                payment_slip_remark: generateForm.value.payment_slip_remark || null,
+                remark_label: generateForm.value.remark_label || null,
+            })
         } else {
             response = await axios.post(route('ap-invoices.payments.slip', row.source_uuid), {
                 amount: Number(generateForm.value.amount || 0),
@@ -569,6 +645,8 @@ async function submitGenerate() {
                 showApSlip.value = true
             } else if (row.module === 'claim') {
                 showClaimSlip.value = true
+            } else if (row.module === 'sub_con_claim') {
+                showSubConSlip.value = true
             } else if (row.module === 'sub_con_task') {
                 showSubConSlip.value = true
             } else {
@@ -636,6 +714,21 @@ async function submitMarkPaid() {
                 project: slip.source?.project?.uuid,
                 task: slip.source?.uuid,
             }), fd)
+        } else if (slip.source_type?.includes('SubConClaim')) {
+            for (const file of markPaidForm.value.attachments) {
+                fd.append('attachments[]', file)
+            }
+            await axios.post(route('payment-slips.upload', slip.id), fd, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            })
+            await axios.post(route('projects.sub-con-claims.mark-payment-completed', {
+                project: slip.source?.project?.uuid,
+                claim: slip.source?.uuid,
+            }), {
+                remark: markPaidForm.value.payment_ref
+                    ? `Payment Ref: ${markPaidForm.value.payment_ref}`
+                    : null,
+            })
         } else {
             fd.append('amount', String(slip.amount ?? 0))
             fd.append('payment_date', String(slip.payment_date ?? new Date().toISOString().slice(0, 10)).slice(0, 10))
@@ -671,6 +764,21 @@ async function submitMarkPaid() {
                 @apply="applyFilters"
                 @reset="resetFilters"
             >
+                <template #header-actions>
+                    <div class="flex items-center gap-2">
+                        <span class="rounded-full bg-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700">
+                            {{ activeFilterCount }} active
+                        </span>
+                        <button
+                            type="button"
+                            class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                            @click="resetFilters"
+                        >
+                            Clear all
+                        </button>
+                    </div>
+                </template>
+
                 <div class="flex flex-col w-full md:w-1/3">
                     <label class="text-sm font-medium">Search</label>
                     <input
@@ -699,6 +807,7 @@ async function submitMarkPaid() {
                         <option value="claim">Claim</option>
                         <option value="topup">Top-up</option>
                         <option value="ap_invoice">AP Invoice</option>
+                        <option value="sub_con_claim">Sub Con Claim</option>
                         <option value="sub_con_task">Sub Con Task</option>
                     </select>
                 </div>
@@ -743,52 +852,60 @@ async function submitMarkPaid() {
                 </div>
             </StandardFilterBar>
 
-            <div class="bg-white rounded shadow border px-4">
-                <nav class="flex gap-6">
+            <div class="flex flex-wrap items-center gap-2">
                     <button
                         v-for="tab in tabs"
                         :key="tab.key"
                         @click="switchTab(tab.key)"
-                        class="py-3 font-medium flex items-center gap-2"
-                        :class="{
-                            'border-b-2 border-indigo-600 text-indigo-600': activeTab === tab.key,
-                            'text-gray-500': activeTab !== tab.key
-                        }"
+                        class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition"
+                        :class="activeTab === tab.key
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-gray-200 bg-white text-gray-700 hover:border-indigo-300'"
                     >
                         {{ tab.label }}
-                        <span class="px-2 py-0.5 text-xs rounded-full bg-gray-200">
+                        <span class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold">
                             {{ counts?.[tab.key] ?? 0 }}
                         </span>
                     </button>
-                </nav>
             </div>
 
-            <div class="overflow-x-auto bg-white rounded-lg border">
-                <table class="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">
+            <div class="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 text-sm text-blue-900">
+                <span class="font-semibold mr-2">
+                    {{ tabStatusMeta[activeTab]?.label ?? activeTab }}:
+                </span>
+                <span>{{ activeTabHint }}</span>
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-600">
                         <tr>
-                            <th class="px-4 py-3">Ref No</th>
-                            <th class="px-4 py-3">External Doc Ref No</th>
-                            <th class="px-4 py-3">Module</th>
-                            <th class="px-4 py-3">Project</th>
-                            <th class="px-4 py-3">Requester</th>
-                            <th class="px-4 py-3 text-right">Amount</th>
-                            <th class="px-4 py-3">Date</th>
-                            <th v-if="activeTab !== 'pending'" class="px-4 py-3">Voucher</th>
-                            <th v-if="activeTab !== 'pending'" class="px-4 py-3">Slip No</th>
-                            <th class="px-4 py-3 text-right">Action</th>
+                            <th class="px-4 py-2.5">Ref No</th>
+                            <th class="px-4 py-2.5">External Doc Ref No</th>
+                            <th class="px-4 py-2.5">Module</th>
+                            <th class="px-4 py-2.5">Project</th>
+                            <th class="px-4 py-2.5">Requester</th>
+                            <th class="px-4 py-2.5 text-right">Amount</th>
+                            <th class="px-4 py-2.5">Date</th>
+                            <th v-if="activeTab !== 'pending'" class="px-4 py-2.5">Voucher</th>
+                            <th v-if="activeTab !== 'pending'" class="px-4 py-2.5">Slip No</th>
+                            <th class="px-4 py-2.5 text-center">Action</th>
                         </tr>
                     </thead>
 
-                    <tbody class="divide-y divide-gray-200 bg-white">
-                        <tr v-for="row in currentRows" :key="`${activeTab}-${row.id ?? row.source_id}`">
-                            <td class="px-4 py-3 font-medium text-gray-900">
+                    <tbody class="divide-y divide-slate-200 bg-white">
+                        <tr
+                            v-for="row in currentRows"
+                            :key="`${activeTab}-${row.id ?? row.source_id}`"
+                            class="transition-colors hover:bg-slate-50"
+                        >
+                            <td class="px-4 py-2.5 font-medium text-slate-900">
                                 {{ rowRefNo(row) }}
                             </td>
-                            <td class="px-4 py-3 text-gray-700">
+                            <td class="px-4 py-2.5 text-slate-700">
                                 {{ rowExternalDocRefNo(row) }}
                             </td>
-                            <td class="px-4 py-3 text-gray-700 capitalize">
+                            <td class="px-4 py-2.5 text-slate-700 capitalize">
                                 <template v-if="activeTab === 'pending'">
                                     {{ moduleLabel(row.module) }}
                                 </template>
@@ -796,19 +913,19 @@ async function submitMarkPaid() {
                                     {{ slipModuleLabel(row) }}
                                 </template>
                             </td>
-                            <td class="px-4 py-3 text-gray-700">
+                            <td class="px-4 py-2.5 text-slate-700">
                                 {{ activeTab === 'pending' ? row.project : slipProject(row) }}
                             </td>
-                            <td class="px-4 py-3 text-gray-700">
+                            <td class="px-4 py-2.5 text-slate-700">
                                 {{ activeTab === 'pending' ? row.requester : slipRequester(row) }}
                             </td>
-                            <td class="px-4 py-3 text-right tabular-nums">
+                            <td class="px-4 py-2.5 text-right tabular-nums text-slate-800">
                                 {{ formatCurrency(activeTab === 'pending' ? row.amount : row.amount) }}
                             </td>
-                            <td class="px-4 py-3 text-gray-700">
+                            <td class="px-4 py-2.5 text-slate-700">
                                 {{ formatDateTime(activeTab === 'pending' ? row.date : row.payment_date || row.created_at) }}
                             </td>
-                            <td v-if="activeTab !== 'pending'" class="px-4 py-3">
+                            <td v-if="activeTab !== 'pending'" class="px-4 py-2.5">
                                 <span
                                     class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
                                     :class="row.attachments_count > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'"
@@ -816,38 +933,42 @@ async function submitMarkPaid() {
                                     {{ row.attachments_count > 0 ? 'Yes' : 'No' }}
                                 </span>
                             </td>
-                            <td v-if="activeTab !== 'pending'" class="px-4 py-3 text-gray-700">
+                            <td v-if="activeTab !== 'pending'" class="px-4 py-2.5 text-slate-700">
                                 {{ row.slip_no || '-' }}
                             </td>
-                            <td class="px-4 py-3 text-right space-x-2">
+                            <td class="px-4 py-2.5">
                                 <template v-if="activeTab === 'pending'">
                                     <button
-                                        class="px-3 py-1.5 rounded bg-indigo-600 text-white text-xs hover:bg-indigo-700"
+                                        class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                                        title="Adjust & Generate Slip"
+                                        aria-label="Adjust & Generate Slip"
                                         @click="openGenerate(row)"
                                     >
-                                        Adjust & Generate Slip
+                                        <i class="mdi mdi-file-document-edit-outline text-sm"></i>
                                     </button>
                                 </template>
 
                                 <template v-else-if="activeTab === 'processing'">
-                                    <button class="text-gray-600 hover:text-gray-800" title="Review & Approve" @click="openApprovalModal(row)">
-                                        <i class="mdi mdi-file-eye-outline text-lg"></i>
+                                    <button class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800" title="Review & Approve" @click="openApprovalModal(row)">
+                                        <i class="mdi mdi-file-eye-outline text-sm"></i>
                                     </button>
                                 </template>
 
                                 <template v-else-if="activeTab === 'payment_arrangement'">
-                                    <button class="text-gray-600 hover:text-gray-800" title="Payment Arrangement" @click="openArrangementModal(row)">
-                                        <i class="mdi mdi-file-eye-outline text-lg"></i>
+                                    <button class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800" title="Payment Arrangement" @click="openArrangementModal(row)">
+                                        <i class="mdi mdi-file-eye-outline text-sm"></i>
                                     </button>
                                 </template>
 
                                 <template v-else>
-                                    <button class="text-gray-600 hover:text-gray-800" title="View" @click="openSlip(row)">
-                                        <i class="mdi mdi-file-eye-outline text-lg"></i>
-                                    </button>
-                                    <button class="text-amber-600 hover:text-amber-800" title="Revert to Payment Arrangement" @click="revertToArrangement(row)">
-                                        <i class="mdi mdi-restore text-lg"></i>
-                                    </button>
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <button class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-800" title="View" @click="openSlip(row)">
+                                            <i class="mdi mdi-file-eye-outline text-sm"></i>
+                                        </button>
+                                        <button class="inline-flex h-7 w-7 items-center justify-center rounded-md border border-amber-200 text-amber-600 hover:bg-amber-50 hover:text-amber-800" title="Revert to Payment Arrangement" @click="revertToArrangement(row)">
+                                            <i class="mdi mdi-restore text-sm"></i>
+                                        </button>
+                                    </div>
                                 </template>
                             </td>
                         </tr>
@@ -1006,12 +1127,12 @@ async function submitMarkPaid() {
                     class="block cursor-pointer rounded-lg border-2 border-dashed border-blue-300 bg-blue-50/50 p-5 text-center hover:bg-blue-50 transition"
                 >
                     <div class="text-sm font-medium text-blue-700">Click to upload voucher files</div>
-                    <div class="mt-1 text-xs text-gray-500">PDF, JPG, PNG. Multiple files supported.</div>
+                    <div class="mt-1 text-sm text-gray-500">PDF, JPG, PNG. Multiple files supported.</div>
                 </label>
                 <input id="upload-voucher-files" type="file" multiple class="hidden" @change="handleUploadFiles" />
 
                 <div v-if="uploadForm.attachments.length" class="rounded-lg border border-gray-200 bg-white p-3 space-y-2">
-                    <div class="text-xs font-medium text-gray-500">Selected files ({{ uploadForm.attachments.length }})</div>
+                    <div class="text-sm font-medium text-gray-500">Selected files ({{ uploadForm.attachments.length }})</div>
                     <div class="max-h-40 overflow-auto space-y-2">
                         <div
                             v-for="(file, index) in uploadForm.attachments"
@@ -1020,9 +1141,9 @@ async function submitMarkPaid() {
                         >
                             <div class="truncate pr-2">
                                 <span class="font-medium text-gray-700">{{ file.name }}</span>
-                                <span class="ml-2 text-xs text-gray-500">({{ formatFileSize(file.size) }})</span>
+                                <span class="ml-2 text-sm text-gray-500">({{ formatFileSize(file.size) }})</span>
                             </div>
-                            <button type="button" class="text-red-600 hover:text-red-700 text-xs" @click="removeUploadFile(index)">Remove</button>
+                            <button type="button" class="text-red-600 hover:text-red-700 text-sm" @click="removeUploadFile(index)">Remove</button>
                         </div>
                     </div>
                 </div>
@@ -1060,7 +1181,7 @@ async function submitMarkPaid() {
                         class="block cursor-pointer rounded-lg border-2 border-dashed border-blue-300 bg-blue-50/50 p-4 text-center hover:bg-blue-50 transition"
                     >
                         <div class="text-sm font-medium text-blue-700">Upload payment proof</div>
-                        <div class="mt-1 text-xs text-gray-500">Attach one or more files</div>
+                        <div class="mt-1 text-sm text-gray-500">Attach one or more files</div>
                     </label>
                     <input id="mark-paid-files" class="hidden" type="file" multiple @change="handleMarkPaidFiles" />
 
@@ -1068,7 +1189,7 @@ async function submitMarkPaid() {
                         <div
                             v-for="(file, index) in markPaidForm.attachments"
                             :key="`${file.name}-${index}`"
-                            class="flex items-center justify-between rounded bg-gray-50 px-2 py-1 text-xs"
+                            class="flex items-center justify-between rounded bg-gray-50 px-2 py-1.5 text-sm"
                         >
                             <span class="truncate pr-2">{{ file.name }}</span>
                             <button type="button" class="text-red-600 hover:text-red-700" @click="removeMarkPaidFile(index)">Remove</button>
@@ -1144,6 +1265,10 @@ async function submitMarkPaid() {
                         :slip="selectedSlip"
                     />
                     <SubConPaymentSlipA4
+                        v-else-if="selectedSlip.source_type?.includes('SubConClaim')"
+                        :slip="selectedSlip"
+                    />
+                    <SubConPaymentSlipA4
                         v-else-if="selectedSlip.source_type?.includes('SubConTask')"
                         :slip="selectedSlip"
                     />
@@ -1159,7 +1284,7 @@ async function submitMarkPaid() {
 
                 <div class="w-[320px] xl:w-[360px] shrink-0 bg-white border rounded-lg p-4 space-y-6 overflow-auto">
                     <div>
-                        <div class="text-xs text-gray-500">Status</div>
+                        <div class="text-sm text-gray-500">Status</div>
                         <div class="font-semibold">CEO / GM Approval</div>
                     </div>
 
@@ -1183,7 +1308,7 @@ async function submitMarkPaid() {
                     <hr class="my-4">
 
                     <div class="space-y-2">
-                        <label class="text-xs text-gray-500">Rejection Reason</label>
+                        <label class="text-sm text-gray-500">Rejection Reason</label>
                         <textarea
                             v-model="rejectForm.reason"
                             rows="3"
@@ -1240,6 +1365,10 @@ async function submitMarkPaid() {
                         :slip="selectedSlip"
                     />
                     <SubConPaymentSlipA4
+                        v-else-if="selectedSlip.source_type?.includes('SubConClaim')"
+                        :slip="selectedSlip"
+                    />
+                    <SubConPaymentSlipA4
                         v-else-if="selectedSlip.source_type?.includes('SubConTask')"
                         :slip="selectedSlip"
                     />
@@ -1255,7 +1384,7 @@ async function submitMarkPaid() {
 
                 <div class="w-[360px] bg-white border rounded-lg p-4 space-y-6 overflow-auto">
                     <div>
-                        <div class="text-xs text-gray-500">Status</div>
+                        <div class="text-sm text-gray-500">Status</div>
                         <div class="font-semibold">Payment Arrangement</div>
                     </div>
 
@@ -1277,7 +1406,7 @@ async function submitMarkPaid() {
                     <hr class="my-4">
 
                     <div class="space-y-2">
-                        <label class="text-xs text-gray-500">Payment Reference</label>
+                        <label class="text-sm text-gray-500">Payment Reference</label>
                         <input
                             v-model="arrangementForm.payment_ref"
                             class="w-full border rounded px-3 py-2 text-sm"
@@ -1286,14 +1415,14 @@ async function submitMarkPaid() {
                     </div>
 
                     <div class="space-y-2">
-                        <label class="text-xs text-gray-500">Payment Proof / Voucher</label>
+                        <label class="text-sm text-gray-500">Payment Proof / Voucher</label>
                         <div class="space-y-2">
                             <label
                                 for="arrangement-files"
                                 class="block cursor-pointer rounded-lg border-2 border-dashed border-blue-300 bg-blue-50/50 p-4 text-center hover:bg-blue-50 transition"
                             >
                                 <div class="text-sm font-medium text-blue-700">Upload proof files</div>
-                                <div class="mt-1 text-xs text-gray-500">Click to choose multiple files</div>
+                                <div class="mt-1 text-sm text-gray-500">Click to choose multiple files</div>
                             </label>
                             <input id="arrangement-files" class="hidden" type="file" multiple @change="handleArrangementFiles" />
 
@@ -1301,7 +1430,7 @@ async function submitMarkPaid() {
                                 <div
                                     v-for="(file, index) in arrangementForm.attachments"
                                     :key="`${file.name}-${index}`"
-                                    class="flex items-center justify-between rounded bg-gray-50 px-2 py-1 text-xs"
+                                    class="flex items-center justify-between rounded bg-gray-50 px-2 py-1.5 text-sm"
                                 >
                                     <div class="truncate pr-2">
                                         <span>{{ file.name }}</span>
@@ -1314,7 +1443,7 @@ async function submitMarkPaid() {
                     </div>
 
                     <div class="space-y-2">
-                        <label class="text-xs text-gray-500">Cancel Reason</label>
+                        <label class="text-sm text-gray-500">Cancel Reason</label>
                         <textarea
                             v-model="arrangementForm.cancel_reason"
                             rows="3"

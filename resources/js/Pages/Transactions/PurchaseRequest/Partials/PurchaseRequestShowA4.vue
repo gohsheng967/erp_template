@@ -151,6 +151,61 @@ const signatureStages = computed(() => {
   return stages
 })
 
+const displayItems = computed(() => {
+  const source = Array.isArray(props.request.items) ? props.request.items : []
+  if (!source.length) return []
+
+  const itemsById = new Map(source.map((item) => [Number(item.id), item]))
+  const childrenByParent = new Map()
+
+  source.forEach((item) => {
+    const parentId = Number(item.parent_id ?? 0)
+    if (!parentId) return
+    if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, [])
+    childrenByParent.get(parentId).push(item)
+  })
+
+  for (const children of childrenByParent.values()) {
+    children.sort((a, b) => Number(a.id) - Number(b.id))
+  }
+
+  const roots = source
+    .filter((item) => !Number(item.parent_id ?? 0) || !itemsById.has(Number(item.parent_id)))
+    .sort((a, b) => Number(a.id) - Number(b.id))
+
+  const rows = []
+  roots.forEach((root, rootIndex) => {
+    const baseNo = `${rootIndex + 1}`
+    rows.push({ no: baseNo, depth: 0, item: root })
+
+    const directChildren = childrenByParent.get(Number(root.id)) ?? []
+    directChildren.forEach((child, childIndex) => {
+      rows.push({ no: `${baseNo}.${childIndex + 1}`, depth: 1, item: child })
+    })
+  })
+
+  return rows
+})
+
+const hierarchyAwareTotal = computed(() => {
+  const source = Array.isArray(props.request.items) ? props.request.items : []
+  if (!source.length) return 0
+
+  const parentIds = new Set(
+    source
+      .map((item) => Number(item.parent_id ?? 0))
+      .filter((id) => id > 0)
+  )
+
+  return source.reduce((sum, item) => {
+    const itemId = Number(item.id ?? 0)
+    const hasChildren = parentIds.has(itemId)
+    if (hasChildren) return sum
+
+    return sum + (Number(item.quantity) * Number(item.unit_price))
+  }, 0)
+})
+
 </script>
 
 <template>
@@ -265,35 +320,40 @@ const signatureStages = computed(() => {
 
     <tbody>
       <tr
-        v-for="(item, index) in request.items ?? []"
-        :key="item.id"
+        v-for="row in displayItems"
+        :key="row.item.id"
       >
         <td class="border border-gray-300 px-2 py-2 text-center">
-          {{ index + 1 }}
+          {{ row.no }}
         </td>
 
         <td class="border border-gray-300 px-2 py-2">
-          {{ item.title }}
+          <div :class="row.depth > 0 ? 'pl-4' : ''">
+            <span v-if="row.depth > 0" class="mr-1 text-gray-500">↳</span>
+            <span class="font-medium">{{ row.item.title }}</span>
+            <span v-if="row.depth === 0" class="ml-2 text-[10px] uppercase tracking-wide text-gray-500">(Parent)</span>
+            <span v-else class="ml-2 text-[10px] uppercase tracking-wide text-gray-500">(Child)</span>
+          </div>
         </td>
 
         <td class="border border-gray-300 px-2 py-2">
-          {{ item.specification ?? '-' }}
+          {{ row.item.specification ?? row.item.description ?? '-' }}
         </td>
 
         <td class="border border-gray-300 px-2 py-2 text-center">
-          {{ item.quantity }}
+          {{ row.item.quantity }}
         </td>
 
         <td class="border border-gray-300 px-2 py-2 text-right tabular-nums">
-          {{ formatCurrency(item.unit_price) }}
+          {{ formatCurrency(row.item.unit_price) }}
         </td>
 
         <td class="border border-gray-300 px-2 py-2 text-right tabular-nums">
-          {{ formatCurrency(item.quantity * item.unit_price) }}
+          {{ formatCurrency(row.item.quantity * row.item.unit_price) }}
         </td>
       </tr>
 
-      <tr v-if="!request.items?.length">
+      <tr v-if="!displayItems.length">
         <td colspan="6" class="border border-gray-300 px-2 py-6 text-center text-gray-400">
           No purchase items
         </td>
@@ -309,7 +369,7 @@ const signatureStages = computed(() => {
       <div class="flex justify-between">
         <span class="font-medium">Estimated Total</span>
         <span class="font-bold tabular-nums">
-          {{ formatCurrency(request.total_amount) }}
+          {{ formatCurrency(hierarchyAwareTotal) }}
         </span>
       </div>
     </div>

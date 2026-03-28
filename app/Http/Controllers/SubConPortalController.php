@@ -4,13 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\SubCon;
 use App\Models\SubConClaim;
-use App\Models\Project;
+use App\Models\PurchaseOrder;
 use App\Models\SubConTask;
 use App\Models\SubConTaskUpdate;
+use App\Models\CompanyProfile;
+use App\Models\User;
 use App\Services\RunningNumberService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -29,15 +33,25 @@ class SubConPortalController extends Controller
             ->where('sub_con_id', $subCon->id)
             ->orderByDesc('id')
             ->get();
+
+        $purchaseOrders = $this->accessiblePurchaseOrdersQuery($subCon)
+            ->with([
+                'supplier:id,company_name',
+                'purchaseRequest:id,uuid,code,title,project_id,is_subcon_purchase_request',
+                'purchaseRequest.items:id,purchase_request_id,parent_id,total_price',
+                'purchaseRequest.project:id,uuid,code,name',
+                'items:id,purchase_order_id,purchase_request_item_id,quantity,unit_price',
+                'signedPo',
+            ])
+            ->whereIn('status', ['issued', 'confirmed'])
+            ->orderByDesc('id')
+            ->get();
+
         $claims = SubConClaim::query()
-            ->with(['project:id,uuid,code,name,status'])
+            ->with(['project:id,uuid,code,name,status', 'purchaseOrder:id,uuid,code'])
             ->where('sub_con_id', $subCon->id)
             ->orderByDesc('id')
             ->get();
-        $claimProjects = $subCon->projects()
-            ->orderBy('projects.code')
-            ->orderBy('projects.name')
-            ->get(['projects.uuid', 'projects.code', 'projects.name']);
 
         $mainTasks = $tasks->whereNull('parent_id');
 
@@ -47,10 +61,16 @@ class SubConPortalController extends Controller
             'submitted' => $mainTasks->where('status', 'submitted')->count(),
             'verified' => $mainTasks->whereIn('status', ['verified', 'contra_verified', 'invoiced', 'approved', 'justified', 'certified', 'paid'])->count(),
         ];
+        $poStats = [
+            'total' => $purchaseOrders->count(),
+            'pending_confirmation' => $purchaseOrders->where('status', 'issued')->count(),
+            'confirmed' => $purchaseOrders->where('status', 'confirmed')->count(),
+        ];
         $claimStats = [
             'total' => $claims->count(),
             'pending_decision' => $claims->where('status', 'ceo_gm_approved')->count(),
             'appealed' => $claims->where('status', 'appealed')->count(),
+            'payment_in_progress' => $claims->where('status', 'payment_in_progress')->count(),
             'pending_real_invoice_upload' => $claims->where('status', 'pending_real_invoice_upload')->count(),
             'completed' => $claims->where('status', 'real_invoice_uploaded')->count(),
         ];
@@ -64,8 +84,36 @@ class SubConPortalController extends Controller
                 'login_identity_no' => $subCon->login_identity_no,
             ],
             'stats' => $stats,
+            'poStats' => $poStats,
             'tasks' => $tasks,
-            'claimProjects' => $claimProjects,
+            'purchaseOrders' => $purchaseOrders->map(function (PurchaseOrder $po) {
+                $signed = $po->signedPo;
+
+                return [
+                    'uuid' => $po->uuid,
+                    'code' => $po->code,
+                    'status' => $po->status,
+                    'order_date' => $po->order_date ? (string) $po->order_date : null,
+                    'total_amount' => $this->computeHierarchyAwarePoAmount($po),
+                    'supplier' => $po->supplier ? [
+                        'company_name' => $po->supplier->company_name,
+                    ] : null,
+                    'purchase_request' => $po->purchaseRequest ? [
+                        'uuid' => $po->purchaseRequest->uuid,
+                        'code' => $po->purchaseRequest->code,
+                        'title' => $po->purchaseRequest->title,
+                        'project' => $po->purchaseRequest->project ? [
+                            'uuid' => $po->purchaseRequest->project->uuid,
+                            'code' => $po->purchaseRequest->project->code,
+                            'name' => $po->purchaseRequest->project->name,
+                        ] : null,
+                    ] : null,
+                    'signed_po' => $signed ? [
+                        'name' => $signed->original_name ?: basename((string) $signed->file_path),
+                        'url' => Storage::disk('public')->url($signed->file_path),
+                    ] : null,
+                ];
+            })->values(),
             'claimStats' => $claimStats,
             'claims' => $claims->map(function (SubConClaim $claim) {
                 return [
@@ -78,11 +126,17 @@ class SubConPortalController extends Controller
                     'payment_slip_no' => $claim->payment_slip_no,
                     'appeal_round' => (int) ($claim->appeal_round ?? 0),
                     'proforma_invoice_name' => $claim->proforma_invoice_name,
+                    'proof_attachment_name' => $claim->proof_attachment_name,
+                    'proof_attachments' => $this->serializeClaimProofAttachments($claim),
                     'real_invoice_name' => $claim->real_invoice_name,
                     'project' => $claim->project ? [
                         'uuid' => $claim->project->uuid,
                         'name' => $claim->project->name,
                         'code' => $claim->project->code,
+                    ] : null,
+                    'purchase_order' => $claim->purchaseOrder ? [
+                        'uuid' => $claim->purchaseOrder->uuid,
+                        'code' => $claim->purchaseOrder->code,
                     ] : null,
                     'created_at' => optional($claim->created_at)?->toDateTimeString(),
                     'updated_at' => optional($claim->updated_at)?->toDateTimeString(),
@@ -97,21 +151,30 @@ class SubConPortalController extends Controller
         $subCon = $this->getAuthenticatedSubCon($request);
 
         $validated = $request->validate([
-            'project_uuid' => ['required', 'string'],
+            'po_uuid' => ['required', 'string'],
             'title' => ['required', 'string', 'max:255'],
             'claimed_amount' => ['required', 'numeric', 'min:0'],
             'proforma_invoice' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'proof_attachments' => ['required', 'array', 'min:1'],
+            'proof_attachments.*' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
             'remark' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $project = Project::query()
-            ->where('uuid', $validated['project_uuid'])
-            ->whereHas('subCons', fn ($q) => $q->where('sub_cons.id', $subCon->id))
+        $po = $this->accessiblePurchaseOrdersQuery($subCon)
+            ->with(['purchaseRequest.project:id,branch_id'])
+            ->where('uuid', $validated['po_uuid'])
             ->first();
 
+        if (!$po) {
+            return back()->withErrors([
+                'po_uuid' => 'Selected PO is not available for your account.',
+            ]);
+        }
+
+        $project = $po->purchaseRequest?->project;
         if (!$project) {
             return back()->withErrors([
-                'project_uuid' => 'Selected project is not available for your account.',
+                'po_uuid' => 'Selected PO does not have a valid project.',
             ]);
         }
 
@@ -121,12 +184,24 @@ class SubConPortalController extends Controller
 
         if (!$branchSlug) {
             return back()->withErrors([
-                'project_uuid' => 'Project branch is invalid. Please contact admin.',
+                'po_uuid' => 'Selected PO project branch is invalid. Please contact admin.',
             ]);
         }
 
         $file = $request->file('proforma_invoice');
         $path = $file->store('sub-con-claims/proforma', 'public');
+        $proofFiles = $request->file('proof_attachments', []);
+        $proofAttachments = collect($proofFiles)
+            ->map(function ($proofFile) {
+                $proofPath = $proofFile->store('sub-con-claims/proof', 'public');
+
+                return [
+                    'path' => $proofPath,
+                    'name' => $proofFile->getClientOriginalName(),
+                ];
+            })
+            ->values();
+        $primaryProof = $proofAttachments->first();
 
         $claim = SubConClaim::create([
             'claim_no' => RunningNumberService::next(
@@ -137,11 +212,15 @@ class SubConPortalController extends Controller
             ),
             'project_id' => $project->id,
             'sub_con_id' => $subCon->id,
+            'purchase_order_id' => $po->id,
             'title' => $validated['title'],
             'status' => 'submitted',
             'claimed_amount' => (float) $validated['claimed_amount'],
             'proforma_invoice_path' => $path,
             'proforma_invoice_name' => $file->getClientOriginalName(),
+            'proof_attachment_path' => $primaryProof['path'] ?? null,
+            'proof_attachment_name' => $primaryProof['name'] ?? null,
+            'proof_attachments' => $proofAttachments->all(),
             'submitted_at' => now(),
         ]);
 
@@ -155,6 +234,110 @@ class SubConPortalController extends Controller
         );
 
         return back()->with('success', 'Claim submitted successfully.');
+    }
+
+    public function confirmPurchaseOrder(Request $request, string $poUuid)
+    {
+        $subCon = $this->getAuthenticatedSubCon($request);
+
+        $po = $this->accessiblePurchaseOrdersQuery($subCon)
+            ->with('signedPo')
+            ->where('uuid', $poUuid)
+            ->firstOrFail();
+
+        if ($po->status !== 'issued') {
+            return back()->withErrors([
+                'status' => 'Only issued purchase orders can be confirmed.',
+            ]);
+        }
+
+        $validated = $request->validate([
+            'order_date' => ['required', 'date'],
+            'signed_po' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+        ]);
+
+        DB::transaction(function () use ($po, $validated, $request) {
+            $hasSignedPO = $po->attachments()->exists();
+
+            if (!$hasSignedPO && !$request->hasFile('signed_po')) {
+                throw ValidationException::withMessages([
+                    'signed_po' => 'Signed PO is required before confirmation.',
+                ]);
+            }
+
+            if ($request->hasFile('signed_po')) {
+                if ($hasSignedPO) {
+                    throw ValidationException::withMessages([
+                        'signed_po' => 'Signed PO already uploaded.',
+                    ]);
+                }
+
+                $file = $request->file('signed_po');
+                $path = $file->store('purchase-orders/signed', 'public');
+
+                $po->attachments()->create([
+                    'file_path' => $path,
+                    'original_name' => $file->getClientOriginalName(),
+                    'created_by' => null,
+                ]);
+            }
+
+            $po->update([
+                'order_date' => $validated['order_date'],
+                'status' => 'confirmed',
+                'confirmed_at' => now(),
+                'confirmed_by' => null,
+            ]);
+        });
+
+        return back()->with('success', 'PO confirmed successfully.');
+    }
+
+    public function showPurchaseOrder(Request $request, string $poUuid)
+    {
+        $subCon = $this->getAuthenticatedSubCon($request);
+
+        $po = $this->accessiblePurchaseOrdersQuery($subCon)
+            ->with([
+                'supplier',
+                'items',
+                'purchaseRequest.items',
+                'purchaseRequest.approver',
+                'purchaseRequest.requester',
+                'siteContact:id,name',
+            ])
+            ->where('uuid', $poUuid)
+            ->firstOrFail();
+
+        if ($po->purchaseRequest) {
+            $logUserIds = collect($po->purchaseRequest->remark_log ?? [])
+                ->pluck('user_id')
+                ->filter()
+                ->unique()
+                ->values();
+
+            $remarkSigners = User::query()
+                ->whereIn('id', $logUserIds)
+                ->get(['id', 'name', 'signature_path'])
+                ->mapWithKeys(function ($user) {
+                    return [
+                        (string) $user->id => [
+                            'id' => $user->id,
+                            'name' => $user->name,
+                            'signature_url' => $user->signature_path
+                                ? Storage::disk('public')->url($user->signature_path)
+                                : null,
+                        ],
+                    ];
+                });
+
+            $po->purchaseRequest->setAttribute('remark_signers', $remarkSigners);
+        }
+
+        return response()->json([
+            'po' => $po,
+            'company' => CompanyProfile::first(),
+        ]);
     }
 
     public function storeUpdate(Request $request, string $taskUuid)
@@ -391,7 +574,16 @@ class SubConPortalController extends Controller
         $validated = $request->validate([
             'decision' => ['required', 'in:accept,appeal'],
             'remark' => ['nullable', 'string', 'max:1000'],
+            'accept_proforma_invoice' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'appeal_proof_attachments' => ['nullable', 'array'],
+            'appeal_proof_attachments.*' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
         ]);
+
+        if ($validated['decision'] === 'accept' && !$request->hasFile('accept_proforma_invoice')) {
+            return back()->withErrors([
+                'accept_proforma_invoice' => 'New proforma invoice is required when accepting.',
+            ]);
+        }
 
         if ($validated['decision'] === 'appeal' && empty(trim((string) ($validated['remark'] ?? '')))) {
             return back()->withErrors([
@@ -399,13 +591,53 @@ class SubConPortalController extends Controller
             ]);
         }
 
-        $to = $validated['decision'] === 'accept' ? 'accepted_by_subcon' : 'appealed';
+        $proofAttachments = $this->serializeClaimProofAttachments($claim);
+        if ($validated['decision'] === 'appeal') {
+            $appealFiles = $request->file('appeal_proof_attachments', []);
+            if (empty($appealFiles)) {
+                return back()->withErrors([
+                    'appeal_proof_attachments' => 'Appeal proof attachment is required.',
+                ]);
+            }
 
-        $claim->update([
+            $newProofAttachments = collect($appealFiles)
+                ->map(function ($file) {
+                    $path = $file->store('sub-con-claims/proof', 'public');
+
+                    return [
+                        'path' => $path,
+                        'name' => $file->getClientOriginalName(),
+                    ];
+                })
+                ->values()
+                ->all();
+
+            $proofAttachments = array_values(array_merge($proofAttachments, $newProofAttachments));
+        }
+
+        $to = $validated['decision'] === 'accept' ? 'accepted_by_subcon' : 'appealed';
+        $updatePayload = [
             'status' => $to,
             'appeal_round' => $to === 'appealed' ? ((int) $claim->appeal_round + 1) : $claim->appeal_round,
             'subcon_decided_at' => now(),
-        ]);
+        ];
+        if ($validated['decision'] === 'accept' && $request->hasFile('accept_proforma_invoice')) {
+            if (!empty($claim->proforma_invoice_path)) {
+                Storage::disk('public')->delete($claim->proforma_invoice_path);
+            }
+
+            $newProforma = $request->file('accept_proforma_invoice');
+            $newProformaPath = $newProforma->store('sub-con-claims/proforma', 'public');
+            $updatePayload['proforma_invoice_path'] = $newProformaPath;
+            $updatePayload['proforma_invoice_name'] = $newProforma->getClientOriginalName();
+        }
+        if (!empty($proofAttachments)) {
+            $updatePayload['proof_attachments'] = $proofAttachments;
+            $updatePayload['proof_attachment_path'] = (string) ($proofAttachments[0]['path'] ?? null);
+            $updatePayload['proof_attachment_name'] = (string) ($proofAttachments[0]['name'] ?? null);
+        }
+
+        $claim->update($updatePayload);
 
         $this->appendClaimLog(
             $claim,
@@ -512,6 +744,29 @@ class SubConPortalController extends Controller
         );
     }
 
+    public function downloadClaimProof(Request $request, string $claimUuid)
+    {
+        $subCon = $this->getAuthenticatedSubCon($request);
+
+        $claim = SubConClaim::query()
+            ->where('uuid', $claimUuid)
+            ->where('sub_con_id', $subCon->id)
+            ->firstOrFail();
+
+        $attachments = $this->serializeClaimProofAttachments($claim);
+        $idx = max((int) $request->integer('idx', 0), 0);
+        $selected = $attachments[$idx] ?? null;
+
+        if (!$selected || !Storage::disk('public')->exists((string) ($selected['path'] ?? ''))) {
+            abort(404, 'Proof attachment not found.');
+        }
+
+        return Storage::disk('public')->download(
+            (string) $selected['path'],
+            (string) ($selected['name'] ?? basename((string) $selected['path']))
+        );
+    }
+
     private function getAuthenticatedSubCon(Request $request): SubCon
     {
         $subConId = (int) $request->session()->get('sub_con_auth_id');
@@ -519,6 +774,106 @@ class SubConPortalController extends Controller
         return SubCon::query()
             ->where('id', $subConId)
             ->firstOrFail();
+    }
+
+    private function accessiblePurchaseOrdersQuery(SubCon $subCon): Builder
+    {
+        $supplierNames = collect([
+            trim((string) $subCon->company_name),
+            trim((string) $subCon->name),
+        ])
+            ->filter()
+            ->map(fn ($name) => strtolower($name))
+            ->unique()
+            ->values();
+
+        return PurchaseOrder::query()
+            ->whereHas('purchaseRequest', fn ($pr) => $pr->where('is_subcon_purchase_request', true))
+            ->whereHas('supplier', function ($supplierQuery) use ($supplierNames) {
+                if ($supplierNames->isEmpty()) {
+                    $supplierQuery->whereRaw('1 = 0');
+                    return;
+                }
+
+                $supplierQuery->where(function ($q) use ($supplierNames) {
+                    foreach ($supplierNames as $name) {
+                        $q->orWhereRaw('LOWER(company_name) = ?', [$name]);
+                    }
+                });
+            });
+    }
+
+    private function computeHierarchyAwarePoAmount(PurchaseOrder $po): float
+    {
+        $items = $po->items ?? collect();
+        $prItems = $po->purchaseRequest?->items ?? collect();
+        if ($items->isEmpty()) {
+            return $this->computeFromPurchaseRequestTopLevel($prItems, $po);
+        }
+
+        $prParentIds = $prItems
+            ->pluck('parent_id')
+            ->filter(fn ($id) => (int) $id > 0)
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        $hasMappedPrItems = $items->contains(fn ($item) => (int) ($item->purchase_request_item_id ?? 0) > 0);
+        if (!$hasMappedPrItems && $prParentIds->isNotEmpty()) {
+            return $this->computeFromPurchaseRequestTopLevel($prItems, $po);
+        }
+
+        return (float) $items->reduce(function ($sum, $item) use ($prParentIds, $prItems) {
+            $lineAmount = (float) (($item->quantity ?? 0) * ($item->unit_price ?? 0));
+            $prItemId = (int) ($item->purchase_request_item_id ?? 0);
+
+            if ($prItemId <= 0) {
+                return $sum + $lineAmount;
+            }
+
+            $prItemExists = $prItems->contains(fn ($row) => (int) $row->id === $prItemId);
+            $isParentWithChildren = $prItemExists && $prParentIds->contains($prItemId);
+
+            return $isParentWithChildren ? $sum : ($sum + $lineAmount);
+        }, 0.0);
+    }
+
+    private function computeFromPurchaseRequestTopLevel($prItems, PurchaseOrder $po): float
+    {
+        if ($prItems->isEmpty()) {
+            return (float) ($po->total_amount ?? 0);
+        }
+
+        return (float) $prItems
+            ->filter(fn ($item) => empty($item->parent_id))
+            ->sum(fn ($item) => (float) ($item->total_price ?? 0));
+    }
+
+    private function serializeClaimProofAttachments(SubConClaim $claim): array
+    {
+        $rows = collect(is_array($claim->proof_attachments) ? $claim->proof_attachments : [])
+            ->filter(fn ($row) => is_array($row) && !empty($row['path']))
+            ->map(fn ($row) => [
+                'path' => (string) $row['path'],
+                'name' => !empty($row['name']) ? (string) $row['name'] : basename((string) $row['path']),
+            ])
+            ->values()
+            ->all();
+
+        if (!empty($rows)) {
+            return $rows;
+        }
+
+        if (!empty($claim->proof_attachment_path)) {
+            return [[
+                'path' => (string) $claim->proof_attachment_path,
+                'name' => !empty($claim->proof_attachment_name)
+                    ? (string) $claim->proof_attachment_name
+                    : basename((string) $claim->proof_attachment_path),
+            ]];
+        }
+
+        return [];
     }
 
     private function appendClaimLog(

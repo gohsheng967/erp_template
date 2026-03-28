@@ -15,6 +15,7 @@ use App\Http\Controllers\WidgetController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\SubConController;
 use App\Http\Controllers\SubConPortalController;
+use App\Http\Controllers\SupplierPortalController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ClaimTypeController;
@@ -57,6 +58,7 @@ use App\Http\Controllers\Auth\MFASetupController;
 use App\Http\Controllers\Auth\MFAVerifyController;
 use App\Http\Controllers\Auth\ForcePasswordChangeController;
 use App\Http\Controllers\Auth\SubConAuthenticatedSessionController;
+use App\Http\Controllers\Auth\SupplierAuthenticatedSessionController;
 
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -75,6 +77,14 @@ Route::post('/sub-con/login', [SubConAuthenticatedSessionController::class, 'sto
 Route::post('/sub-con/logout', [SubConAuthenticatedSessionController::class, 'destroy'])
     ->name('sub-con.logout');
 
+// Supplier Portal Authentication (separate from staff users)
+Route::get('/supplier/login', [SupplierAuthenticatedSessionController::class, 'create'])
+    ->name('supplier.login');
+Route::post('/supplier/login', [SupplierAuthenticatedSessionController::class, 'store'])
+    ->name('supplier.login.store');
+Route::post('/supplier/logout', [SupplierAuthenticatedSessionController::class, 'destroy'])
+    ->name('supplier.logout');
+
 Route::middleware('auth.subcon')->prefix('sub-con')->name('sub-con.')->group(function () {
     Route::get('/password/change', [SubConAuthenticatedSessionController::class, 'showChangePassword'])
         ->name('password.change');
@@ -86,10 +96,26 @@ Route::middleware('auth.subcon')->prefix('sub-con')->name('sub-con.')->group(fun
     Route::get('/tasks/{task}/updates/{update}/download', [SubConPortalController::class, 'downloadUpdate'])->name('tasks.updates.download');
     Route::post('/tasks/{task}/invoice', [SubConPortalController::class, 'storeInvoice'])->name('tasks.invoice.store');
     Route::get('/tasks/{task}/invoice/download', [SubConPortalController::class, 'downloadInvoice'])->name('tasks.invoice.download');
+    Route::get('/purchase-orders/{po}', [SubConPortalController::class, 'showPurchaseOrder'])->name('purchase-orders.show');
+    Route::post('/purchase-orders/{po}/confirm', [SubConPortalController::class, 'confirmPurchaseOrder'])->name('purchase-orders.confirm');
     Route::post('/claims/{claim}/decision', [SubConPortalController::class, 'decideClaim'])->name('claims.decision');
     Route::post('/claims/{claim}/real-invoice', [SubConPortalController::class, 'uploadClaimRealInvoice'])->name('claims.real-invoice.upload');
     Route::get('/claims/{claim}/proforma/download', [SubConPortalController::class, 'downloadClaimProforma'])->name('claims.proforma.download');
+    Route::get('/claims/{claim}/proof/download', [SubConPortalController::class, 'downloadClaimProof'])->name('claims.proof.download');
     Route::get('/claims/{claim}/real-invoice/download', [SubConPortalController::class, 'downloadClaimRealInvoice'])->name('claims.real-invoice.download');
+});
+
+Route::middleware('auth.supplier')->prefix('supplier')->name('supplier.')->group(function () {
+    Route::get('/password/change', [SupplierAuthenticatedSessionController::class, 'showChangePassword'])
+        ->name('password.change');
+    Route::post('/password/change', [SupplierAuthenticatedSessionController::class, 'updatePassword'])
+        ->name('password.update');
+    Route::get('/portal', [SupplierPortalController::class, 'index'])->name('portal');
+    Route::post('/claims', [SupplierPortalController::class, 'storeClaim'])->name('claims.store');
+    Route::get('/purchase-orders/{po}', [SupplierPortalController::class, 'showPurchaseOrder'])->name('purchase-orders.show');
+    Route::post('/purchase-orders/{po}/confirm', [SupplierPortalController::class, 'confirmPurchaseOrder'])->name('purchase-orders.confirm');
+    Route::get('/claims/{claim}/proforma/download', [SupplierPortalController::class, 'downloadClaimProforma'])->name('claims.proforma.download');
+    Route::get('/claims/{claim}/proof/download', [SupplierPortalController::class, 'downloadClaimProof'])->name('claims.proof.download');
 });
 
 Route::prefix('public')->name('public.')->group(function () {
@@ -287,8 +313,11 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
         Route::post('/{claim}/approve', [SubConClaimController::class, 'approve'])->name('approve');
         Route::post('/{claim}/sub-con-decision', [SubConClaimController::class, 'subConDecision'])->name('sub-con-decision');
         Route::post('/{claim}/prepare-payment-slip', [SubConClaimController::class, 'preparePaymentSlip'])->name('prepare-payment-slip');
+        Route::post('/{claim}/payment-slip', [SubConClaimController::class, 'paymentSlip'])->name('payment-slip');
+        Route::post('/{claim}/mark-payment-completed', [SubConClaimController::class, 'markPaymentCompleted'])->name('mark-payment-completed');
         Route::post('/{claim}/real-invoice', [SubConClaimController::class, 'uploadRealInvoice'])->name('real-invoice.upload');
         Route::get('/{claim}/proforma/download', [SubConClaimController::class, 'downloadProforma'])->name('proforma.download');
+        Route::get('/{claim}/proof/download', [SubConClaimController::class, 'downloadProof'])->name('proof.download');
         Route::get('/{claim}/real-invoice/download', [SubConClaimController::class, 'downloadRealInvoice'])->name('real-invoice.download');
     });
 
@@ -597,8 +626,12 @@ Route::middleware(['auth', 'auth.mfa', 'auth.force-password'])->group(function (
             Route::get('/', [StockController::class, 'index'])->name('index');
             Route::get('/movements', [StockController::class, 'movements'])->name('movements');
             Route::get('/browse', [StockController::class, 'browse'])->name('browse');
+            Route::get('/my-list', [StockController::class, 'userList'])->name('user-list');
             Route::get('/browse/export', [StockController::class, 'exportBrowse'])->name('browse.export');
             Route::post('/issue', [StockController::class, 'issue'])->name('issue');
+            Route::post('/movements/{movement}/approve-user', [StockController::class, 'approveUserIssue'])->name('approve-user');
+            Route::post('/movements/{movement}/approve-issue', [StockController::class, 'approveIssue'])->name('approve-issue');
+            Route::post('/movements/{movement}/usage', [StockController::class, 'updateUsage'])->name('usage');
             Route::post('/transfer', [StockController::class, 'transfer'])->name('transfer');
             Route::post('/adjust', [StockController::class, 'adjust'])->name('adjust');
         });
