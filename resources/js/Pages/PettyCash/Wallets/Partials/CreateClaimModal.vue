@@ -1,6 +1,6 @@
 ﻿<script setup>
 import { useForm } from '@inertiajs/vue3'
-import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps({
     show: { type: Boolean, required: true },
@@ -50,6 +50,15 @@ const canSubmit = computed(() => {
         !form.processing
     )
 })
+
+watch(
+    () => props.wallet?.uuid,
+    (uuid) => {
+        if (!uuid) return
+        form.wallet_uuid = uuid
+    },
+    { immediate: true }
+)
 
 function handleFiles(e) {
     const files = e?.target?.files || e?.dataTransfer?.files

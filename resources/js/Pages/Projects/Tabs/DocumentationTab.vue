@@ -316,14 +316,14 @@ const flattenedCategories = computed(() => {
 
 const selectedUploadCategoryLabel = computed(() => {
     if (!uploadForm.category_id) return "Select Category"
-    if (String(uploadForm.category_id) === "others") return "Others"
+    if (String(uploadForm.category_id) === "others") return "Others (Any Format)"
 
     return categoryById.value.get(String(uploadForm.category_id))?.name ?? "Select Category"
 })
 
 const selectedFilterCategoryLabel = computed(() => {
     if (!selectedCategory.value) return "All"
-    if (String(selectedCategory.value) === "others") return "Others"
+    if (String(selectedCategory.value) === "others") return "Others (Any Format)"
 
     return categoryById.value.get(String(selectedCategory.value))?.name ?? "All"
 })
@@ -496,7 +496,7 @@ onMounted(loadDocuments)
                     <label class="block mb-1 text-xs font-medium">Category</label>
                     <button
                         type="button"
-                        class="h-9 w-full border border-slate-300 bg-white rounded-lg px-2.5 text-left text-xs flex items-center justify-between"
+                        class="h-10 w-full border border-slate-300 bg-white rounded-lg px-3 text-left text-sm flex items-center justify-between"
                         @click="showUploadCategoryPicker = !showUploadCategoryPicker"
                     >
                         <span class="truncate">{{ selectedUploadCategoryLabel }}</span>
@@ -509,7 +509,7 @@ onMounted(loadDocuments)
                     >
                         <button
                             type="button"
-                            class="w-full border-b px-2.5 py-2 text-left text-xs hover:bg-slate-50"
+                            class="w-full border-b px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                             :class="!uploadForm.category_id ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-700'"
                             @click="pickUploadCategory('')"
                         >
@@ -517,17 +517,17 @@ onMounted(loadDocuments)
                         </button>
                         <button
                             type="button"
-                            class="w-full border-b px-2.5 py-2 text-left text-xs hover:bg-slate-50"
+                            class="w-full border-b px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                             :class="String(uploadForm.category_id) === 'others' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-700'"
                             @click="pickUploadCategory('others')"
                         >
-                            Others
+                            Others (Any Format)
                         </button>
                         <button
                             v-for="item in flattenedCategories"
                             :key="item.id"
                             type="button"
-                            class="w-full px-2.5 py-2 text-left text-xs hover:bg-slate-50"
+                            class="w-full px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                             :class="String(uploadForm.category_id) === String(item.id) ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-700'"
                             :style="{ paddingLeft: `${10 + item.depth * 14}px` }"
                             @click="pickUploadCategory(String(item.id))"
@@ -545,7 +545,7 @@ onMounted(loadDocuments)
                 <div class="flex items-end">
                     <button
                         @click="uploadDocument"
-                        class="h-9 px-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 w-full text-xs font-semibold shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                        class="h-10 px-4 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 w-full text-sm font-semibold shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                         :disabled="uploadForm.processing || !uploadForm.category_id"
                     >
                         {{ uploadForm.processing ? 'Adding...' : 'Add Document' }}
@@ -553,8 +553,11 @@ onMounted(loadDocuments)
                 </div>
             </div>
 
-            <div v-if="!uploadForm.category_id" class="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 text-xs text-slate-500">
+            <div v-if="!uploadForm.category_id" class="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 text-sm text-slate-500">
                 Select category first. Available upload types will appear after category is chosen.
+            </div>
+            <div v-else-if="String(uploadForm.category_id) === 'others'" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                <span class="font-medium">Others</span> is for formats not defined in your category extension rules.
             </div>
 
             <template v-else>
@@ -585,7 +588,7 @@ onMounted(loadDocuments)
                         <div class="h-9 border border-slate-300 bg-white rounded-lg px-2 flex items-center gap-2">
                             <button
                                 type="button"
-                                class="h-7 px-3 text-xs rounded-md border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 whitespace-nowrap"
+                                class="h-8 px-3 text-sm rounded-md border border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700 whitespace-nowrap"
                                 @click="openFilePicker"
                             >
                                 Choose File
@@ -612,7 +615,7 @@ onMounted(loadDocuments)
                             type="url"
                             v-model="uploadForm.url"
                             placeholder="https://..."
-                            class="h-9 border border-slate-300 bg-white rounded-lg px-2.5 text-xs w-full"
+                            class="h-10 border border-slate-300 bg-white rounded-lg px-3 text-sm w-full"
                         />
                         <p v-if="uploadForm.errors.url" class="text-sm text-red-600 mt-1">
                             {{ uploadForm.errors.url }}
@@ -630,7 +633,7 @@ onMounted(loadDocuments)
         <div class="relative md:min-w-64">
             <button
                 type="button"
-                class="h-9 w-full border border-slate-300 bg-white rounded-lg px-2.5 text-left text-xs flex items-center justify-between"
+                class="h-10 w-full border border-slate-300 bg-white rounded-lg px-3 text-left text-sm flex items-center justify-between"
                 @click="showFilterCategoryPicker = !showFilterCategoryPicker"
             >
                 <span class="truncate">{{ selectedFilterCategoryLabel }}</span>
@@ -643,7 +646,7 @@ onMounted(loadDocuments)
             >
                 <button
                     type="button"
-                    class="w-full border-b px-2.5 py-2 text-left text-xs hover:bg-slate-50"
+                    class="w-full border-b px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                     :class="!selectedCategory ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-700'"
                     @click="pickFilterCategory('')"
                 >
@@ -651,17 +654,17 @@ onMounted(loadDocuments)
                 </button>
                 <button
                     type="button"
-                    class="w-full border-b px-2.5 py-2 text-left text-xs hover:bg-slate-50"
+                    class="w-full border-b px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                     :class="String(selectedCategory) === 'others' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-700'"
                     @click="pickFilterCategory('others')"
                 >
-                    Others
+                    Others (Any Format)
                 </button>
                 <button
                     v-for="item in flattenedCategories"
                     :key="item.id"
                     type="button"
-                    class="w-full px-2.5 py-2 text-left text-xs hover:bg-slate-50"
+                    class="w-full px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                     :class="String(selectedCategory) === String(item.id) ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-slate-700'"
                     :style="{ paddingLeft: `${10 + item.depth * 14}px` }"
                     @click="pickFilterCategory(String(item.id))"
@@ -675,7 +678,7 @@ onMounted(loadDocuments)
             v-model="documentSearch"
             type="text"
             placeholder="Search file, category, uploader..."
-            class="h-9 border border-slate-300 bg-white rounded-lg px-2.5 text-xs md:ml-auto md:w-80"
+            class="h-10 border border-slate-300 bg-white rounded-lg px-3 text-sm md:ml-auto md:w-80"
         />
     </div>
 

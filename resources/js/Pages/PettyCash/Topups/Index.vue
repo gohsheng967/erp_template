@@ -85,7 +85,7 @@ const statusMeta = {
 }
 
 const queueMeta = [
-    { key: 'my', label: 'My TopupRequest', statuses: ['my_in_progress', 'my_rejected', 'my_completed'] },
+    { key: 'my', label: 'My Requests', statuses: ['my_in_progress', 'my_rejected', 'my_completed'] },
     { key: 'review', label: 'Review Queue', statuses: ['checked', 'verified', 'approval'] },
     { key: 'payment', label: 'Payment', statuses: ['payment'] },
 ]
@@ -124,6 +124,7 @@ const browseStatusMeta = {
 }
 
 const browseStatuses = ['all_non_draft', 'checked', 'verified', 'approval', 'payment', 'rejected']
+const defaultTabPriority = ['my_in_progress', 'checked', 'verified', 'approval', 'payment', 'my_rejected', 'my_completed']
 
 const allowedTabs = new Set(Object.keys(statusMeta))
 const tabStorageKey = 'topups-index-active-tab'
@@ -164,6 +165,14 @@ function queueCount(queueKey) {
     return queue.statuses.reduce((sum, status) => sum + sectionCount(status), 0)
 }
 
+function tabCount(tab) {
+    return Number(tabCounts.value?.[tab] ?? 0)
+}
+
+function resolveSmartDefaultTab() {
+    return defaultTabPriority.find((tab) => tabCount(tab) > 0) ?? 'my_in_progress'
+}
+
 function resolveInitialTab() {
     if (typeof window !== 'undefined') {
         const remembered = localStorage.getItem(tabStorageKey)
@@ -172,11 +181,11 @@ function resolveInitialTab() {
         }
     }
 
-    if (serverTab && allowedTabs.has(serverTab)) {
+    if (serverTab && allowedTabs.has(serverTab) && (hasTabQuery || tabCount(serverTab) > 0)) {
         return serverTab
     }
 
-    return 'checked'
+    return resolveSmartDefaultTab()
 }
 
 function resolveInitialBrowseTab() {
@@ -403,7 +412,27 @@ function closeDelete() {
         </template>
 
         <div class="p-6 space-y-6">
+            <div class="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                <div class="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    Top-Up Flow
+                </div>
+                <div class="mt-1 text-sm text-emerald-900">
+                    Request Top-Up -> Needs Check -> Needs Verify -> CEO / GM Approval -> Payment
+                </div>
+            </div>
+
             <div class="bg-white rounded-xl border p-3">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                    <div class="text-sm font-semibold text-slate-800">Queue</div>
+                    <button
+                        type="button"
+                        @click="showCreate = true"
+                        class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-emerald-700"
+                    >
+                        + Request Top-Up
+                    </button>
+                </div>
+
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <button
                         v-for="queue in queueMeta"
@@ -441,14 +470,6 @@ function closeDelete() {
                     </span>
                 </button>
 
-                <button
-                    v-if="activeQueue === 'my'"
-                    type="button"
-                    @click="showCreate = true"
-                    class="ml-auto rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-emerald-700"
-                >
-                    + Request Top-Up
-                </button>
             </div>
 
             <div class="bg-emerald-50 border border-emerald-100 rounded-lg px-4 py-3 text-sm text-emerald-900">
