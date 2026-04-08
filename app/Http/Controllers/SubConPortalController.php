@@ -52,6 +52,7 @@ class SubConPortalController extends Controller
             ->where('sub_con_id', $subCon->id)
             ->orderByDesc('id')
             ->get();
+        $claimPurchaseOrders = $this->mapClaimPurchaseOrders($claims);
 
         $mainTasks = $tasks->whereNull('parent_id');
 
@@ -115,7 +116,10 @@ class SubConPortalController extends Controller
                 ];
             })->values(),
             'claimStats' => $claimStats,
-            'claims' => $claims->map(function (SubConClaim $claim) {
+            'claims' => $claims->map(function (SubConClaim $claim) use ($claimPurchaseOrders) {
+                $purchaseOrders = $claimPurchaseOrders[$claim->id] ?? [];
+                $primaryPurchaseOrder = $purchaseOrders[0] ?? null;
+
                 return [
                     'uuid' => $claim->uuid,
                     'claim_no' => $claim->claim_no,
@@ -134,10 +138,8 @@ class SubConPortalController extends Controller
                         'name' => $claim->project->name,
                         'code' => $claim->project->code,
                     ] : null,
-                    'purchase_order' => $claim->purchaseOrder ? [
-                        'uuid' => $claim->purchaseOrder->uuid,
-                        'code' => $claim->purchaseOrder->code,
-                    ] : null,
+                    'purchase_order' => $primaryPurchaseOrder,
+                    'purchase_orders' => $purchaseOrders,
                     'created_at' => optional($claim->created_at)?->toDateTimeString(),
                     'updated_at' => optional($claim->updated_at)?->toDateTimeString(),
                     'remark_log' => is_array($claim->remark_log) ? $claim->remark_log : [],
@@ -151,7 +153,8 @@ class SubConPortalController extends Controller
         $subCon = $this->getAuthenticatedSubCon($request);
 
         $validated = $request->validate([
-            'po_uuid' => ['required', 'string'],
+            'po_uuids' => ['required', 'array', 'min:1'],
+            'po_uuids.*' => ['required', 'string'],
             'title' => ['required', 'string', 'max:255'],
             'claimed_amount' => ['required', 'numeric', 'min:0'],
             'proforma_invoice' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
@@ -160,23 +163,48 @@ class SubConPortalController extends Controller
             'remark' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $po = $this->accessiblePurchaseOrdersQuery($subCon)
+        $selectedPoUuids = collect($validated['po_uuids'])
+            ->filter(fn ($uuid) => is_string($uuid) && trim($uuid) !== '')
+            ->map(fn ($uuid) => trim($uuid))
+            ->unique()
+            ->values();
+
+        $purchaseOrders = $this->accessiblePurchaseOrdersQuery($subCon)
             ->with(['purchaseRequest.project:id,branch_id'])
-            ->where('uuid', $validated['po_uuid'])
-            ->first();
+            ->whereIn('uuid', $selectedPoUuids)
+            ->get();
 
-        if (!$po) {
+        if ($purchaseOrders->count() !== $selectedPoUuids->count()) {
             return back()->withErrors([
-                'po_uuid' => 'Selected PO is not available for your account.',
+                'po_uuids' => 'Some selected POs are not available for your account.',
             ]);
         }
 
-        $project = $po->purchaseRequest?->project;
-        if (!$project) {
+        $purchaseOrdersByUuid = $purchaseOrders->keyBy('uuid');
+        $orderedPurchaseOrders = $selectedPoUuids
+            ->map(fn ($uuid) => $purchaseOrdersByUuid->get($uuid))
+            ->filter()
+            ->values();
+
+        $projectCandidates = $orderedPurchaseOrders
+            ->map(fn ($item) => $item->purchaseRequest?->project)
+            ->filter();
+
+        if ($projectCandidates->count() !== $orderedPurchaseOrders->count()) {
             return back()->withErrors([
-                'po_uuid' => 'Selected PO does not have a valid project.',
+                'po_uuids' => 'Some selected POs do not have a valid project.',
             ]);
         }
+
+        $projectIds = $projectCandidates->pluck('id')->unique()->values();
+        if ($projectIds->count() !== 1) {
+            return back()->withErrors([
+                'po_uuids' => 'All selected POs must belong to the same project.',
+            ]);
+        }
+
+        $project = $projectCandidates->first();
+        $primaryPo = $orderedPurchaseOrders->first();
 
         $branchSlug = DB::table('branches')
             ->where('id', (int) $project->branch_id)
@@ -184,7 +212,7 @@ class SubConPortalController extends Controller
 
         if (!$branchSlug) {
             return back()->withErrors([
-                'po_uuid' => 'Selected PO project branch is invalid. Please contact admin.',
+                'po_uuids' => 'Selected PO project branch is invalid. Please contact admin.',
             ]);
         }
 
@@ -212,7 +240,8 @@ class SubConPortalController extends Controller
             ),
             'project_id' => $project->id,
             'sub_con_id' => $subCon->id,
-            'purchase_order_id' => $po->id,
+            'purchase_order_id' => $primaryPo?->id,
+            'purchase_order_ids' => $orderedPurchaseOrders->pluck('id')->map(fn ($id) => (int) $id)->values()->all(),
             'title' => $validated['title'],
             'status' => 'submitted',
             'claimed_amount' => (float) $validated['claimed_amount'],
@@ -365,6 +394,7 @@ class SubConPortalController extends Controller
         $validated = $request->validate([
             'progress_percent' => 'nullable|integer|min:0|max:100',
             'note' => 'nullable|string',
+            'progress_report' => 'required|file|max:204800',
             'attachments' => 'nullable|array|max:10',
             'attachments.*' => 'file|mimes:pdf,jpg,jpeg,png|max:10240',
             'sub_task_ids' => 'nullable|array',
@@ -414,12 +444,22 @@ class SubConPortalController extends Controller
             $nextStatus = $calculatedProgress >= 100 ? 'submitted' : 'draft';
         }
 
+        $progressReportFile = $request->file('progress_report');
+        $progressReportPath = $progressReportFile->store('sub-con-task-progress-reports', 'public');
+        $progressReportName = $progressReportFile->getClientOriginalName();
+        $nextProgressReportVersion = ((int) SubConTaskUpdate::query()
+            ->where('sub_con_task_id', $task->id)
+            ->whereNotNull('progress_report_path')
+            ->max('progress_report_version')) + 1;
         $files = $request->file('attachments', []);
         if (empty($files)) {
             SubConTaskUpdate::create([
                 'sub_con_task_id' => $task->id,
                 'progress_percent' => $calculatedProgress,
                 'note' => $validated['note'] ?? null,
+                'progress_report_path' => $progressReportPath,
+                'progress_report_name' => $progressReportName,
+                'progress_report_version' => $nextProgressReportVersion,
                 'attachment_path' => null,
                 'attachment_name' => null,
             ]);
@@ -431,6 +471,9 @@ class SubConPortalController extends Controller
                     'sub_con_task_id' => $task->id,
                     'progress_percent' => $calculatedProgress,
                     'note' => $validated['note'] ?? null,
+                    'progress_report_path' => $progressReportPath,
+                    'progress_report_name' => $progressReportName,
+                    'progress_report_version' => $nextProgressReportVersion,
                     'attachment_path' => $path,
                     'attachment_name' => $file->getClientOriginalName(),
                 ]);
@@ -546,6 +589,17 @@ class SubConPortalController extends Controller
             ->where('uuid', $updateUuid)
             ->where('sub_con_task_id', $task->id)
             ->firstOrFail();
+
+        $kind = strtolower((string) $request->query('kind', 'attachment'));
+        if ($kind === 'progress_report') {
+            if (!$update->progress_report_path || !Storage::disk('public')->exists($update->progress_report_path)) {
+                abort(404, 'Progress report not found.');
+            }
+
+            $name = $update->progress_report_name ?? basename($update->progress_report_path);
+
+            return Storage::disk('public')->download($update->progress_report_path, $name);
+        }
 
         if (!$update->attachment_path || !Storage::disk('public')->exists($update->attachment_path)) {
             abort(404, 'Attachment not found.');
@@ -897,6 +951,56 @@ class SubConPortalController extends Controller
         ];
 
         $claim->forceFill(['remark_log' => $log])->save();
+    }
+
+    private function mapClaimPurchaseOrders($claims): array
+    {
+        $claims = collect($claims);
+        $allPoIds = $claims
+            ->flatMap(function (SubConClaim $claim) {
+                $ids = collect(is_array($claim->purchase_order_ids) ? $claim->purchase_order_ids : [])
+                    ->map(fn ($id) => (int) $id)
+                    ->filter(fn ($id) => $id > 0)
+                    ->values();
+
+                if ($ids->isEmpty() && (int) ($claim->purchase_order_id ?? 0) > 0) {
+                    $ids = collect([(int) $claim->purchase_order_id]);
+                }
+
+                return $ids;
+            })
+            ->unique()
+            ->values();
+
+        $poMap = PurchaseOrder::query()
+            ->whereIn('id', $allPoIds)
+            ->get(['id', 'uuid', 'code'])
+            ->keyBy('id');
+
+        return $claims
+            ->mapWithKeys(function (SubConClaim $claim) use ($poMap) {
+                $ids = collect(is_array($claim->purchase_order_ids) ? $claim->purchase_order_ids : [])
+                    ->map(fn ($id) => (int) $id)
+                    ->filter(fn ($id) => $id > 0)
+                    ->values();
+
+                if ($ids->isEmpty() && (int) ($claim->purchase_order_id ?? 0) > 0) {
+                    $ids = collect([(int) $claim->purchase_order_id]);
+                }
+
+                $rows = $ids
+                    ->map(fn ($id) => $poMap->get($id))
+                    ->filter()
+                    ->map(fn ($po) => [
+                        'uuid' => $po->uuid,
+                        'code' => $po->code,
+                    ])
+                    ->values()
+                    ->all();
+
+                return [$claim->id => $rows];
+            })
+            ->all();
     }
 }
 

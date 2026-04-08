@@ -642,6 +642,17 @@ class SubConTaskController extends Controller
             ->where('sub_con_task_id', $task->id)
             ->firstOrFail();
 
+        $kind = strtolower((string) $request->query('kind', 'attachment'));
+        if ($kind === 'progress_report') {
+            if (!$update->progress_report_path || !Storage::disk('public')->exists($update->progress_report_path)) {
+                abort(404, 'Progress report not found.');
+            }
+
+            $name = $update->progress_report_name ?? basename($update->progress_report_path);
+
+            return Storage::disk('public')->download($update->progress_report_path, $name);
+        }
+
         if (!$update->attachment_path) {
             abort(404, 'Attachment not found.');
         }

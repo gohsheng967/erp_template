@@ -420,6 +420,34 @@ function attachmentUpdatesOf(task) {
     return (task?.updates ?? []).filter((update) => update?.attachment_path);
 }
 
+function progressReportUpdatesOf(task) {
+    const rows = (task?.updates ?? []).filter((update) => update?.progress_report_path);
+    const byVersion = new Map();
+    const fallbackSeen = new Set();
+    const fallbackRows = [];
+
+    rows.forEach((update) => {
+        const version = Number(update?.progress_report_version || 0);
+        if (version > 0) {
+            if (!byVersion.has(version)) {
+                byVersion.set(version, update);
+            }
+            return;
+        }
+
+        const key = `${update.progress_report_path || ""}::${update.progress_report_name || ""}`;
+        if (!key || fallbackSeen.has(key)) return;
+        fallbackSeen.add(key);
+        fallbackRows.push(update);
+    });
+
+    const versionRows = Array.from(byVersion.entries())
+        .sort((a, b) => b[0] - a[0])
+        .map(([, update]) => update);
+
+    return [...versionRows, ...fallbackRows];
+}
+
 function openJustify(task) {
     selectedTask.value = task;
     justifyForm.value.remark = "";
@@ -1198,6 +1226,19 @@ watch(
                         <div class="text-sm text-gray-700 mt-1">
                             {{ update.note || "No note" }}
                         </div>
+                        <div v-if="update.progress_report_path" class="mt-2">
+                            <a
+                                :href="route('projects.sub-con-tasks.updates.download', {
+                                    project: project.uuid,
+                                    task: selectedTask.uuid,
+                                    update: update.uuid,
+                                    kind: 'progress_report',
+                                })"
+                                class="text-emerald-600 hover:text-emerald-800 text-sm"
+                                target="_blank"
+                                rel="noopener"
+                            >Download progress report (V{{ update.progress_report_version || "?" }})</a>
+                        </div>
                         <div v-if="update.attachment_path" class="mt-2">
                             <a
                                 :href="route('projects.sub-con-tasks.updates.download', {
@@ -1293,6 +1334,25 @@ watch(
                             rel="noopener"
                         >
                             <span class="truncate max-w-[250px]">{{ update.attachment_name || "Attachment" }}</span>
+                            <span class="text-gray-500">{{ formatDateTime(update.created_at) }}</span>
+                        </a>
+                    </div>
+                </div>
+
+                <div v-if="progressReportUpdatesOf(selectedTask).length" class="rounded-lg border p-4">
+                    <div class="text-sm font-medium text-gray-700 mb-2">Submitted Progress Reports</div>
+                    <div class="space-y-2 max-h-44 overflow-auto">
+                        <a
+                            v-for="update in progressReportUpdatesOf(selectedTask)"
+                            :key="`${update.uuid}-progress-report`"
+                            :href="route('projects.sub-con-tasks.updates.download', { project: project.uuid, task: selectedTask.uuid, update: update.uuid, kind: 'progress_report' })"
+                            class="flex items-center justify-between rounded bg-gray-50 px-3 py-2 text-xs text-emerald-700 hover:bg-emerald-50 border"
+                            target="_blank"
+                            rel="noopener"
+                        >
+                            <span class="truncate max-w-[250px]">
+                                V{{ update.progress_report_version || "?" }} - {{ update.progress_report_name || "Progress report" }}
+                            </span>
                             <span class="text-gray-500">{{ formatDateTime(update.created_at) }}</span>
                         </a>
                     </div>

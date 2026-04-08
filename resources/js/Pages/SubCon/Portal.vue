@@ -50,6 +50,7 @@ const poA4Company = ref(null);
 const progressForm = ref({
     progress_percent: "",
     note: "",
+    progress_report: null,
     attachments: [],
     sub_task_ids: [],
 });
@@ -82,7 +83,7 @@ const claimDecisionForm = ref({
     appeal_proof_attachments: [],
 });
 const claimCreateForm = ref({
-    po_uuid: "",
+    po_uuids: [],
     title: "",
     claimed_amount: "",
     proforma_invoice: null,
@@ -359,6 +360,7 @@ function openProgress(task) {
     progressForm.value = {
         progress_percent: "",
         note: "",
+        progress_report: null,
         attachments: [],
         sub_task_ids: Array.from(new Set(lockedSubTaskIds)),
     };
@@ -386,6 +388,10 @@ function handleFileChange(event) {
     progressForm.value.attachments = Array.from(event.target.files ?? []);
 }
 
+function handleProgressReportFileChange(event) {
+    progressForm.value.progress_report = event.target.files?.[0] ?? null;
+}
+
 function handleInvoiceFileChange(event) {
     invoiceForm.value.invoice_attachment = event.target.files?.[0] ?? null;
 }
@@ -399,12 +405,17 @@ function submitProgress() {
         toast?.value?.show("Invalid task selection.", "error");
         return;
     }
+    if (!progressForm.value.progress_report) {
+        toast?.value?.show("Progress report is required.", "error");
+        return;
+    }
 
     const fd = new FormData();
     if (!selectedTaskHasChildren.value) {
         fd.append("progress_percent", progressForm.value.progress_percent);
     }
     fd.append("note", progressForm.value.note || "");
+    fd.append("progress_report", progressForm.value.progress_report);
 
     const lockedSubTaskIds = (selectedTask.value?.children ?? [])
         .filter((child) => (child?.status || "").toLowerCase() !== "draft")
@@ -433,7 +444,7 @@ function submitProgress() {
                 router.reload({ only: ["tasks", "stats"], preserveScroll: true });
             },
             onError: (errors) => {
-                const message = errors?.status || errors?.progress_percent || errors?.sub_task_ids || "Failed to submit progress.";
+                const message = errors?.status || errors?.progress_report || errors?.progress_percent || errors?.sub_task_ids || "Failed to submit progress.";
                 toast?.value?.show(message, "error");
             },
         }
@@ -446,6 +457,34 @@ function isLockedSubTask(subTask) {
 
 function previousAttachmentUpdates() {
     return (selectedTask.value?.updates ?? []).filter((update) => update?.attachment_path);
+}
+
+function previousProgressReportUpdates() {
+    const rows = (selectedTask.value?.updates ?? []).filter((update) => update?.progress_report_path);
+    const byVersion = new Map();
+    const fallbackSeen = new Set();
+    const fallbackRows = [];
+
+    rows.forEach((update) => {
+        const version = Number(update?.progress_report_version || 0);
+        if (version > 0) {
+            if (!byVersion.has(version)) {
+                byVersion.set(version, update);
+            }
+            return;
+        }
+
+        const key = `${update.progress_report_path || ""}::${update.progress_report_name || ""}`;
+        if (!key || fallbackSeen.has(key)) return;
+        fallbackSeen.add(key);
+        fallbackRows.push(update);
+    });
+
+    const versionRows = Array.from(byVersion.entries())
+        .sort((a, b) => b[0] - a[0])
+        .map(([, update]) => update);
+
+    return [...versionRows, ...fallbackRows];
 }
 
 function submitInvoice() {
@@ -617,6 +656,10 @@ function handleClaimProformaFile(event) {
 }
 
 function submitClaimFromPortal() {
+    if (!claimCreateForm.value.po_uuids?.length) {
+        toast?.value?.show("Please select at least one PO.", "error");
+        return;
+    }
     if (!claimCreateForm.value.proforma_invoice) {
         toast?.value?.show("Please upload proforma invoice.", "error");
         return;
@@ -627,7 +670,9 @@ function submitClaimFromPortal() {
     }
 
     const fd = new FormData();
-    fd.append("po_uuid", claimCreateForm.value.po_uuid || "");
+    claimCreateForm.value.po_uuids.forEach((uuid) => {
+        fd.append("po_uuids[]", uuid);
+    });
     fd.append("title", claimCreateForm.value.title || "");
     fd.append("claimed_amount", claimCreateForm.value.claimed_amount || "");
     fd.append("proforma_invoice", claimCreateForm.value.proforma_invoice);
@@ -642,7 +687,7 @@ function submitClaimFromPortal() {
         onSuccess: () => {
             toast?.value?.show("Claim submitted successfully.", "success");
             claimCreateForm.value = {
-                po_uuid: "",
+                po_uuids: [],
                 title: "",
                 claimed_amount: "",
                 proforma_invoice: null,
@@ -653,7 +698,8 @@ function submitClaimFromPortal() {
         },
         onError: (errors) => {
             const message =
-                errors?.po_uuid ||
+                errors?.po_uuids ||
+                errors?.["po_uuids.0"] ||
                 errors?.title ||
                 errors?.claimed_amount ||
                 errors?.proforma_invoice ||
@@ -966,16 +1012,17 @@ function confirmPurchaseOrder() {
                 <div class="p-5 space-y-4">
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Purchase Order</label>
+                            <label class="block text-xs font-semibold uppercase tracking-wide text-gray-600 mb-1.5">Purchase Order(s)</label>
                             <select
-                                v-model="claimCreateForm.po_uuid"
+                                v-model="claimCreateForm.po_uuids"
+                                multiple
                                 class="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
                             >
-                                <option value="">Select PO</option>
                                 <option v-for="po in claimablePurchaseOrders" :key="po.uuid" :value="po.uuid">
                                     {{ po.code || "-" }} | {{ po.purchase_request?.project?.code || "-" }} - {{ po.purchase_request?.project?.name || "No project" }}
                                 </option>
                             </select>
+                            <div class="mt-1 text-[11px] text-gray-500">Hold Ctrl/Cmd to select multiple PO.</div>
                         </div>
 
                         <div>
@@ -1145,7 +1192,14 @@ function confirmPurchaseOrder() {
                             <tr v-for="claim in filteredClaims" :key="claim.uuid">
                                 <td class="px-4 py-3 text-sm">
                                     <div class="font-medium text-gray-800">{{ claim.claim_no || "-" }}</div>
-                                    <div class="text-xs text-gray-500">PO: {{ claim.purchase_order?.code || "-" }}</div>
+                                    <div class="text-xs text-gray-500">
+                                        PO:
+                                        {{
+                                            (claim.purchase_orders || []).length
+                                                ? claim.purchase_orders.map((po) => po.code).join(", ")
+                                                : (claim.purchase_order?.code || "-")
+                                        }}
+                                    </div>
                                     <div class="text-gray-700">{{ claim.title }}</div>
                                     <div v-if="(claim.appeal_round ?? 0) > 0" class="text-xs text-orange-600 mt-0.5">
                                         Appeal round: {{ claim.appeal_round }}
@@ -1525,6 +1579,25 @@ function confirmPurchaseOrder() {
                 </div>
 
                 <div>
+                    <div v-if="previousProgressReportUpdates().length" class="mb-3">
+                        <label class="block text-sm text-gray-600">Previous Progress Reports</label>
+                        <div class="mt-2 space-y-2 rounded-lg border bg-gray-50 p-3 max-h-40 overflow-auto">
+                            <a
+                                v-for="update in previousProgressReportUpdates()"
+                                :key="`${update.uuid}-progress-report`"
+                                :href="route('sub-con.tasks.updates.download', { task: selectedTask.uuid, update: update.uuid, kind: 'progress_report' })"
+                                target="_blank"
+                                rel="noopener"
+                                class="flex items-center justify-between rounded bg-white px-3 py-2 text-xs text-indigo-700 hover:bg-indigo-50 border"
+                            >
+                                <span class="truncate max-w-[220px]">
+                                    V{{ update.progress_report_version || "?" }} - {{ update.progress_report_name || "Progress report" }}
+                                </span>
+                                <span class="text-gray-500">{{ formatDateTime(update.created_at) }}</span>
+                            </a>
+                        </div>
+                    </div>
+
                     <div v-if="previousAttachmentUpdates().length" class="mb-3">
                         <label class="block text-sm text-gray-600">Previous Attachments</label>
                         <div class="mt-2 space-y-2 rounded-lg border bg-gray-50 p-3 max-h-40 overflow-auto">
@@ -1542,7 +1615,26 @@ function confirmPurchaseOrder() {
                         </div>
                     </div>
 
-                    <label class="block text-sm text-gray-600">Attachments (optional)</label>
+                    <label class="block text-sm text-gray-600">Progress Report <span class="text-red-500">*</span></label>
+                    <label
+                        class="mt-1 block cursor-pointer rounded-lg border-2 border-dashed border-indigo-300 bg-indigo-50 px-4 py-5 text-center hover:border-indigo-400 hover:bg-indigo-50/70"
+                    >
+                        <input
+                            type="file"
+                            class="hidden"
+                            @change="handleProgressReportFileChange"
+                        />
+                        <div class="text-sm font-medium text-indigo-700">
+                            {{ progressForm.progress_report ? progressForm.progress_report.name : "Click to upload progress report" }}
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1">Maximum 200MB</div>
+                    </label>
+                    <div v-if="progressForm.progress_report" class="mt-2 rounded bg-indigo-50 px-3 py-2 text-xs text-indigo-700 flex items-center justify-between">
+                        <span class="truncate max-w-[240px]">{{ progressForm.progress_report.name }}</span>
+                        <span>{{ (progressForm.progress_report.size / 1024 / 1024).toFixed(2) }} MB</span>
+                    </div>
+
+                    <label class="block text-sm text-gray-600 mt-4">Attachments (optional)</label>
                     <label
                         class="mt-1 block cursor-pointer rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-center hover:border-indigo-300 hover:bg-indigo-50/40"
                     >
@@ -1602,6 +1694,20 @@ function confirmPurchaseOrder() {
                         </div>
                         <div class="text-sm text-gray-700 mt-1">
                             {{ update.note || "No note" }}
+                        </div>
+                        <div v-if="update.progress_report_path" class="mt-2">
+                            <a
+                                :href="route('sub-con.tasks.updates.download', {
+                                    task: selectedTask.uuid,
+                                    update: update.uuid,
+                                    kind: 'progress_report',
+                                })"
+                                class="text-sm text-emerald-600 hover:text-emerald-800"
+                                target="_blank"
+                                rel="noopener"
+                            >
+                                Download progress report (V{{ update.progress_report_version || "?" }})
+                            </a>
                         </div>
                         <div v-if="update.attachment_path" class="mt-2">
                             <a

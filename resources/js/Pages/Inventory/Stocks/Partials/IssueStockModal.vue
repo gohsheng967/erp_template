@@ -129,8 +129,20 @@ function submit() {
             router.reload({ only: ['stocks'] })
             emit('close')
         },
-        onError: () => {
-            toast?.value?.show('Failed to issue stock', 'error')
+        onError: (errors) => {
+            const firstError = Object.values(errors ?? {}).find((value) => {
+                if (Array.isArray(value)) {
+                    return Boolean(value[0])
+                }
+
+                return Boolean(value)
+            })
+
+            const message = Array.isArray(firstError)
+                ? firstError[0]
+                : firstError || 'Failed to issue stock'
+
+            toast?.value?.show(message, 'error')
         },
     })
 }

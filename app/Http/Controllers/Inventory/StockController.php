@@ -304,7 +304,7 @@ class StockController extends Controller
                         ? null
                         : null,
                     'usage_status' => $row['issue_destination_type'] === 'user'
-                        ? 'pending_user_approval'
+                        ? 'pending_approval'
                         : 'active',
                     'issued_by' => auth()->id(),
                     'issuer_id' => auth()->id(),
@@ -337,7 +337,7 @@ class StockController extends Controller
 
         $pendingRows = (clone $base)
             ->where('destination_user_id', $user->id)
-            ->where('usage_status', 'pending_user_approval')
+            ->where('usage_status', 'pending_approval')
             ->latest()
             ->get();
 
@@ -372,7 +372,7 @@ class StockController extends Controller
             abort(403, 'Only destination user can approve this issue.');
         }
 
-        if ($movement->usage_status !== 'pending_user_approval') {
+        if ($movement->usage_status !== 'pending_approval') {
             abort(422, 'This stock issue is already approved or closed.');
         }
 
@@ -566,9 +566,17 @@ class StockController extends Controller
     {
         try {
             $action();
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\RuntimeException $e) {
             throw ValidationException::withMessages([
                 'quantity' => $e->getMessage(),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+
+            throw ValidationException::withMessages([
+                'movement' => 'Unable to process stock action. Please verify stock data and try again.',
             ]);
         }
     }

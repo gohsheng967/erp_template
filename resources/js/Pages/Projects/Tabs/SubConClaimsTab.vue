@@ -549,7 +549,14 @@ function submitRealInvoice() {
                             <td class="px-3 py-2">
                                 <div class="font-medium text-gray-800">{{ claim.claim_no || "-" }}</div>
                                 <div class="text-gray-600">{{ claim.title }}</div>
-                                <div class="text-xs text-gray-500">PO: {{ claim.purchase_order?.code || "-" }}</div>
+                                <div class="text-xs text-gray-500">
+                                    PO:
+                                    {{
+                                        (claim.purchase_orders || []).length
+                                            ? claim.purchase_orders.map((po) => po.code).join(", ")
+                                            : (claim.purchase_order?.code || "-")
+                                    }}
+                                </div>
                                 <div class="text-xs text-gray-500">{{ formatDateTime(claim.created_at) || "-" }}</div>
                             </td>
                             <td class="px-3 py-2">

@@ -12,12 +12,16 @@ class SubConTaskUpdate extends Model
         'sub_con_task_id',
         'progress_percent',
         'note',
+        'progress_report_path',
+        'progress_report_name',
+        'progress_report_version',
         'attachment_path',
         'attachment_name',
     ];
 
     protected $casts = [
         'progress_percent' => 'integer',
+        'progress_report_version' => 'integer',
     ];
 
     protected static function booted()

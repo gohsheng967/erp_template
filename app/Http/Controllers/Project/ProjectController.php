@@ -184,12 +184,11 @@ class ProjectController extends Controller
                 'creator:id,name',
                 'updater:id,name',
                 'purchaseOrder:id,uuid,code',
-                'purchaseOrder.items:id,purchase_order_id,purchase_request_item_id,item_name,description,quantity,unit_price',
-                'purchaseOrder.items.purchaseRequestItem:id,parent_id,title',
             ])
             ->where('project_id', $project->id)
             ->orderByDesc('id')
             ->get();
+        $claimPurchaseOrders = $this->mapClaimPurchaseOrdersForProject($subConClaims);
         $projectPurchaseOrders = PurchaseOrder::query()
             ->with([
                 'supplier:id,company_name',
@@ -287,8 +286,12 @@ class ProjectController extends Controller
             'bankOptions' => config('banks.malaysia', []),
 
             'subConTasks' => $subConTasks,
-            'subConClaims' => $subConClaims->map(function (SubConClaim $claim) {
-                $claimItems = collect($claim->purchaseOrder?->items ?? [])
+            'subConClaims' => $subConClaims->map(function (SubConClaim $claim) use ($claimPurchaseOrders) {
+                $purchaseOrders = $claimPurchaseOrders[$claim->id] ?? [];
+                $primaryPurchaseOrder = $purchaseOrders[0] ?? null;
+
+                $claimItems = collect($purchaseOrders)
+                    ->flatMap(fn ($purchaseOrder) => collect($purchaseOrder->items ?? []))
                     ->map(function ($item) {
                         $qty = (float) ($item->quantity ?? 0);
                         $unitPrice = (float) ($item->unit_price ?? 0);
@@ -361,10 +364,14 @@ class ProjectController extends Controller
                         'name' => $claim->subCon->name,
                         'company_name' => $claim->subCon->company_name,
                     ] : null,
-                    'purchase_order' => $claim->purchaseOrder ? [
-                        'uuid' => $claim->purchaseOrder->uuid,
-                        'code' => $claim->purchaseOrder->code,
+                    'purchase_order' => $primaryPurchaseOrder ? [
+                        'uuid' => $primaryPurchaseOrder->uuid,
+                        'code' => $primaryPurchaseOrder->code,
                     ] : null,
+                    'purchase_orders' => collect($purchaseOrders)->map(fn ($po) => [
+                        'uuid' => $po->uuid,
+                        'code' => $po->code,
+                    ])->values()->all(),
                     'claim_items' => $claimItems,
                     'creator' => $claim->creator ? [
                         'name' => $claim->creator->name,
@@ -747,9 +754,10 @@ class ProjectController extends Controller
 
         return $boundSubCons->map(function ($subCon) use ($tasksBySubCon) {
             $tasks = $tasksBySubCon->get($subCon->id, collect());
-            $statusCounts = $tasks->countBy('status');
+            $mainTasks = $tasks->whereNull('parent_id')->values();
+            $statusCounts = $mainTasks->countBy('status');
 
-            $totalTasks = $tasks->count();
+            $totalTasks = $mainTasks->count();
             $submitted = (int) ($statusCounts['submitted'] ?? 0);
             $contraVerified = (int) (($statusCounts['contra_verified'] ?? 0) + ($statusCounts['verified'] ?? 0));
             $invoiced = (int) ($statusCounts['invoiced'] ?? 0);
@@ -759,14 +767,14 @@ class ProjectController extends Controller
             $draft = (int) ($statusCounts['draft'] ?? 0);
 
             $avgProgress = $totalTasks > 0
-                ? round((float) $tasks->avg('progress_percent'), 1)
+                ? round((float) $mainTasks->avg('progress_percent'), 1)
                 : 0.0;
 
-            $invoicedAmount = (float) $tasks
+            $invoicedAmount = (float) $mainTasks
                 ->whereIn('status', ['invoiced', 'approved', 'justified', 'certified', 'paid'])
                 ->sum(fn ($task) => (float) ($task->invoice_amount ?? $task->amount));
 
-            $paidAmount = (float) $tasks
+            $paidAmount = (float) $mainTasks
                 ->where('status', 'paid')
                 ->sum(fn ($task) => (float) ($task->invoice_amount ?? $task->amount));
 
@@ -783,7 +791,7 @@ class ProjectController extends Controller
                 $paymentStatus = 'Draft';
             }
 
-            $latestTaskUpdate = $tasks->max('updated_at');
+            $latestTaskUpdate = $mainTasks->max('updated_at');
 
             return [
                 'id' => $subCon->id,
@@ -816,6 +824,56 @@ class ProjectController extends Controller
                 ],
             ];
         })->values();
+    }
+
+    private function mapClaimPurchaseOrdersForProject($claims): array
+    {
+        $claims = collect($claims);
+        $allPoIds = $claims
+            ->flatMap(function (SubConClaim $claim) {
+                $ids = collect(is_array($claim->purchase_order_ids) ? $claim->purchase_order_ids : [])
+                    ->map(fn ($id) => (int) $id)
+                    ->filter(fn ($id) => $id > 0)
+                    ->values();
+
+                if ($ids->isEmpty() && (int) ($claim->purchase_order_id ?? 0) > 0) {
+                    $ids = collect([(int) $claim->purchase_order_id]);
+                }
+
+                return $ids;
+            })
+            ->unique()
+            ->values();
+
+        $poMap = PurchaseOrder::query()
+            ->with([
+                'items:id,purchase_order_id,purchase_request_item_id,item_name,description,quantity,unit_price',
+                'items.purchaseRequestItem:id,parent_id,title',
+            ])
+            ->whereIn('id', $allPoIds)
+            ->get(['id', 'uuid', 'code'])
+            ->keyBy('id');
+
+        return $claims
+            ->mapWithKeys(function (SubConClaim $claim) use ($poMap) {
+                $ids = collect(is_array($claim->purchase_order_ids) ? $claim->purchase_order_ids : [])
+                    ->map(fn ($id) => (int) $id)
+                    ->filter(fn ($id) => $id > 0)
+                    ->values();
+
+                if ($ids->isEmpty() && (int) ($claim->purchase_order_id ?? 0) > 0) {
+                    $ids = collect([(int) $claim->purchase_order_id]);
+                }
+
+                $rows = $ids
+                    ->map(fn ($id) => $poMap->get($id))
+                    ->filter()
+                    ->values()
+                    ->all();
+
+                return [$claim->id => $rows];
+            })
+            ->all();
     }
 
     private function normalizeSubConBankAccounts(array $accounts): array

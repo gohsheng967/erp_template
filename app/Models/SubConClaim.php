@@ -16,6 +16,7 @@ class SubConClaim extends Model
         'project_id',
         'sub_con_id',
         'purchase_order_id',
+        'purchase_order_ids',
         'title',
         'status',
         'claimed_amount',
@@ -62,6 +63,7 @@ class SubConClaim extends Model
         'real_invoice_uploaded_at' => 'datetime',
         'remark_log' => 'array',
         'proof_attachments' => 'array',
+        'purchase_order_ids' => 'array',
     ];
 
     protected static function booted(): void
